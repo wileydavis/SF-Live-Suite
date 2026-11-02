@@ -25,6 +25,7 @@ public:
 
     // Collect this block's played notes + due echoes into `out` (sorted by offset).
     // density 0..1, spaceBeats = echo spacing, swing 0..1, prob 0..1 (chance each echo plays)
+    // `out` must have capacity reserved in prepare(); run() never grows it (audio thread).
     void run (const Ctx& c, juce::MidiBuffer& midi, std::vector<NoteEvent>& out,
               float density, double spaceBeats, float swing, float prob, bool echoNoteOffs = true)
     {
@@ -38,12 +39,12 @@ public:
             if (m.isNoteOn())
             {
                 NoteEvent e { off, m.getNoteNumber(), m.getFloatVelocity(), 0, true };
-                out.push_back (e);
+                if (out.size() < out.capacity()) out.push_back (e);
                 schedule (e, off, density, space, swing, prob, echoNoteOffs);
             }
-            else if (m.isNoteOff())
+            else if (m.isNoteOff() && out.size() < out.capacity())
                 out.push_back ({ off, m.getNoteNumber(), 0.0f, 0, false });
-            else if (m.isAllNotesOff() || m.isAllSoundOff())
+            else if ((m.isAllNotesOff() || m.isAllSoundOff()) && out.size() < out.capacity())
                 out.push_back ({ off, -1, 0.0f, 0, false });
         }
         // Due echoes.
@@ -55,7 +56,7 @@ public:
             {
                 NoteEvent e = p.ev;
                 e.offset = (int) std::max<int64_t> (0, rel);
-                out.push_back (e);
+                if (out.size() < out.capacity()) out.push_back (e);
                 pending[i] = pending[--count];
             }
             else ++i;

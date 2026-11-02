@@ -188,7 +188,8 @@ public:
             mask[b] = __builtin_popcount (stableMask[b]) >= 2 ? stableMask[b] : 0u;
         }
         // Group contiguous bands with the same source set.
-        std::vector<Conflict> found;
+        Conflict found[kBands];
+        int nf = 0;
         for (int b = 0; b < kBands;)
         {
             if (mask[b] == 0) { ++b; continue; }
@@ -202,10 +203,10 @@ public:
                 for (int s = 0; s < kSources; ++s) if (cf.mask & (1u << s)) { if (E[s][k] > a) { bb = a; a = E[s][k]; } else if (E[s][k] > bb) bb = E[s][k]; }
                 cf.severity += bb - floorDb;
             }
-            found.push_back (cf);
+            found[nf++] = cf;
             b = e + 1;
         }
-        std::sort (found.begin(), found.end(), [] (const Conflict& a, const Conflict& b) { return a.severity > b.severity; });
+        std::sort (found, found + nf, [] (const Conflict& a, const Conflict& b) { return a.severity > b.severity; });
 
         // Slot binding. A slot keeps its conflict while touched in the last 3 s or while the
         // conflict exists; free / stale slots take the worst unbound conflicts.
@@ -213,19 +214,20 @@ public:
         for (int k = 0; k < kConflictSlots; ++k)
         {
             const float v = c.v (SLOT1 + k);
-            if (std::abs (v - lastSlotVal[k]) > 0.002f) { lastSlotVal[k] = v; if (! settingSlot[k]) touchedMs[k] = now; }
-            if (bound[k].mask != 0 && touchedMs[k] > 0 && now - touchedMs[k] < 3000) slotValues[keyFor (bound[k].mask)] = v;
+            if (std::abs (v - lastSlotVal[k].load()) > 0.002f) { lastSlotVal[k] = v; touchedMs[k] = now; }
+            slotNow[k] = v;
         }
         for (int k = 0; k < kConflictSlots; ++k)
         {
             if (bound[k].mask == 0) continue;
             bool exists = false;
-            for (auto& f : found) if (f.mask == bound[k].mask) { bound[k] = f; exists = true; }
+            for (int q = 0; q < nf; ++q) if (found[q].mask == bound[k].mask) { bound[k] = found[q]; exists = true; }
             if (! exists && now - touchedMs[k] > 3000 && clock - boundSeen[k] > 2.0 * holdSec) bound[k] = {};
             if (exists) boundSeen[k] = clock;
         }
-        for (auto& f : found)
+        for (int q = 0; q < nf; ++q)
         {
+            const auto& f = found[q];
             bool isBound = false;
             for (auto& bnd : bound) if (bnd.mask == f.mask) isBound = true;
             if (isBound) continue;
@@ -233,8 +235,7 @@ public:
                 if (bound[k].mask == 0 && now - touchedMs[k] > 3000)
                 {
                     bound[k] = f; boundSeen[k] = clock;
-                    const auto it = slotValues.find (keyFor (f.mask));
-                    pendingSet[k] = it != slotValues.end() ? it->second : 0.5f;
+                    bindSeq[k].fetch_add (1);          // the timer restores this conflict's remembered value
                     break;
                 }
         }
@@ -242,8 +243,9 @@ public:
         // Cuts.
         const float depth = en ? c.v (DEPTH) : 0.0f;
         float cut[kSources][kBands] {};
-        for (auto& f : found)
+        for (int q = 0; q < nf; ++q)
         {
+            const auto& f = found[q];
             int parts[kSources]; int np = 0;
             for (int s = 0; s < kSources; ++s) if (f.mask & (1u << s)) parts[np++] = s;
             std::sort (parts, parts + np, [&] (int a, int b) { return role[a] != role[b] ? role[a] < role[b] : a < b; });
@@ -354,12 +356,26 @@ private:
         std::string k; for (auto& p : parts) k += p + "|";
         return k;
     }
+    // Message thread: remembers slot values per conflict and restores them when a conflict
+    // binds again (string keys and the map never touch the audio thread).
     void timerCallback() override
     {
+        auto& d = Bus::get().d();
+        const int64_t now = Bus::nowMs();
         for (int k = 0; k < kConflictSlots; ++k)
         {
-            const float v = pendingSet[k].exchange (-1.0f);
-            if (v >= 0.0f && setParam) { settingSlot[k] = true; setParam (SLOT1 + k, v); lastSlotVal[k] = v; settingSlot[k] = false; }
+            const uint32_t mask = d.conflicts[k].sources.load();
+            if (mask != 0 && touchedMs[k].load() > 0 && now - touchedMs[k].load() < 3000)
+                slotValues[keyFor (mask)] = slotNow[k].load();
+            const uint32_t seq = bindSeq[k].load();
+            if (seq != seenBindSeq[k] && mask != 0)
+            {
+                seenBindSeq[k] = seq;
+                const auto it = slotValues.find (keyFor (mask));
+                const float v = it != slotValues.end() ? it->second : 0.5f;
+                lastSlotVal[k] = v;                     // not a touch
+                if (setParam) setParam (SLOT1 + k, v);
+            }
         }
     }
     double sr = 48000.0, clock = 0.0;
@@ -367,10 +383,10 @@ private:
     double rawSince[kBands] {}, lastStable[kBands] {};
     Conflict bound[kConflictSlots];
     double boundSeen[kConflictSlots] {};
-    float lastSlotVal[kConflictSlots] { 0.5f, 0.5f, 0.5f };
-    int64_t touchedMs[kConflictSlots] {};
-    std::atomic<bool> settingSlot[kConflictSlots] {};
-    std::atomic<float> pendingSet[kConflictSlots] { -1.0f, -1.0f, -1.0f };
+    std::atomic<float> lastSlotVal[kConflictSlots] { 0.5f, 0.5f, 0.5f }, slotNow[kConflictSlots] { 0.5f, 0.5f, 0.5f };
+    std::atomic<int64_t> touchedMs[kConflictSlots] {};
+    std::atomic<uint32_t> bindSeq[kConflictSlots] {};
+    uint32_t seenBindSeq[kConflictSlots] {};
     std::map<std::string, float> slotValues;
     std::atomic<float> dispE[kSources][kBands] {}, dispCut[kSources][kBands] {}, dispFloor { -50.0f };
     std::atomic<uint32_t> dispMask[kBands] {};

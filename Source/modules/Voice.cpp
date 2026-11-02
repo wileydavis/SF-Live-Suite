@@ -45,6 +45,7 @@ public:
         sr = rate;
         out.prepare (rate, mb, ROLE_VOICE, "VOICE", true);
         echoes.reset();
+        events.reserve (2048);
         for (auto& d : echoLine) d.prepare ((int) (rate * 9));
         for (int b = 0; b < kVb; ++b)
         {

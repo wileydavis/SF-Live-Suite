@@ -415,6 +415,91 @@ static void testDeck()
     CHECK (maxErr < 0.01, "DECK drifts off the grid (%.3f beat)", maxErr);
 }
 
+// SLOW: a full-range move with SLOW = 1 BAR takes a bar. MACRO: CONTROL macro drives FILTER.
+static void testSlowAndMacro()
+{
+    std::printf ("-- slow mode + macros\n");
+    resetBus();
+    FakeHead head;
+    Rig ctl ("CONTROL", head), f ("FILTER", head);
+    double ppq = 0.0;
+    auto step = [&] (int blocks) { for (int k = 0; k < blocks; ++k) { head.ppq = ppq; ctl.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k); f.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k); ppq += kBlock * head.bpm / 60.0 / kSr; } };
+    f.set ("filter", 0.0f); step (20);
+    f.set ("slow", 1.0f);                       // 1 BAR
+    f.set ("filter", 1.0f);
+    const int barBlocks = (int) (4.0 * 60.0 / head.bpm * kSr / kBlock);
+    step (barBlocks / 2);
+    const float half = f.p->currentValue (0);
+    step (barBlocks / 2 + 4);
+    const float full = f.p->currentValue (0);
+    std::printf ("   SLOW 1 BAR: %.2f after half a bar, %.2f after a bar\n", half, full);
+    CHECK (half > 0.4f && half < 0.6f && full > 0.99f, "SLOW glide wrong (%.2f, %.2f)", half, full);
+    f.set ("slow", 0.0f); f.set ("filter", 0.5f); step (10);
+    f.set ("macro_src", 1.0f); f.set ("macro_amt", 0.5f); ctl.set ("macro1", 0.6f); step (80);
+    const float m = f.p->currentValue (0);
+    std::printf ("   MACRO 1 = 60 %%, AMT +50 %%: FILTER %.2f (expect 0.80)\n", m);
+    CHECK (std::abs (m - 0.8f) < 0.02f, "MACRO response wrong (%.2f)", m);
+}
+
+// DENSITY: 1/8 hats with DENSITY 50 % (ECHO SPACE 1/16) become 1/16 hats. Same for the effect.
+static int countHits (const std::vector<float>& x)
+{
+    int hits = 0; float env = 0.0f; bool above = false; float pk = 0.0f;
+    for (float v : x) pk = std::max (pk, std::fabs (v));
+    for (float v : x)
+    {
+        env = std::max (std::fabs (v), env * 0.995f);
+        if (! above && env > pk * 0.15f) { ++hits; above = true; }
+        if (above && env < pk * 0.05f) above = false;
+    }
+    return hits;
+}
+static void testDensity()
+{
+    std::printf ("-- density: 1/8 -> 1/16\n");
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        int counts[2] {};
+        for (int dset = 0; dset < 2; ++dset)
+        {
+            resetBus();
+            FakeHead head;
+            Rig r (pass == 0 ? "PERC" : "DENSITY", head);
+            if (pass == 0) { r.set ("density", dset ? 0.5f : 0.0f); r.set ("decay", 0.2f); }
+            else { r.set ("density", dset ? 0.5f : 0.0f); r.set ("space", 1.0f); }
+            std::vector<float> out;
+            double ppq = 0.0;
+            const int blocks = (int) (4.0 * 60.0 / head.bpm * kSr / kBlock) * 2;   // 2 bars
+            for (int b = 0; b < blocks; ++b)
+            {
+                head.ppq = ppq;
+                r.run ([&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer& m, int)
+                {
+                    const double bps = head.bpm / 60.0 / kSr;
+                    for (int i = 0; i < kBlock; ++i)
+                    {
+                        const double q = ppq + i * bps;
+                        const bool on = std::floor (q * 2.0) != std::floor ((q - bps) * 2.0);
+                        if (pass == 0 && on) m.addEvent (juce::MidiMessage::noteOn (1, 42, (juce::uint8) 110), i);
+                        if (pass == 1)
+                        {
+                            const double ph = q * 2.0 - std::floor (q * 2.0);
+                            const float t = (float) (ph * 30.0 / head.bpm);
+                            const float v = t < 0.02f ? (float) std::sin (6.2831853 * 3000.0 * t) * (1.0f - t / 0.02f) * 0.5f : 0.0f;
+                            buf.setSample (0, i, v); buf.setSample (1, i, v);
+                        }
+                    }
+                }, b);
+                for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+                ppq += kBlock * head.bpm / 60.0 / kSr;
+            }
+            counts[dset] = countHits (out);
+        }
+        std::printf ("   %s: %d hits at 0 %%, %d hits at 50 %%\n", pass == 0 ? "PERC   " : "DENSITY", counts[0], counts[1]);
+        CHECK (counts[1] >= counts[0] * 2 - 2 && counts[0] >= 14, "%s DENSITY did not double the hits", pass == 0 ? "PERC" : "DENSITY");
+    }
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -422,7 +507,8 @@ int main (int argc, char** argv)
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testModels(); testDeck(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testModels(); testDeck(); }
+    else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);

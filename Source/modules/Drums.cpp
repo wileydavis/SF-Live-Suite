@@ -55,6 +55,7 @@ public:
         sr = rate;
         out.prepare (rate, mb, ROLE_KICK, "KICK", false);
         echoes.reset();
+        events.reserve (2048);
         for (auto& v : voices) v.active = false;
     }
 
@@ -265,7 +266,7 @@ public:
     void prepare (double rate, int mb) override
     {
         if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
-        sr = rate; out.prepare (rate, mb, ROLE_PERC, "PERC", false); echoes.reset();
+        sr = rate; out.prepare (rate, mb, ROLE_PERC, "PERC", false); echoes.reset(); events.reserve (2048);
         for (auto& v : voices) v.active = false;
     }
 
@@ -477,7 +478,8 @@ public:
         fdn.prepare (rate);
         for (auto& d : dly) d.prepare ((int) (rate * 3));
         for (auto& d : pre) d.prepare ((int) (rate * 1));
-        midiDelay.clear();
+        midiDelay.clear(); midiDelay.reserve (256);
+        extras.reserve (256);
         lastTrigPpq = -1e9;
         for (auto& f : lp) for (auto& x : f) x.reset();
         for (auto& f : hp) f.reset();
@@ -494,7 +496,7 @@ public:
         // MIDI notes are rendered one pocket-latency later, so everything shares the delayed timeline.
         if (src != 0)
             for (const auto meta : midi)
-                if (meta.getMessage().isNoteOn())
+                if (meta.getMessage().isNoteOn() && midiDelay.size() < 250)
                     midiDelay.push_back ({ c.ppqAt (meta.samplePosition), meta.getMessage().getFloatVelocity() });
         fdn.set (c.v (SIZE), 0.6f + c.v (SIZE) * 5.0f, c.v (DARK), 0.15f, false);
         const float dlyTime = (float) (0.75 * c.samplesPerBeat());
@@ -596,7 +598,7 @@ private:
         thF0 = f0 * tune; thF1 = std::max (25.0f, f1 * tune); thTau = std::max (0.002f, tau);
         thumpT = 0.0f; thumpVel = vel; thPh = 0.0f; sPos = 0.0; sinceTrig = 0;
         lastF0 = f0; lastF1 = f1; lastTau = tau;
-        if (tq > 0.0 && dens > 0.001f)
+        if (tq > 0.0 && dens > 0.001f && extras.size() < 240)
         {
             const float t1 = clamp01 (dens * 2.0f), t2 = clamp01 ((dens - 0.5f) * 2.0f);
             if (t1 > 0.01f) extras.push_back ({ tq + space, vel * 0.6f * t1 });

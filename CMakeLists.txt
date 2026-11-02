@@ -118,7 +118,6 @@ endif()
 # Offline tools:  cmake -B build -DSF_BUILD_TESTS=ON -DSF_BUILD_PLUGINS=OFF
 #   SFTests     - runs every module through audio, MIDI, parameter sweeps and bus checks
 #   SFSnapshot  - renders every editor to PNG (docs/snapshots)
-#   SFRender    - renders demo audio for every module (docs/renders)
 option(SF_BUILD_TESTS "Build offline test tools" OFF)
 if(SF_BUILD_TESTS)
     function(sf_tool name src)
@@ -130,5 +129,4 @@ if(SF_BUILD_TESTS)
     endfunction()
     sf_tool(SFTests tests/SuiteTests.cpp)
     sf_tool(SFSnapshot tests/Snapshot.cpp)
-    sf_tool(SFRender tests/Render.cpp)
 endif()

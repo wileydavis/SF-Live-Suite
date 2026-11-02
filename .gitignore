@@ -3,5 +3,4 @@ build-*/
 JUCE/
 .DS_Store
 *.wav
-!docs/renders/*.wav
 JUCE

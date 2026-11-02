@@ -185,6 +185,8 @@ public:
         out.prepare (rate, mb, roleId, name.c_str(), true);
         ens.prepare (rate);
         echoes.reset();
+        events.reserve (2048);
+        held.reserve (128);
         for (auto& v : voices) v.active = false;
         held.clear();
         buildTables();
@@ -272,7 +274,7 @@ private:
         if (m.mono)
         {
             // Mono: legato slides (acid), else retrigger. Note stack for releases.
-            if (layerId == 0 && ev.gen == 0) held.push_back (ev.note);
+            if (layerId == 0 && ev.gen == 0 && held.size() < 120) held.push_back (ev.note);
             Voice* v = nullptr;
             for (auto& x : voices) if (x.active && x.layer == layerId && x.model == modelIdx && ! x.releasing) v = &x;
             const bool legato = v != nullptr && ev.gen == 0 && held.size() > 1;

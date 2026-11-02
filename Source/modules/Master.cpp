@@ -380,7 +380,7 @@ public:
         cell ("SHORT-TERM", fmt (dShort.load()), ui::kText);
         cell ("INTEGRATED", fmt (dInt.load()), ui::kText);
         cell ("TRUE PEAK", fmt (dTp.load()), dTp.load() > -0.1f ? ui::kRed : ui::kText);
-        cell ("GR", juce::String (-dGr.load(), 1), dGr.load() > 6.0f ? ui::kAmber : ui::kText);
+        cell ("GR", dGr.load() < 0.05f ? juce::String ("0.0") : juce::String (-dGr.load(), 1), dGr.load() > 6.0f ? ui::kAmber : ui::kText);
         cell ("AUTO IN", juce::String (dIn.load(), 1), ui::kDim);
     }
 private:
