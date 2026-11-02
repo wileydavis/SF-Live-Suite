@@ -1,0 +1,399 @@
+#pragma once
+// Small DSP toolkit shared by every module. Header-only, allocation-free after prepare().
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace sf
+{
+constexpr float kPi = 3.14159265358979f;
+constexpr float kTwoPi = 6.28318530717959f;
+
+inline float dbToGain (float db)       { return std::pow (10.0f, db * 0.05f); }
+inline float gainToDb (float g)        { return 20.0f * std::log10 (std::max (g, 1.0e-7f)); }
+inline float clamp01 (float x)         { return std::min (1.0f, std::max (0.0f, x)); }
+inline float lerp (float a, float b, float t) { return a + (b - a) * t; }
+inline float smoothstep (float e0, float e1, float x) { const float t = clamp01 ((x - e0) / (e1 - e0)); return t * t * (3.0f - 2.0f * t); }
+inline float expMap (float t, float lo, float hi) { return lo * std::pow (hi / lo, clamp01 (t)); }
+inline float noteHz (float note)       { return 440.0f * std::pow (2.0f, (note - 69.0f) / 12.0f); }
+inline float semis (float st)          { return std::pow (2.0f, st / 12.0f); }
+
+// Soft saturators
+inline float fastTanh (float x)
+{
+    x = std::max (-3.0f, std::min (3.0f, x));
+    return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
+}
+inline float softClip (float x)        { return fastTanh (x); }
+inline float hardClip (float x, float c = 1.0f) { return std::max (-c, std::min (c, x)); }
+
+// Tempo divisions (beats). Index lists are shared by every "TIME"/"RATE" menu.
+struct Division { const char* name; double beats; };
+inline const std::vector<Division>& divisions()
+{
+    static const std::vector<Division> d {
+        { "4 BAR", 16.0 }, { "2 BAR", 8.0 }, { "1 BAR", 4.0 }, { "1/2", 2.0 }, { "1/4", 1.0 }, { "1/4D", 1.5 }, { "1/4T", 2.0 / 3.0 },
+        { "1/8", 0.5 }, { "1/8D", 0.75 }, { "1/8T", 1.0 / 3.0 }, { "1/16", 0.25 }, { "1/16D", 0.375 }, { "1/16T", 1.0 / 6.0 }, { "1/32", 0.125 } };
+    return d;
+}
+inline std::vector<std::string> divisionNames (int from = 0, int to = -1)
+{
+    std::vector<std::string> v;
+    const auto& d = divisions();
+    if (to < 0) to = (int) d.size() - 1;
+    for (int i = from; i <= to; ++i) v.push_back (d[(size_t) i].name);
+    return v;
+}
+inline double divisionBeats (int idx, int from = 0)
+{
+    const auto& d = divisions();
+    return d[(size_t) std::max (0, std::min ((int) d.size() - 1, idx + from))].beats;
+}
+inline int divIndex (const char* name)
+{
+    const auto& d = divisions();
+    for (size_t i = 0; i < d.size(); ++i) if (std::string (d[i].name) == name) return (int) i;
+    return 0;
+}
+
+struct Noise
+{
+    uint32_t s = 0x9E3779B9u;
+    float next() { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return (float) (int32_t) s * (1.0f / 2147483648.0f); }
+    float uni()  { return 0.5f + 0.5f * next(); }
+};
+
+struct OnePole
+{
+    float a = 0.0f, z = 0.0f;
+    void setTime (float seconds, double sr) { a = seconds <= 0.0f ? 0.0f : std::exp (-1.0f / (float) (seconds * sr)); }
+    void setHz (float hz, double sr)        { a = std::exp (-kTwoPi * hz / (float) sr); }
+    float lp (float x)                      { z = x + a * (z - x); return z; }
+    float hp (float x)                      { return x - lp (x); }
+    void reset (float v = 0.0f)             { z = v; }
+};
+
+// Attack/release envelope follower (linear magnitude).
+struct Follower
+{
+    float att = 0.0f, rel = 0.0f, z = 0.0f;
+    void set (float attS, float relS, double sr)
+    {
+        att = std::exp (-1.0f / (float) (std::max (1.0e-5f, attS) * sr));
+        rel = std::exp (-1.0f / (float) (std::max (1.0e-5f, relS) * sr));
+    }
+    float tick (float x)
+    {
+        x = std::fabs (x);
+        z = x > z ? x + att * (z - x) : x + rel * (z - x);
+        return z;
+    }
+};
+
+// Topology-preserving state-variable filter (Simper). Safe under fast modulation.
+struct Svf
+{
+    float g = 0, k = 1, a1 = 0, a2 = 0, a3 = 0, ic1 = 0, ic2 = 0;
+    float lp = 0, bp = 0, hp = 0;
+    void set (float hz, float q, double sr)
+    {
+        hz = std::min (std::max (hz, 10.0f), 0.49f * (float) sr);
+        g = std::tan (kPi * hz / (float) sr);
+        k = 1.0f / std::max (q, 0.05f);
+        a1 = 1.0f / (1.0f + g * (g + k));
+        a2 = g * a1;
+        a3 = g * a2;
+    }
+    void tick (float x)
+    {
+        const float v3 = x - ic2;
+        const float v1 = a1 * ic1 + a2 * v3;
+        const float v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1 = 2.0f * v1 - ic1;
+        ic2 = 2.0f * v2 - ic2;
+        lp = v2; bp = v1; hp = x - k * v1 - v2;
+    }
+    float tickLP (float x) { tick (x); return lp; }
+    float tickHP (float x) { tick (x); return hp; }
+    float tickBP (float x) { tick (x); return bp; }
+    void reset() { ic1 = ic2 = 0; }
+};
+
+// RBJ biquad, transposed direct form II.
+struct Biquad
+{
+    float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+    float tick (float x)
+    {
+        const float y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+    void reset() { z1 = z2 = 0; }
+    void norm (float a0) { b0 /= a0; b1 /= a0; b2 /= a0; a1 /= a0; a2 /= a0; }
+    void peak (float hz, float q, float db, double sr)
+    {
+        const float A = std::pow (10.0f, db / 40.0f), w = kTwoPi * std::min (hz, 0.49f * (float) sr) / (float) sr;
+        const float al = std::sin (w) / (2.0f * q), c = std::cos (w);
+        b0 = 1 + al * A; b1 = -2 * c; b2 = 1 - al * A; a1 = -2 * c; a2 = 1 - al / A; norm (1 + al / A);
+    }
+    void lowShelf (float hz, float q, float db, double sr)
+    {
+        const float A = std::pow (10.0f, db / 40.0f), w = kTwoPi * hz / (float) sr, c = std::cos (w), s = std::sin (w);
+        const float al = s / (2.0f * q), sq = 2.0f * std::sqrt (A) * al;
+        b0 = A * ((A + 1) - (A - 1) * c + sq); b1 = 2 * A * ((A - 1) - (A + 1) * c); b2 = A * ((A + 1) - (A - 1) * c - sq);
+        a1 = -2 * ((A - 1) + (A + 1) * c); a2 = (A + 1) + (A - 1) * c - sq; norm ((A + 1) + (A - 1) * c + sq);
+    }
+    void highShelf (float hz, float q, float db, double sr)
+    {
+        const float A = std::pow (10.0f, db / 40.0f), w = kTwoPi * hz / (float) sr, c = std::cos (w), s = std::sin (w);
+        const float al = s / (2.0f * q), sq = 2.0f * std::sqrt (A) * al;
+        b0 = A * ((A + 1) + (A - 1) * c + sq); b1 = -2 * A * ((A - 1) + (A + 1) * c); b2 = A * ((A + 1) + (A - 1) * c - sq);
+        a1 = 2 * ((A - 1) - (A + 1) * c); a2 = (A + 1) - (A - 1) * c - sq; norm ((A + 1) - (A - 1) * c + sq);
+    }
+    void lowPass (float hz, float q, double sr)
+    {
+        const float w = kTwoPi * std::min (hz, 0.49f * (float) sr) / (float) sr, al = std::sin (w) / (2 * q), c = std::cos (w);
+        b0 = (1 - c) / 2; b1 = 1 - c; b2 = (1 - c) / 2; a1 = -2 * c; a2 = 1 - al; norm (1 + al);
+    }
+    void highPass (float hz, float q, double sr)
+    {
+        const float w = kTwoPi * std::min (hz, 0.49f * (float) sr) / (float) sr, al = std::sin (w) / (2 * q), c = std::cos (w);
+        b0 = (1 + c) / 2; b1 = -(1 + c); b2 = (1 + c) / 2; a1 = -2 * c; a2 = 1 - al; norm (1 + al);
+    }
+};
+
+// 4th-order Linkwitz-Riley split (two cascaded Butterworth SVF sections per side).
+struct Crossover
+{
+    Svf l1, l2, h1, h2;
+    void set (float hz, double sr) { l1.set (hz, 0.7071f, sr); l2.set (hz, 0.7071f, sr); h1.set (hz, 0.7071f, sr); h2.set (hz, 0.7071f, sr); }
+    void split (float x, float& lo, float& hi) { lo = l2.tickLP (l1.tickLP (x)); hi = h2.tickHP (h1.tickHP (x)); }
+    void reset() { l1.reset(); l2.reset(); h1.reset(); h2.reset(); }
+};
+
+// Bipolar performance filter: knob 0..1, 0.5 = open. Left = low-pass, right = high-pass.
+// 24 dB/oct, resonance level-compensated so a full-resonance sweep stays safe.
+struct DJFilter
+{
+    Svf s[2][2];
+    float knobZ = 0.5f;
+    int counter = 0;
+    double sr = 48000.0;
+    void prepare (double rate) { sr = rate; reset(); }
+    void reset() { for (auto& c : s) for (auto& f : c) f.reset(); }
+    static float lpHz (float k) { return expMap (k / 0.48f, 60.0f, 22000.0f); }        // k in [0, .48]
+    static float hpHz (float k) { return expMap ((k - 0.52f) / 0.48f, 18.0f, 12000.0f); } // k in [.52, 1]
+    // Equivalent corner frequencies (for kick reports): lowpass corner / highpass corner.
+    static void corners (float k, float& hp, float& lp)
+    {
+        hp = k > 0.52f ? hpHz (k) : 0.0f;
+        lp = k < 0.48f ? lpHz (k) : 22000.0f;
+    }
+    void process (float* const* ch, int numCh, int n, float k0, float k1, float res)
+    {
+        const float q = 0.7071f + res * 4.5f;
+        const float comp = 1.0f / (1.0f + res * 0.9f);
+        for (int i = 0; i < n; ++i)
+        {
+            if ((counter++ & 15) == 0)
+            {
+                const float k = k0 + (k1 - k0) * (float) i / (float) std::max (1, n);
+                knobZ = k;
+                const bool lpMode = k < 0.5f;
+                const float hz = lpMode ? (k >= 0.48f ? 22000.0f : lpHz (k)) : (k <= 0.52f ? 18.0f : hpHz (k));
+                for (int c = 0; c < 2; ++c) { s[c][0].set (hz, 0.5412f, sr); s[c][1].set (hz, q, sr); }
+            }
+            const bool lpMode = knobZ < 0.5f;
+            const bool open = knobZ >= 0.48f && knobZ <= 0.52f;
+            for (int c = 0; c < std::min (numCh, 2); ++c)
+            {
+                float x = ch[c][i];
+                if (open) { s[c][0].tick (x); s[c][1].tick (x); continue; }
+                float y;
+                if (lpMode) y = s[c][1].tickLP (s[c][0].tickLP (x));
+                else        y = s[c][1].tickHP (s[c][0].tickHP (x));
+                ch[c][i] = fastTanh (y * comp * 0.9f) / 0.9f;
+            }
+        }
+    }
+};
+
+// Fractional delay line with 4-point Hermite interpolation.
+struct DelayLine
+{
+    std::vector<float> buf;
+    int mask = 0, w = 0;
+    void prepare (int maxSamples)
+    {
+        int size = 1;
+        while (size < maxSamples + 4) size <<= 1;
+        buf.assign ((size_t) size, 0.0f);
+        mask = size - 1; w = 0;
+    }
+    void clear() { std::fill (buf.begin(), buf.end(), 0.0f); }
+    void push (float x) { buf[(size_t) w] = x; w = (w + 1) & mask; }
+    float tap (int d) const { return buf[(size_t) ((w - 1 - d) & mask)]; }
+    float read (float d) const
+    {
+        d = std::max (1.0f, std::min (d, (float) (mask - 3)));
+        const int di = (int) d;
+        const float f = d - (float) di;
+        const float xm1 = tap (di - 1), x0 = tap (di), x1 = tap (di + 1), x2 = tap (di + 2);
+        const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+        return ((c3 * f + c2) * f + c1) * f + x0;
+    }
+};
+
+// PolyBLEP oscillator.
+struct Osc
+{
+    double phase = 0.0;
+    float last = 0.0f;
+    static float blep (double t, double dt)
+    {
+        if (t < dt) { t /= dt; return (float) (t + t - t * t - 1.0); }
+        if (t > 1.0 - dt) { t = (t - 1.0) / dt; return (float) (t * t + t + t + 1.0); }
+        return 0.0f;
+    }
+    // shape: 0 saw, 1 square/pulse, 2 triangle, 3 sine
+    float tick (double hz, double sr, int shape, float pw = 0.5f)
+    {
+        const double dt = std::min (0.45, hz / sr);
+        double t = phase;
+        float y = 0.0f;
+        switch (shape)
+        {
+            case 0: y = (float) (2.0 * t - 1.0) - blep (t, dt); break;
+            case 1:
+            {
+                y = t < pw ? 1.0f : -1.0f;
+                y += blep (t, dt);
+                double t2 = t - pw; if (t2 < 0) t2 += 1.0;
+                y -= blep (t2, dt);
+                break;
+            }
+            case 2:
+            {
+                float sq = t < 0.5 ? 1.0f : -1.0f;
+                sq += blep (t, dt);
+                double t2 = t + 0.5; if (t2 >= 1.0) t2 -= 1.0;
+                sq -= blep (t2, dt);
+                last = (float) (dt * 4.0) * sq + (1.0f - (float) dt * 0.05f) * last;
+                y = last;
+                break;
+            }
+            default: y = std::sin (kTwoPi * (float) t); break;
+        }
+        phase += dt;
+        if (phase >= 1.0) phase -= 1.0;
+        return y;
+    }
+};
+
+// Zero-delay-feedback 4-pole ladder (Moog/303-ish), tanh in the feedback path.
+struct Ladder
+{
+    float s[4] {}, g = 0, G = 0, k = 0;
+    void set (float hz, float res, double sr)
+    {
+        hz = std::min (std::max (hz, 20.0f), 0.45f * (float) sr);
+        g = std::tan (kPi * hz / (float) sr);
+        G = g / (1.0f + g);
+        k = res * 3.9f;
+    }
+    float tick (float x)
+    {
+        const float G4 = G * G * G * G;
+        const float S = (s[0] * G * G * G + s[1] * G * G + s[2] * G + s[3]) / (1.0f + g);
+        float u = (x - k * S) / (1.0f + k * G4);
+        u = fastTanh (u);
+        float y = u;
+        for (int i = 0; i < 4; ++i)
+        {
+            const float v = (y - s[i]) * G;
+            const float out = v + s[i];
+            s[i] = out + v;
+            y = out;
+        }
+        return y * (1.0f + k * 0.3f);
+    }
+    void reset() { for (auto& v : s) v = 0; }
+};
+
+// 8-line feedback delay network reverb (Hadamard mixing, modulated, damped).
+struct Fdn
+{
+    static constexpr int N = 8;
+    DelayLine line[N];
+    float len[N] {}, damp[N] {}, lfo = 0.0f;
+    OnePole lowCut[2];
+    double sr = 48000.0;
+    float fb = 0.8f, dampHz = 6000.0f, modDepth = 0.0f;
+    void prepare (double rate)
+    {
+        sr = rate;
+        for (auto& l : line) l.prepare ((int) (rate * 0.6));
+        for (auto& c : lowCut) c.setHz (60.0f, rate);
+    }
+    void clear() { for (auto& l : line) l.clear(); for (auto& d : damp) d = 0.0f; }
+    // size 0..1, decay seconds, dark 0..1 (damping), freeze -> infinite
+    void set (float size, float decaySeconds, float dark, float mod, bool freeze)
+    {
+        static const float base[N] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0533f, 0.0617f, 0.0683f, 0.0751f };
+        const float scale = 0.35f + size * 2.4f;
+        float meanLen = 0.0f;
+        for (int i = 0; i < N; ++i) { len[i] = base[i] * scale * (float) sr; meanLen += len[i]; }
+        meanLen /= (float) N;
+        fb = freeze ? 1.0f : std::pow (10.0f, -3.0f * meanLen / (float) sr / std::max (0.1f, decaySeconds));
+        fb = std::min (fb, freeze ? 1.0f : 0.985f);
+        dampHz = expMap (1.0f - dark, 900.0f, 16000.0f);
+        modDepth = mod * 0.0025f * (float) sr;
+    }
+    void tick (float inL, float inR, float& outL, float& outR, bool freeze)
+    {
+        float x[N];
+        lfo += 0.7f / (float) sr; if (lfo > 1.0f) lfo -= 1.0f;
+        const float a = std::exp (-kTwoPi * dampHz / (float) sr);
+        for (int i = 0; i < N; ++i)
+        {
+            const float m = modDepth * std::sin (kTwoPi * (lfo + (float) i * 0.125f));
+            float y = line[i].read (len[i] + m);
+            if (! freeze) { damp[i] = y + a * (damp[i] - y); y = damp[i]; }
+            x[i] = y;
+        }
+        // Hadamard 8
+        for (int h = 1; h < N; h <<= 1)
+            for (int i = 0; i < N; i += h << 1)
+                for (int j = i; j < i + h; ++j) { const float u = x[j], v = x[j + h]; x[j] = u + v; x[j + h] = u - v; }
+        const float nrm = 0.35355339f * fb;
+        const float inGain = freeze ? 0.0f : 1.0f;
+        for (int i = 0; i < N; ++i)
+        {
+            const float in = (i & 1) ? inR : inL;
+            line[i].push (fastTanh ((x[i] * nrm + in * inGain) * 0.5f) * 2.0f);
+        }
+        outL = lowCut[0].hp (line[0].tap (0) + line[2].tap (0) + line[4].tap (0) + line[6].tap (0)) * 0.35f;
+        outR = lowCut[1].hp (line[1].tap (0) + line[3].tap (0) + line[5].tap (0) + line[7].tap (0)) * 0.35f;
+    }
+};
+
+// Peak / RMS meter readings for editors (written on the audio thread).
+struct MeterState
+{
+    float peak = 0.0f, rms = 0.0f;
+    void push (const float* const* ch, int numCh, int n)
+    {
+        float pk = 0.0f, sum = 0.0f;
+        for (int c = 0; c < numCh; ++c)
+            for (int i = 0; i < n; ++i) { const float v = std::fabs (ch[c][i]); pk = std::max (pk, v); sum += v * v; }
+        peak = std::max (pk, peak * 0.92f);
+        const float r = std::sqrt (sum / (float) std::max (1, n * numCh));
+        rms = r + 0.8f * (rms - r);
+    }
+};
+} // namespace sf

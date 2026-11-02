@@ -1,0 +1,157 @@
+#pragma once
+// POCKET: kick-aware ducking. Reads kick reports from the SF BUS (timing, velocity, pitch sweep,
+// decay, filter) and carves a kick-shaped hole in this module's audio. Falls back to sidechain
+// audio when no SF KICK is reporting. Adds a fixed lookahead (kLatency) so reports from the same
+// audio cycle arrive before they are needed; the latency is reported to Live, which compensates.
+#include "Bus.h"
+#include "Dsp.h"
+#include "Module.h"
+#include <atomic>
+
+namespace sf
+{
+class Pocket
+{
+public:
+    static constexpr int kLatency = 512;
+    static constexpr int kTrace = 128;
+
+    void prepare (double rate, int maxBlock)
+    {
+        juce::ignoreUnused (maxBlock);
+        sr = rate;
+        for (auto& d : delay) d.prepare (kLatency + 8);
+        sideDelay.prepare (kLatency + 8);
+        sideLp.set (150.0f, 0.7071f, sr);
+        sideFollow.set (0.0005f, 0.12f, sr);
+        for (auto& x : xo) x.reset();
+        for (auto& b : bell) b.reset();
+        presence = 0.0f; duty = 0.0f; envHold = 0.0f; sidePeak = 0.05f;
+    }
+
+    // depth 0..1, shape 0..1 (0 transparent pitch-tracking cut .. 1 full-band pump).
+    // enabled=false still delays (latency must stay constant) but applies no gain change.
+    void process (const Ctx& c, float* const* ch, int numCh, int n, float depth, float shape,
+                  const juce::AudioBuffer<float>* side, bool enabled = true, bool preferSide = false, bool delayAudio = true)
+    {
+        auto& bus = *c.bus;
+        KickHit hits[kKickRing];
+        int numHits = bus.recentKicks (hits, kKickRing);
+        const bool haveSide = side != nullptr && side->getNumChannels() > 0;
+        const bool busKick = numHits > 0 && bus.kickAlive (4000) && ! (preferSide && haveSide);
+        if (! busKick) numHits = 0;
+        const bool useSide = ! busKick && haveSide;
+
+        const double bps = c.beatsPerSample();
+        const double secPerBeat = 60.0 / c.bpm;
+        const double lookBeats = kLatency * bps;
+
+        // Latest hit parameters for the band split frequency and kick filter influence.
+        float f1 = 50.0f, kickHp = 0.0f;
+        double newestPpq = -1e9;
+        for (int h = 0; h < numHits; ++h)
+            if (hits[h].ppq <= c.ppq - lookBeats + n * bps && hits[h].ppq > newestPpq) { newestPpq = hits[h].ppq; f1 = hits[h].f1; kickHp = hits[h].hp; }
+        if (useSide) f1 = 55.0f;
+
+        const float s = clamp01 (shape);
+        const float bandAmt = clamp01 (depth) * smoothstep (0.12f, 0.55f, s);
+        const float bellAmt = clamp01 (depth) * (1.0f - smoothstep (0.35f, 0.75f, s));
+        const float fcLow = std::max (40.0f, f1 * 3.0f);
+        const float fc = fcLow * std::pow (20000.0f / fcLow, smoothstep (0.55f, 1.0f, s));
+        // A high-passed kick has no sub to make room for: the pocket closes as the kick thins.
+        float lowPresence = 1.0f;
+        if (kickHp > 30.0f) lowPresence = clamp01 (std::pow (fcLow / kickHp, 2.0f));
+        if (s > 0.8f) lowPresence = lerp (lowPresence, 1.0f, (s - 0.8f) * 5.0f);   // pump ignores it
+        for (int ci = 0; ci < 2; ++ci) xo[ci].set (fc, sr);
+
+        const float holdCoef = std::exp (-1.0f / (float) (std::max (0.001f, (1.0f - s) * 0.08f) * sr));
+        const float dutyCoef = std::exp (-1.0f / (float) (2.0 * secPerBeat * sr));
+        const float presUp = (float) (1.0 / (secPerBeat * sr)), presDown = (float) (1.0 / (8.0 * secPerBeat * sr));
+
+        for (int i = 0; i < n; ++i)
+        {
+            const double tq = c.ppqAt (i) - lookBeats;    // musical time of the sample leaving now
+            float env = 0.0f, pitch = f1;
+            bool anyRecent = false;
+            if (busKick)
+            {
+                double best = -1e9;
+                for (int h = 0; h < numHits; ++h)
+                {
+                    const double dtBeats = tq - hits[h].ppq;
+                    if (dtBeats < 0.0 || dtBeats > 8.0) continue;
+                    anyRecent = anyRecent || dtBeats < 8.0;
+                    const float dt = (float) (dtBeats * secPerBeat);
+                    const float dutyScale = clamp01 (1.0f - (duty - 0.55f) * 2.5f);
+                    const float dec = std::max (0.02f, std::min (hits[h].decay * (1.0f + 1.5f * s), (float) secPerBeat * (0.3f + 0.45f * s)) * std::max (0.15f, dutyScale));
+                    const float att = std::min (1.0f, dt / 0.001f);
+                    const float e = hits[h].vel * att * std::exp (-dt / dec);
+                    env = std::max (env, e);
+                    if (hits[h].ppq > best)
+                    {
+                        best = hits[h].ppq;
+                        pitch = hits[h].f1 + (hits[h].f0 - hits[h].f1) * std::exp (-dt / std::max (0.001f, hits[h].tau));
+                    }
+                }
+            }
+            else if (useSide)
+            {
+                float x = 0.0f;
+                for (int sc = 0; sc < side->getNumChannels(); ++sc) x += side->getReadPointer (sc)[i];
+                const float f = sideFollow.tick (sideLp.tickLP (x));
+                sidePeak = std::max (f, sidePeak * 0.99999f);
+                sideDelay.push (f / std::max (0.01f, sidePeak));
+                env = sideDelay.tap (kLatency);
+                anyRecent = env > 0.05f;
+            }
+
+            // Kick returns after a gap: fade the pocket back in over a beat.
+            presence = anyRecent ? std::min (1.0f, presence + presUp) : std::max (0.0f, presence - presDown);
+            envHold = std::max (env, envHold * holdCoef);
+            duty = envHold + dutyCoef * (duty - envHold);
+            const float e = enabled ? envHold * presence : 0.0f;
+
+            if ((i & 15) == 0)
+            {
+                const float g = -18.0f * bellAmt * e * lowPresence;
+                for (int ci = 0; ci < 2; ++ci) bell[ci].peak (std::max (30.0f, pitch), 2.2f, g, sr);
+            }
+            const float lowGain = 1.0f - bandAmt * e * lowPresence;
+            for (int ci = 0; ci < std::min (numCh, 2); ++ci)
+            {
+                float x = ch[ci][i];
+                if (delayAudio) { delay[ci].push (x); x = delay[ci].tap (kLatency); }
+                float lo, hi;
+                xo[ci].split (x, lo, hi);
+                x = lo * lowGain + hi;
+                ch[ci][i] = bell[ci].tick (x);
+            }
+            traceAcc = std::max (traceAcc, e * std::max (bandAmt, bellAmt));
+            if (++traceCount >= 256)
+            {
+                trace[(size_t) traceWrite].store (traceAcc);
+                traceWrite = (traceWrite + 1) % kTrace;
+                traceAcc = 0.0f; traceCount = 0;
+            }
+        }
+        sourceIsBus = busKick;
+        sourceIsSide = useSide;
+    }
+
+    void paint (juce::Graphics& g, juce::Rectangle<float> r) const;
+
+    std::atomic<float> trace[kTrace] {};
+    int traceWrite = 0;
+    std::atomic<bool> sourceIsBus { false }, sourceIsSide { false };
+
+private:
+    double sr = 48000.0;
+    DelayLine delay[2], sideDelay;
+    Crossover xo[2];
+    Biquad bell[2];
+    Svf sideLp;
+    Follower sideFollow;
+    float presence = 0, duty = 0, envHold = 0, sidePeak = 0.05f, traceAcc = 0;
+    int traceCount = 0;
+};
+} // namespace sf
