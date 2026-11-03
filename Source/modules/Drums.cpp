@@ -1,5 +1,10 @@
 // KICK, PERC, RUMBLE
+// KICK and PERC voices render at 2x the host rate (band-limited squares for the metallic
+// sources, drive inside the oversampled path) and are decimated by a halfband filter; RUMBLE's
+// GRIT runs 2x oversampled. Sample models read with 4-point Hermite interpolation.
 #include "Kit.h"
+#include "../core/BandLimited.h"
+#include "../core/Oversample.h"
 
 namespace sf
 {
@@ -34,7 +39,7 @@ static std::vector<std::string> kickModelNames() { std::vector<std::string> v; f
 class KickModule : public Module
 {
 public:
-    enum { TUNE, DECAY, PUNCH, CLICK, DRIVE, FILT, DENS, LEVEL, MODEL, LAYERMODEL, LAYER, PTIME, VELSENS, ESPACE, ESWING, KEYTRACK, RES, ALLOCON };
+    enum { TUNE, DECAY, PUNCH, CLICK, DRIVE, FILT, DENS, LEVEL, MODEL, LAYERMODEL, LAYER, PTIME, VELSENS, ESPACE, ESWING, KEYTRACK, RES, ALLOCON, KEYFOLLOW };
     std::string id() const override { return "KICK"; }
     bool instrument() const override { return true; }
     std::vector<ParamSpec> params() const override
@@ -56,7 +61,8 @@ public:
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  toggle ("key_track", "KEY TRACK"),
                  pct ("res", "FILTER RES", 0.1f),
-                 toggle ("alloc", "ALLOC", true) };
+                 toggle ("alloc", "ALLOC", true),
+                 toggle ("key_follow", "KEY FOLLOW", true) };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -68,10 +74,18 @@ public:
     {
         if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
         sr = rate;
+        osr = 2.0 * rate;
+        dec.set (HalfbandDesign::forStage (rate, 0));
         out.prepare (rate, mb, ROLE_KICK, "KICK", false);
-        echoes.reset();
         events.reserve (2048);
+        reset();
+    }
+    void reset() override
+    {
+        echoes.reset();
         for (auto& v : voices) v.active = false;
+        dec.reset();
+        out.reset();
     }
 
     struct Voice
@@ -81,21 +95,28 @@ public:
         double t = 0.0, phase = 0.0;
         float vel = 1, f0 = 200, f1 = 50, tau = 0.01f, decay = 0.3f, click = 0, clickHz = 3000, drive = 0, shape = 0, lp = 8000, fm = 0;
         float fade = 1.0f, fadeStep = 0.0f;
-        float lpZ = 0, nHp = 0;
+        float lpZ = 0;
+        unsigned tick = 0;
         Svf res;
-        size_t spos = 0; float srate = 1.0f, gate = 1.0e9f;
+        float srate = 1.0f, gate = 1.0e9f;
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.01f, decay)) : 0.0f; }
     };
 
-    void trigger (Ctx& c, int model, float vel, int gen, int note, float layerGain, bool publish, int offset)
+    void trigger (Ctx& c, int model, float vel, int gen, int note, float layerGain, bool publish, int offset, const SampleData* smp)
     {
         // Fade any ringing voice over 3 ms.
-        for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.003f * (float) sr);
+        for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.003f * (float) osr);
         int idx = 0;
         for (int i = 0; i < 4; ++i) if (! voices[(size_t) i].active) { idx = i; break; }
         auto& v = voices[(size_t) idx];
         const auto& m = kKickModels[model];
-        const float tune = c.v (TUNE) + (c.b (KEYTRACK) ? (float) (note - 36) : 0.0f);
+        float tune = c.v (TUNE) + (c.b (KEYTRACK) ? (float) (note - 36) : 0.0f);
+        // KEY: the body lands on the SF CONTROL key root (nearest), TUNE moves from there.
+        if (c.b (KEYFOLLOW) && c.keyRoot >= 0)
+        {
+            const float hz = model == kNumKickModels - 1 ? (smp != nullptr && smp->rootHz > 20.0f && smp->rootHz < 200.0f ? smp->rootHz : 0.0f) : m.f1;
+            if (hz > 0.0f) tune += keySnap (hz, c.keyRoot);
+        }
         const float decScale = std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.6f, (float) gen);
         v = Voice();
         v.active = true; v.model = model;
@@ -111,33 +132,33 @@ public:
         v.lp = m.lp * std::pow (0.6f, (float) gen);
         v.srate = semis (tune);
         if (model == kNumKickModels - 1)
-            if (auto s = sample.get()) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.srate, gen);
+            if (auto s = smp) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.srate, gen);
         if (publish)
         {
             float hp, lp;
             DJFilter::corners (c.v (FILT), hp, lp);
             float f1r = v.f1, f0r = v.f0, decr = v.decay;
             if (model == kNumKickModels - 1)
-                if (auto s = sample.get()) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate)); }
+                if (auto s = smp) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate)); }
             c.bus->publishKick ({ c.ppqAt (offset), v.vel, f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
         }
     }
 
+    // One sample at the oversampled rate (osr).
     float renderVoice (Voice& v, const SampleData* s)
     {
         const float t = (float) v.t;
         float y = 0.0f;
         if (v.model == kNumKickModels - 1)
         {
-            if (s == nullptr || v.spos + 1 >= (size_t) s->length()) { v.active = false; return 0.0f; }
-            const size_t i0 = v.spos;
-            y = 0.5f * (s->buf.getSample (0, (int) i0) + s->buf.getSample (1, (int) i0)) * v.vel;
+            if (s == nullptr || (int) v.phase + 2 >= s->length()) { v.active = false; return 0.0f; }
+            const int len = s->length();
+            y = 0.5f * (hermiteAt (s->buf.getReadPointer (0), len, v.phase) + hermiteAt (s->buf.getReadPointer (1), len, v.phase)) * v.vel;
             const float g = sampleGateGain (t, v.gate);
             if (g <= 0.0f) { v.active = false; return 0.0f; }
             y *= g;
-            v.t += 1.0 / sr;
-            v.phase += v.srate;
-            v.spos = (size_t) v.phase;
+            v.t += 1.0 / osr;
+            v.phase += v.srate * 0.5;
         }
         else
         {
@@ -152,8 +173,7 @@ public:
             if (v.click > 0.0f && t < 0.02f)
             {
                 const float n = rng.next();
-                v.nHp = n - v.nHp * 0.0f;
-                const float a = std::exp (-kTwoPi * v.clickHz / (float) sr);
+                const float a = std::exp (-kTwoPi * v.clickHz / (float) osr);
                 v.lpZ = n + a * (v.lpZ - n);
                 clickSig = (n - v.lpZ) * std::exp (-t / 0.004f) * v.click * 0.6f + (t < 0.0003f ? v.click * 0.8f : 0.0f);
             }
@@ -162,12 +182,12 @@ public:
             if (v.lp < 15000.0f)
             {
                 const float lpf = v.model == 4 ? v.lp + 4000.0f * std::exp (-t / 0.05f) : v.lp;
-                if (((int) (v.t * sr) & 15) == 0) v.res.set (lpf, v.model == 4 ? 2.5f : 0.7071f, sr);
+                if ((v.tick++ & 31) == 0) v.res.set (lpf, v.model == 4 ? 2.5f : 0.7071f, osr);
                 y = v.res.tickLP (y);
             }
-            v.phase += f / sr;
+            v.phase += f / osr;
             if (v.phase > 1.0) v.phase -= 1.0;
-            v.t += 1.0 / sr;
+            v.t += 1.0 / osr;
             if (t > v.decay * 9.0f + 0.05f) v.active = false;
         }
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return 0.0f; } y *= v.fade; }
@@ -177,7 +197,7 @@ public:
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), c.v (ESWING), 1.0f, false);
-        const auto smp = sample.get();
+        const SampleData* smp = sample.audio();
         const int model = c.ci (MODEL), layerModel = c.ci (LAYERMODEL);
         const float layer = c.v (LAYER);
         const float velSens = c.v (VELSENS);
@@ -190,12 +210,14 @@ public:
                 const auto& ev = events[e++];
                 if (! ev.on) continue;
                 const float vel = ev.gen == 0 ? lerp (1.0f, ev.vel, velSens) : ev.vel;
-                trigger (c, model, vel, ev.gen, ev.note, 1.0f / (1.0f + layer * 0.5f), true, i);
-                if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, layer / (1.0f + layer * 0.5f), false, i);
+                trigger (c, model, vel, ev.gen, ev.note, 1.0f / (1.0f + layer * 0.5f), true, i, smp);
+                if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, layer / (1.0f + layer * 0.5f), false, i, smp);
                 lastHit = 1.0f;
             }
-            float y = 0.0f;
-            for (auto& v : voices) if (v.active) y += renderVoice (v, smp.get());
+            float y0 = 0.0f, y1 = 0.0f;
+            for (auto& v : voices) if (v.active) y0 += renderVoice (v, smp);
+            for (auto& v : voices) if (v.active) y1 += renderVoice (v, smp);
+            const float y = dec.down (y0, y1);
             L[i] = y; R[i] = y;
             hist.push (std::fabs (y));
         }
@@ -215,12 +237,13 @@ public:
             if (i == 0) p.startNewSubPath (x, in.getBottom() - v * in.getHeight()); else p.lineTo (x, in.getBottom() - v * in.getHeight());
         }
         g.setColour (ui::kText); g.strokePath (p, juce::PathStrokeType (1.0f));
-        auto s = sample.get();
+        auto& s = sample.get();
         ui::label (g, s ? "SAMPLE " + s->name.toUpperCase() : "NO SAMPLE", r.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
     }
 private:
     struct DecimHist { std::atomic<float> v[512] {}; int w = 0, k = 0; float acc = 0; void push (float x) { acc = std::max (acc, x); if (++k >= 512) { v[w].store (std::min (1.0f, acc)); w = (w + 1) % 512; k = 0; acc = 0; } } };
-    double sr = 48000.0;
+    double sr = 48000.0, osr = 96000.0;
+    Halfband dec;
     std::array<Voice, 4> voices;
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
@@ -285,8 +308,19 @@ public:
     void prepare (double rate, int mb) override
     {
         if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
-        sr = rate; out.prepare (rate, mb, ROLE_PERC, "PERC", false); echoes.reset(); events.reserve (2048);
+        sr = rate; osr = 2.0 * rate;
+        waves = WaveSet::get (osr);
+        for (auto& d : dec) d.set (HalfbandDesign::forStage (rate, 0));
+        out.prepare (rate, mb, ROLE_PERC, "PERC", false);
+        events.reserve (2048);
+        reset();
+    }
+    void reset() override
+    {
+        echoes.reset();
         for (auto& v : voices) v.active = false;
+        for (auto& d : dec) d.reset();
+        out.reset();
     }
 
     struct Voice
@@ -294,11 +328,11 @@ public:
         bool active = false;
         PercType type = P_METAL;
         double t = 0;
-        float vel = 1, decay = 0.1f, pan = 0.5f, fade = 1.0f, fadeStep = 0.0f, tune = 1.0f, tone = 0.5f, noise = 0;
+        float vel = 1, decay = 0.1f, pan = 0.5f, gl = 0.7071f, gr = 0.7071f, fade = 1.0f, fadeStep = 0.0f, tune = 1.0f, tone = 0.5f, noise = 0;
         double ph[6] {};
         float freqs[6] {};
         Svf bp, hp, res[6];
-        float fmPh = 0, fmMod = 0;
+        int oct[6] {};
         double spos = 0;
         float gate = 1.0e9f;
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.005f, decay)) : 0.0f; }
@@ -306,7 +340,7 @@ public:
 
     void trigger (Ctx& c, int model, const NoteEvent& ev)
     {
-        if (c.b (CHOKE)) for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.004f * (float) sr);
+        if (c.b (CHOKE)) for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.004f * (float) osr);
         int idx = pickVoice (voices);
         auto& v = voices[(size_t) idx];
         const auto& m = kPercModels[model];
@@ -319,6 +353,7 @@ public:
         v.decay = m.decay * std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.65f, (float) ev.gen);
         v.noise = m.noise;
         v.pan = 0.5f + (ev.gen == 0 ? 0.0f : ((ev.gen & 1) ? -1.0f : 1.0f) * c.v (SPREAD) * 0.5f * (rng.uni() * 0.5f + 0.5f));
+        v.gl = std::sqrt (1.0f - v.pan); v.gr = std::sqrt (v.pan);
         static const float metal[6] = { 205.3f, 304.4f, 369.6f, 522.7f, 540.0f, 800.0f };
         static const float modal[6] = { 1.0f, 1.59f, 2.14f, 2.30f, 2.65f, 2.92f };
         const float dark = std::pow (0.7f, (float) ev.gen);
@@ -326,30 +361,33 @@ public:
         {
             case P_METAL:
                 for (int k = 0; k < 6; ++k) v.freqs[k] = metal[k] * m.freqMul * v.tune * (0.8f + v.tone * 0.4f);
-                v.bp.set (m.bpHz * v.tune * (0.6f + v.tone * 0.8f) * dark, 1.2f, sr);
-                v.hp.set (m.hpHz * (0.6f + v.tone * 0.8f) * dark, 0.7071f, sr);
+                v.bp.set (m.bpHz * v.tune * (0.6f + v.tone * 0.8f) * dark, 1.2f, osr);
+                v.hp.set (m.hpHz * (0.6f + v.tone * 0.8f) * dark, 0.7071f, osr);
                 break;
-            case P_CLAP: v.bp.set (m.bpHz * v.tune * (0.7f + v.tone * 0.6f) * dark, 1.5f, sr); v.hp.set (m.hpHz, 0.7071f, sr); break;
-            case P_RIM: v.freqs[0] = 1700.0f * v.tune; v.freqs[1] = 500.0f * v.tune; v.hp.set (400.0f, 0.7071f, sr); break;
-            case P_BELL: v.freqs[0] = 540.0f * v.tune; v.freqs[1] = 800.0f * v.tune; v.bp.set (1000.0f * v.tune * (0.6f + v.tone * 0.8f), 1.0f, sr); break;
+            case P_CLAP: v.bp.set (m.bpHz * v.tune * (0.7f + v.tone * 0.6f) * dark, 1.5f, osr); v.hp.set (m.hpHz, 0.7071f, osr); break;
+            case P_RIM: v.freqs[0] = 1700.0f * v.tune; v.freqs[1] = 500.0f * v.tune; v.hp.set (400.0f, 0.7071f, osr); break;
+            case P_BELL: v.freqs[0] = 540.0f * v.tune; v.freqs[1] = 800.0f * v.tune; v.bp.set (1000.0f * v.tune * (0.6f + v.tone * 0.8f), 1.0f, osr); break;
             case P_CLAVE: v.freqs[0] = 2500.0f * v.tune * (0.7f + v.tone * 0.6f); break;
-            case P_SHAKER: v.bp.set (6000.0f * (0.5f + v.tone) * dark, 0.8f, sr); v.hp.set (2000.0f, 0.7071f, sr); break;
+            case P_SHAKER: v.bp.set (6000.0f * (0.5f + v.tone) * dark, 0.8f, osr); v.hp.set (2000.0f, 0.7071f, osr); break;
             case P_FM: v.freqs[0] = 400.0f * v.tune; v.freqs[1] = v.freqs[0] * (1.2f + v.tone * 1.2f); break;
             case P_MODAL:
                 for (int k = 0; k < 6; ++k)
                 {
                     v.freqs[k] = 300.0f * v.tune * std::pow (modal[k], 0.7f + v.tone * 0.6f);
-                    v.res[k].set (std::min (v.freqs[k], 0.45f * (float) sr), 60.0f + v.decay * 400.0f, sr);
+                    v.res[k].set (std::min (v.freqs[k], 0.45f * (float) osr), 60.0f + v.decay * 400.0f, osr);
                 }
                 break;
             case P_SAMPLE:
-                if (auto s = sample.get()) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.tune, ev.gen);
+                if (auto* s = sample.audio()) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.tune, ev.gen);
                 break;
         }
+        for (int k = 0; k < 6; ++k) v.oct[k] = waves->square.octaveFor (v.freqs[k]);
     }
 
+    // One sample at the oversampled rate (osr); squares are band-limited (mipmapped tables).
     float render (Voice& v, const SampleData* s)
     {
+        const auto& W = *waves;
         const float t = (float) v.t;
         float y = 0.0f;
         switch (v.type)
@@ -357,7 +395,7 @@ public:
             case P_METAL:
             {
                 float sq = 0.0f;
-                for (int k = 0; k < 6; ++k) { v.ph[k] += v.freqs[k] / sr; if (v.ph[k] > 1.0) v.ph[k] -= 1.0; sq += v.ph[k] < 0.5 ? 1.0f : -1.0f; }
+                for (int k = 0; k < 6; ++k) { sq += W.square.read (v.oct[k], v.ph[k]); v.ph[k] += v.freqs[k] / osr; if (v.ph[k] >= 1.0) v.ph[k] -= 1.0; }
                 const float src = sq / 6.0f * (1.0f - v.noise) + rng.next() * v.noise;
                 y = v.hp.tickHP (v.bp.tickBP (src) * 2.0f) * std::exp (-t / v.decay) * std::min (1.0f, t / 0.0003f);
                 break;
@@ -371,24 +409,24 @@ public:
                 break;
             }
             case P_RIM:
-                v.ph[0] += v.freqs[0] / sr; v.ph[1] += v.freqs[1] / sr;
+                v.ph[0] += v.freqs[0] / osr; v.ph[1] += v.freqs[1] / osr;
                 y = v.hp.tickHP (std::sin (kTwoPi * (float) v.ph[0]) * 0.6f + std::sin (kTwoPi * (float) v.ph[1]) * 0.5f) * std::exp (-t / v.decay);
                 break;
             case P_BELL:
             {
-                for (int k = 0; k < 2; ++k) { v.ph[k] += v.freqs[k] / sr; if (v.ph[k] > 1.0) v.ph[k] -= 1.0; }
-                const float sq = (v.ph[0] < 0.5 ? 1.0f : -1.0f) + (v.ph[1] < 0.5 ? 1.0f : -1.0f);
+                const float sq = W.square.read (v.oct[0], v.ph[0]) + W.square.read (v.oct[1], v.ph[1]);
+                for (int k = 0; k < 2; ++k) { v.ph[k] += v.freqs[k] / osr; if (v.ph[k] >= 1.0) v.ph[k] -= 1.0; }
                 const float env = 0.6f * std::exp (-t / 0.012f) + 0.4f * std::exp (-t / v.decay);
                 y = v.bp.tickBP (sq) * env * 0.6f;
                 break;
             }
-            case P_CLAVE: v.ph[0] += v.freqs[0] / sr; y = std::sin (kTwoPi * (float) v.ph[0]) * std::exp (-t / v.decay); break;
+            case P_CLAVE: v.ph[0] += v.freqs[0] / osr; y = std::sin (kTwoPi * (float) v.ph[0]) * std::exp (-t / v.decay); break;
             case P_SHAKER: y = v.hp.tickHP (v.bp.tickBP (rng.next()) * 2.0f) * std::min (1.0f, t / 0.008f) * std::exp (-t / v.decay); break;
             case P_FM:
             {
                 const float idx = 6.0f * std::exp (-t / (v.decay * 0.5f));
-                v.ph[1] += v.freqs[1] / sr; if (v.ph[1] > 1.0) v.ph[1] -= 1.0;
-                v.ph[0] += v.freqs[0] / sr; if (v.ph[0] > 1.0) v.ph[0] -= 1.0;
+                v.ph[1] += v.freqs[1] / osr; if (v.ph[1] > 1.0) v.ph[1] -= 1.0;
+                v.ph[0] += v.freqs[0] / osr; if (v.ph[0] > 1.0) v.ph[0] -= 1.0;
                 y = std::sin (kTwoPi * (float) v.ph[0] + idx * std::sin (kTwoPi * (float) v.ph[1])) * std::exp (-t / v.decay);
                 break;
             }
@@ -401,19 +439,16 @@ public:
             }
             case P_SAMPLE:
             {
-                if (s == nullptr || v.spos + 1 >= s->length()) { v.active = false; return 0.0f; }
-                const int i0 = (int) v.spos;
-                const float fr = (float) (v.spos - i0);
-                const float a = 0.5f * (s->buf.getSample (0, i0) + s->buf.getSample (1, i0));
-                const float b = 0.5f * (s->buf.getSample (0, i0 + 1) + s->buf.getSample (1, i0 + 1));
+                if (s == nullptr || (int) v.spos + 2 >= s->length()) { v.active = false; return 0.0f; }
+                const int len = s->length();
                 const float g = sampleGateGain (t, v.gate);
                 if (g <= 0.0f) { v.active = false; return 0.0f; }
-                y = (a + fr * (b - a)) * g;
-                v.spos += v.tune;
+                y = 0.5f * (hermiteAt (s->buf.getReadPointer (0), len, v.spos) + hermiteAt (s->buf.getReadPointer (1), len, v.spos)) * g;
+                v.spos += v.tune * 0.5;
                 break;
             }
         }
-        v.t += 1.0 / sr;
+        v.t += 1.0 / osr;
         if (v.type != P_SAMPLE && t > v.decay * 8.0f + 0.03f) v.active = false;
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return 0.0f; } y *= v.fade; }
         return y * v.vel;
@@ -422,9 +457,10 @@ public:
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), c.v (ESWING), c.v (EPROB), false);
-        const auto smp = sample.get();
+        const SampleData* smp = sample.audio();
         const int model = c.ci (MODEL);
         const float drv = c.v (DRIVE);
+        const float dg = 1.0f + drv * 8.0f, dn = 1.0f / (1.0f + drv * 2.0f);
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         for (int i = 0; i < c.n; ++i)
@@ -434,21 +470,25 @@ public:
                 const auto& ev = events[e++];
                 if (ev.on) trigger (c, model, ev);
             }
-            float l = 0, r = 0;
-            for (auto& v : voices)
-                if (v.active)
-                {
-                    float y = render (v, smp.get());
-                    if (drv > 0.001f) y = fastTanh (y * (1.0f + drv * 8.0f)) / (1.0f + drv * 2.0f);
-                    l += y * std::sqrt (1.0f - v.pan); r += y * std::sqrt (v.pan);
-                }
-            L[i] = l * 1.41f; R[i] = r * 1.41f;
+            float l[2] {}, r[2] {};
+            for (int k = 0; k < 2; ++k)
+                for (auto& v : voices)
+                    if (v.active)
+                    {
+                        float y = render (v, smp);
+                        if (drv > 0.001f) y = fastTanh (y * dg) * dn;
+                        l[k] += y * v.gl; r[k] += y * v.gr;
+                    }
+            L[i] = dec[0].down (l[0], l[1]) * 1.41f;
+            R[i] = dec[1].down (r[0], r[1]) * 1.41f;
         }
         out.process (c, io, FILT, RES, 0.0f, 0.0f, c.b (ALLOCON), LEVEL);
     }
     int displayHeight() const override { return 0; }
 private:
-    double sr = 48000.0;
+    double sr = 48000.0, osr = 96000.0;
+    std::shared_ptr<const WaveSet> waves;
+    Halfband dec[2];
     std::array<Voice, 8> voices;
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
@@ -465,7 +505,7 @@ ModulePtr makePERC() { return std::make_unique<PercModule>(); }
 class RumbleModule : public Module
 {
 public:
-    enum { SIZE, DARK, GRIT, PUMP, GATE, DENS, FILT, LEVEL, MODEL, TUNE, SOURCE, PREDELAY, WIDTH, PSHAPE, ESPACE, ALLOCON };
+    enum { SIZE, DARK, GRIT, PUMP, GATE, DENS, FILT, LEVEL, MODEL, TUNE, SOURCE, PREDELAY, WIDTH, PSHAPE, ESPACE, ALLOCON, KEYFOLLOW };
     std::string id() const override { return "RUMBLE"; }
     bool instrument() const override { return true; }
     int latency() const override { return Pocket::kLatency; }
@@ -487,7 +527,8 @@ public:
                  pct ("width", "WIDTH", 0.3f),
                  pct ("pocket_shape", "POCKET SHAPE", 0.5f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 0),
-                 toggle ("alloc", "ALLOC", true) };
+                 toggle ("alloc", "ALLOC", true),
+                 toggle ("key_follow", "KEY FOLLOW", true) };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP RUMBLE ONE-SHOT (MODEL: SAMPLE)"; }
@@ -502,12 +543,23 @@ public:
         fdn.prepare (rate);
         for (auto& d : dly) d.prepare ((int) (rate * 3));
         for (auto& d : pre) d.prepare ((int) (rate * 1));
-        midiDelay.clear(); midiDelay.reserve (256);
+        os.prepare (rate, 2);
+        midiDelay.reserve (256);
         extras.reserve (256);
-        lastTrigPpq = -1e9;
+        reset();
+    }
+    void reset() override
+    {
+        out.reset();
+        fdn.clear();
+        for (auto& d : dly) d.clear();
+        for (auto& d : pre) d.clear();
+        os.reset();
         for (auto& f : lp) for (auto& x : f) x.reset();
         for (auto& f : hp) f.reset();
-        thumpT = 1e9; extras.clear();
+        midiDelay.clear(); extras.clear();
+        lastTrigPpq = -1e9;
+        thumpT = 1e9f; sinceTrig = 1e9f; droneLevel = 0.0f; gateZ = 0.0f;
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
     {
@@ -534,13 +586,18 @@ public:
         for (int k = 0; k < 2; ++k) { lp[k][0].set (darkHz, 0.5412f, sr); lp[k][1].set (darkHz, 1.3066f, sr); hp[k].set (26.0f, 0.7071f, sr); }
         const float grit = c.v (GRIT) + (model == 3 ? 0.6f : 0.0f);
         const float gateLen = c.v (GATE) >= 0.99f ? 1e9f : (float) ((0.1 + c.v (GATE) * 0.9) * c.samplesPerBeat());
-        const float tune = semis (c.v (TUNE));
+        // KEY: the thump (and SUB DRONE) lands on the SF CONTROL key root; TUNE moves from there.
+        float tuneSt = c.v (TUNE);
+        if (c.b (KEYFOLLOW) && c.keyRoot >= 0) tuneSt += keySnap (std::max (25.0f, lastF1), c.keyRoot);
+        const float tune = semis (tuneSt);
         const float width = c.v (WIDTH);
         const float dens = c.v (DENS);
         const double space = echoSpaceBeats (c.ci (ESPACE));
-        const auto smp = sample.get();
+        const SampleData* smp = sample.audio();
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
-        for (int i = 0; i < c.n; ++i)
+        float gates[Oversampler::kBlock];
+        const int n = std::min (c.n, Oversampler::kBlock);
+        for (int i = 0; i < n; ++i)
         {
             const double tq = c.ppqAt (i) - look;
             // Kick-bus triggers whose time has come on the delayed timeline.
@@ -564,8 +621,8 @@ public:
             {
                 if (model == 5 && smp != nullptr)
                 {
-                    const int idx = (int) sPos;
-                    if (idx + 1 < smp->length()) x = 0.5f * (smp->buf.getSample (0, idx) + smp->buf.getSample (1, idx)) * thumpVel;
+                    const int len = smp->length();
+                    if ((int) sPos + 2 < len) x = 0.5f * (hermiteAt (smp->buf.getReadPointer (0), len, sPos) + hermiteAt (smp->buf.getReadPointer (1), len, sPos)) * thumpVel;
                     sPos += tune;
                 }
                 else
@@ -608,14 +665,25 @@ public:
                 }
                 default: wl = wr = xp; break;
             }
-            if (grit > 0.001f) { const float g = 1.0f + grit * 8.0f; wl = fastTanh (wl * g) / std::sqrt (g); wr = fastTanh (wr * g) / std::sqrt (g); }
-            wl = hp[0].tickHP (lp[0][1].tickLP (lp[0][0].tickLP (wl)));
-            wr = hp[1].tickHP (lp[1][1].tickLP (lp[1][0].tickLP (wr)));
+            L[i] = wl; R[i] = wr;
             const float gt = sinceTrig < gateLen ? 1.0f : 0.0f;
             gateZ = gt + 0.998f * (gateZ - gt);
+            gates[i] = gateZ;
+        }
+        // GRIT, 2x oversampled.
+        if (grit > 0.001f)
+        {
+            const float g = 1.0f + grit * 8.0f, nrm = 1.0f / std::sqrt (g);
+            os.process (0, L, n, [g, nrm] (float x) { return fastTanh (x * g) * nrm; });
+            os.process (1, R, n, [g, nrm] (float x) { return fastTanh (x * g) * nrm; });
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            const float wl = hp[0].tickHP (lp[0][1].tickLP (lp[0][0].tickLP (L[i])));
+            const float wr = hp[1].tickHP (lp[1][1].tickLP (lp[1][0].tickLP (R[i])));
             const float m = 0.5f * (wl + wr), s = 0.5f * (wl - wr) * width;
-            L[i] = (m + s) * gateZ;
-            R[i] = (m - s) * gateZ;
+            L[i] = (m + s) * gates[i];
+            R[i] = (m - s) * gates[i];
         }
         out.process (c, io, FILT, -1, c.v (PUMP), c.v (PSHAPE), c.b (ALLOCON), LEVEL, false);
     }
@@ -636,6 +704,7 @@ private:
     }
     double sr = 48000.0;
     RoleOutput out;
+    Oversampler os;
     Fdn fdn;
     DelayLine dly[2], pre[1];
     Svf lp[2][2], hp[2];

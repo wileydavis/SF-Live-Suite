@@ -1,9 +1,11 @@
 #pragma once
 // SFEditor: one generic editor for every module.
-//   HEADER   SF <MODULE> | MODEL | SONG | STORE | LOAD | OUT meter
+//   HEADER   SF <MODULE> | MODEL | PRESET | SONG | STORE | LOAD | OUT meter (FAULT)
 //   PRIMARY  8 large controls (the E16 row / Live's device view)
 //   DISPLAY  module-drawn panel
-//   SECOND   remaining controls, 8 per row, then GLIDE / MACRO
+//   SECOND   remaining controls, 8 per row
+//   MOTION   M1 / M2 SOURCE, RATE, TARGET, DEPTH
+//   SYSTEM   SLOW, MACRO SRC, MACRO AMT
 #include "Processor.h"
 #include "Ui.h"
 #include "Sample.h"
@@ -42,18 +44,22 @@ public:
     void fileDragEnter (const juce::StringArray&, int, int) override { dragHover = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { dragHover = false; repaint(); }
 
-    static constexpr int kW = 928, kHeader = 40, kPrimaryH = 128, kSecondH = 92, kCols = 8, kMargin = 16;
+    static constexpr int kW = 928, kHeader = 40, kPrimaryH = 128, kSecondH = 92, kCols = 8, kMargin = 16, kSystemTitle = 16;
 
 private:
     void timerCallback() override;
     juce::Rectangle<int> displayArea() const;
+    int systemTop() const;
+    void showPresetMenu();
+    void updatePresetLabel();
 
     SFProcessor& proc;
     SFLookAndFeel lnf;
-    std::vector<std::unique_ptr<SFCell>> primary, secondary;
+    std::vector<std::unique_ptr<SFCell>> primary, secondary, motionCells, systemCells;
     juce::ComboBox modelBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modelAttach;
-    juce::TextButton storeButton { "STORE" }, loadButton { "LOAD" };
+    juce::TextButton storeButton { "STORE" }, loadButton { "LOAD" }, presetButton { "PRESET" };
+    juce::Array<juce::File> userFiles;
     std::unique_ptr<juce::FileChooser> chooser;
     bool dragHover = false;
     int numSecondRows = 0;

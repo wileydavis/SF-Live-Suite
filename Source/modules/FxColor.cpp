@@ -1,5 +1,6 @@
 // DRIVE, RADIO, DUCK, ENERGY
 #include "Kit.h"
+#include "../core/Oversample.h"
 
 namespace sf
 {
@@ -29,7 +30,17 @@ public:
         dryDelay.setSize (2, mb);
         for (auto& d : dryLine) d.prepare (64);
         inF.set (0.05f, 0.4f, rate); outF.set (0.05f, 0.4f, rate);
+        reset();
+    }
+    void reset() override
+    {
+        if (os) os->reset();
+        for (auto& d : dryLine) d.clear();
         for (auto& x : xo) x.reset();
+        for (auto& x : xoDry) x.reset();
+        for (auto& t : tilt) for (auto& b : t) b.reset();
+        inF.z = outF.z = 0.0f;
+        autoG = autoGPrev = 1.0f;
     }
     static float shape (float x, float ch, float bias)
     {
@@ -147,7 +158,8 @@ public:
                  knob ("crush", "CRUSH", 4.0f, 16.0f, 16.0f, "bit"),
                  knob ("rate", "RATE", 2000.0f, 48000.0f, 48000.0f, "Hz", 12000.0f) };
     }
-    void prepare (double rate, int) override { sr = rate; for (auto& b : bp) for (auto& f : b) f.reset(); dropLeft = 0; burst = 0; }
+    void prepare (double rate, int) override { sr = rate; reset(); }
+    void reset() override { for (auto& b : bp) for (auto& f : b) f.reset(); sqf.reset(); dropLeft = 0; burst = 0; gz = 1.0f; held[0] = held[1] = 0.0f; }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const float sig = c.v (SIGNAL), mix = c.v (MIX);
@@ -219,6 +231,7 @@ public:
     }
     int latency() const override { return Pocket::kLatency; }
     void prepare (double rate, int mb) override { sr = rate; pocket.prepare (rate, mb); gz = 1.0f; }
+    void reset() override { pocket.reset(); gz = 1.0f; }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>* side, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const int src = c.ci (SOURCE);
@@ -274,8 +287,16 @@ public:
     {
         sr = rate; filt.prepare (rate); fdn.prepare (rate);
         for (auto& d : echo) d.prepare ((int) (rate * 2));
-        for (auto& f : echoLp) f.reset();
+        os.prepare (rate, 2);
         juce::ignoreUnused (mb);
+        reset();
+    }
+    void reset() override
+    {
+        filt.reset(); fdn.clear(); os.reset();
+        for (auto& d : echo) d.clear();
+        for (auto& f : echoLp) f.reset();
+        echoFb[0] = echoFb[1] = 0.0f; chopZ = 1.0f; fdnActive = false;
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
@@ -294,8 +315,8 @@ public:
         const float drv = up * c.v (DRIVEAMT);
         if (drv > 0.001f)
         {
-            const float gIn = 1.0f + drv * 6.0f, comp = 1.0f / (1.0f + drv * 2.0f);
-            for (int k = 0; k < 2; ++k) { auto* x = io.getWritePointer (k); for (int i = 0; i < n; ++i) x[i] = fastTanh (x[i] * gIn) * comp * 1.4f; }
+            const float gIn = 1.0f + drv * 6.0f, comp = 1.4f / (1.0f + drv * 2.0f);
+            for (int k = 0; k < 2; ++k) os.process (k, io.getWritePointer (k), n, [gIn, comp] (float x) { return fastTanh (x * gIn) * comp; });
         }
         filt.process (io.getArrayOfWritePointers(), 2, n, mapKnob (c.v0 (ENERGY)), mapKnob (c.v (ENERGY)), c.v (RES) * (0.4f + 0.6f * up));
         // Space (down side) and echo (up side).
@@ -336,6 +357,7 @@ public:
 private:
     double sr = 48000.0;
     DJFilter filt;
+    Oversampler os;
     Fdn fdn;
     bool fdnActive = false;
     DelayLine echo[2];

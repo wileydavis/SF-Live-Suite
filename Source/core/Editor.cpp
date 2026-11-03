@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include <map>
 
 using namespace sf;
 
@@ -96,6 +97,8 @@ public:
     {
         const auto& s = p.allSpecs()[(size_t) idx];
         name = s.name;
+        if (s.id == "m1_src") motionIndex = 0;
+        if (s.id == "m2_src") motionIndex = 1;
         auto& ap = p.apvts;
         if (s.type == PType::Float)
         {
@@ -152,13 +155,40 @@ public:
             const bool hot = slider->isMouseButtonDown() || juce::Time::getMillisecondCounter() < hotUntil;
             ui::label (g, prm->getCurrentValueAsText(), r.removeFromBottom (16.0f), hot ? ui::kAccent : ui::kText,
                        large ? 12.0f : 10.5f, juce::Justification::centred);
-            // Glide target marker: shows where a gliding value is heading.
+            // Glide target marker: shows where a gliding (SLOW) value is heading.
             const float target = prm->getValue();
-            const float now = prm->convertTo0to1 (proc.currentValue (idx));
+            const float now = prm->convertTo0to1 (proc.baseValue (idx));
             if (std::abs (target - now) > 0.01f)
                 ui::label (g, "GLIDE " + juce::String (juce::roundToInt (now * 100)) + ">" + juce::String (juce::roundToInt (target * 100)),
                            getLocalBounds().toFloat().removeFromBottom (30.0f).removeFromTop (14.0f), ui::kGreen, 9.0f, juce::Justification::centred);
         }
+        if (motionIndex >= 0 && proc.currentValue (idx) > 0.5f)
+        {
+            // MOTION source: live output of the modulator.
+            const float m = proc.motionValue (motionIndex);
+            auto bar = getLocalBounds().toFloat().removeFromBottom (14.0f).reduced (10.0f, 4.0f);
+            g.setColour (ui::kTrack);
+            g.fillRect (bar);
+            const float cx = bar.getCentreX(), x = cx + juce::jlimit (-1.0f, 1.0f, m) * bar.getWidth() * 0.5f;
+            g.setColour (ui::kGreen);
+            g.fillRect (juce::Rectangle<float> (std::min (cx, x), bar.getY(), std::max (1.0f, std::abs (x - cx)), bar.getHeight()));
+        }
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        // MACRO / MOTION: a dot on the ring where the value really is.
+        if (slider == nullptr || ! proc.isModulated (idx)) return;
+        auto* prm = proc.param (idx);
+        const auto r = slider->getBounds().toFloat().reduced (4.0f);
+        const float radius = std::min (r.getWidth(), r.getHeight()) * 0.5f;
+        const float thick = std::max (2.0f, radius * 0.12f);
+        const float start = juce::degreesToRadians (225.0f), end = juce::degreesToRadians (495.0f);
+        const float a = start + prm->convertTo0to1 (proc.currentValue (idx)) * (end - start);
+        const auto c = r.getCentre();
+        const float rr = radius - thick;
+        g.setColour (ui::kGreen);
+        g.fillEllipse (c.x + rr * std::sin (a) - thick, c.y - rr * std::cos (a) - thick, thick * 2.0f, thick * 2.0f);
     }
 
     void resized() override
@@ -177,6 +207,7 @@ private:
             slider->getProperties().set ("hot", juce::Time::getMillisecondCounter() < hotUntil);
             repaint();
         }
+        else if (motionIndex >= 0) repaint();
     }
 
     SFProcessor& proc;
@@ -184,6 +215,7 @@ private:
     bool large;
     juce::String name;
     bool wasDown = false;
+    int motionIndex = -1;
     juce::uint32 hotUntil = 0;
     std::unique_ptr<juce::Slider> slider;
     std::unique_ptr<juce::ComboBox> box;
@@ -199,13 +231,16 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     setLookAndFeel (&lnf);
     const auto& specs = p.allSpecs();
     int modelIdx = -1;
+    const int firstSys = p.numModuleParams();
     for (int i = 0; i < (int) specs.size(); ++i)
     {
         if (specs[(size_t) i].id == "model") { modelIdx = i; continue; }
         if (specs[(size_t) i].hidden) continue;
-        auto cell = std::make_unique<SFCell> (p, i, specs[(size_t) i].primary);
+        auto cell = std::make_unique<SFCell> (p, i, specs[(size_t) i].primary && i < firstSys);
         addAndMakeVisible (*cell);
-        (specs[(size_t) i].primary ? primary : secondary).push_back (std::move (cell));
+        if (i >= firstSys + SFProcessor::SYS_M1_SRC) motionCells.push_back (std::move (cell));
+        else if (i >= firstSys) systemCells.push_back (std::move (cell));
+        else (specs[(size_t) i].primary ? primary : secondary).push_back (std::move (cell));
     }
     if (modelIdx >= 0)
     {
@@ -215,6 +250,8 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     }
     storeButton.onClick = [this] { proc.storeSong(); };
     addAndMakeVisible (storeButton);
+    presetButton.onClick = [this] { showPresetMenu(); };
+    addAndMakeVisible (presetButton);
     if (p.mod().acceptsFiles())
     {
         loadButton.onClick = [this]
@@ -232,7 +269,7 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     }
     numSecondRows = (int) (secondary.size() + kCols - 1) / kCols;
     const int dh = p.mod().displayHeight();
-    setSize (kW, kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0) + numSecondRows * kSecondH + kMargin);
+    setSize (kW, kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0) + numSecondRows * kSecondH + kSystemTitle + 2 * kSecondH + kMargin);
     startTimerHz (30);
 }
 
@@ -251,22 +288,33 @@ void SFEditor::paint (juce::Graphics& g)
     auto hdr = getLocalBounds().removeFromTop (kHeader).toFloat();
     g.setColour (ui::kLine);
     g.drawHorizontalLine (kHeader - 1, 0.0f, (float) getWidth());
-    ui::label (g, "SF " + juce::String (proc.mod().id()), hdr.withTrimmedLeft ((float) kMargin).withWidth (200), ui::kText, 16.0f);
+    ui::label (g, "SF " + juce::String (proc.mod().id()), hdr.withTrimmedLeft ((float) kMargin).withWidth (140), ui::kText, 15.0f);
 
     // Song indicator.
     const int s = proc.activeSong();
     const juce::String song = s < 0 ? "SONG --" : "SONG " + juce::String (s + 1).paddedLeft ('0', 2) + (proc.songStored (s) ? "" : " EMPTY");
-    ui::label (g, song + (proc.recallWaiting() ? " WAIT BAR" : ""), { 470.0f, 0.0f, 170.0f, (float) kHeader },
-               proc.recallWaiting() ? ui::kGreen : ui::kDim, 11.0f);
+    ui::label (g, song + (proc.recallWaiting() ? " WAIT" : ""), { 556.0f, 0.0f, 118.0f, (float) kHeader },
+               proc.recallWaiting() ? ui::kGreen : ui::kDim, 10.0f);
 
-    // Output meter.
-    juce::Rectangle<float> m ((float) getWidth() - 150.0f, 15.0f, 110.0f, 8.0f);
+    // Output meter. FAULT (red): the safety stage had to reset the module (NaN or runaway).
+    juce::Rectangle<float> m ((float) getWidth() - 132.0f, 15.0f, 80.0f, 8.0f);
     ui::levelBar (g, m, proc.outMeter.peak);
-    ui::label (g, "OUT", m.withX (m.getRight() + 6).withWidth (30).withHeight (8), proc.clipped.load() ? ui::kRed : ui::kFaint, 9.0f);
+    const bool flt = proc.fault.load();
+    ui::label (g, flt ? "FAULT" : "OUT", m.withX (m.getRight() + 5).withWidth (44).withHeight (8),
+               flt || proc.clipped.load() ? ui::kRed : ui::kFaint, 9.0f);
 
     // Primary row frame.
     g.setColour (ui::kLine);
     g.drawHorizontalLine (kHeader + kPrimaryH, 0.0f, (float) getWidth());
+
+    // SYSTEM section title.
+    {
+        const int y = systemTop();
+        g.setColour (ui::kLine);
+        g.drawHorizontalLine (y, 0.0f, (float) getWidth());
+        ui::label (g, "MOTION", { (float) kMargin, (float) y + 2.0f, 200.0f, 14.0f }, ui::kFaint, 10.0f);
+        ui::label (g, "SYSTEM", { (float) kMargin, (float) (y + kSystemTitle + kSecondH) - 2.0f, 200.0f, 14.0f }, ui::kFaint, 10.0f);
+    }
 
     if (auto d = displayArea(); ! d.isEmpty())
     {
@@ -287,10 +335,11 @@ void SFEditor::paint (juce::Graphics& g)
 
 void SFEditor::resized()
 {
-    int x = kMargin + 220;
-    if (modelBox.isVisible()) { modelBox.setBounds (x, 8, 220, 24); }
-    storeButton.setBounds (640, 8, 64, 24);
-    loadButton.setBounds (710, 8, 56, 24);
+    int x = kMargin + 134;
+    if (modelBox.isVisible()) { modelBox.setBounds (x, 8, 180, 24); x += 188; }
+    presetButton.setBounds (x, 8, 548 - x, 24);
+    storeButton.setBounds (676, 8, 56, 24);
+    loadButton.setBounds (736, 8, 48, 24);
     const int cw = (getWidth() - 2 * kMargin) / kCols;
     for (size_t i = 0; i < primary.size(); ++i)
         primary[i]->setBounds (kMargin + (int) i * cw, kHeader + 6, cw, kPrimaryH - 10);
@@ -298,13 +347,93 @@ void SFEditor::resized()
     const int y0 = kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0);
     for (size_t i = 0; i < secondary.size(); ++i)
         secondary[i]->setBounds (kMargin + (int) (i % kCols) * cw, y0 + (int) (i / kCols) * kSecondH + 4, cw, kSecondH - 6);
+    const int ys = systemTop() + kSystemTitle;
+    for (size_t i = 0; i < motionCells.size(); ++i)
+        motionCells[i]->setBounds (kMargin + (int) (i % kCols) * cw, ys + (int) (i / kCols) * kSecondH, cw, kSecondH - 6);
+    for (size_t i = 0; i < systemCells.size(); ++i)
+        systemCells[i]->setBounds (kMargin + (int) (i % kCols) * cw, ys + kSecondH + 6, cw, kSecondH - 6);
+}
+
+int SFEditor::systemTop() const
+{
+    const int dh = proc.mod().displayHeight();
+    return kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0) + numSecondRows * kSecondH + 4;
+}
+
+void SFEditor::showPresetMenu()
+{
+    juce::PopupMenu menu;
+    const auto& fac = proc.factoryPresets();
+    // "GROUP/NAME" puts a preset in a sub-menu (groups in first-seen order).
+    std::map<juce::String, juce::PopupMenu> groups;
+    std::vector<juce::String> order;
+    juce::PopupMenu loose;
+    for (size_t i = 0; i < fac.size(); ++i)
+    {
+        const juce::String nm (fac[i].name);
+        const int slash = nm.indexOfChar ('/');
+        const bool current = nm == proc.presetName();
+        if (slash > 0)
+        {
+            const auto grp = nm.substring (0, slash);
+            if (groups.find (grp) == groups.end()) order.push_back (grp);
+            groups[grp].addItem (1 + (int) i, nm.substring (slash + 1), true, current);
+        }
+        else loose.addItem (1 + (int) i, nm, true, current);
+    }
+    if (! fac.empty())
+    {
+        menu.addSectionHeader ("FACTORY");
+        for (auto& grp : order) menu.addSubMenu (grp, groups[grp]);
+        for (juce::PopupMenu::MenuItemIterator it (loose); it.next();) menu.addItem (it.getItem());
+    }
+    userFiles = proc.userPresets();
+    if (! userFiles.isEmpty())
+    {
+        menu.addSectionHeader ("USER");
+        for (int i = 0; i < userFiles.size(); ++i) menu.addItem (1000 + i, userFiles[i].getFileNameWithoutExtension());
+    }
+    menu.addSeparator();
+    menu.addItem (2000, "SAVE USER PRESET...");
+    menu.addItem (2001, "SHOW PRESET FOLDER");
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (presetButton), [this] (int r)
+    {
+        const auto& f = proc.factoryPresets();
+        if (r >= 1 && r <= (int) f.size()) proc.applyPreset (f[(size_t) r - 1]);
+        else if (r >= 1000 && r < 1000 + userFiles.size()) proc.loadUserPreset (userFiles[r - 1000]);
+        else if (r == 2000)
+        {
+            auto* w = new juce::AlertWindow ("SAVE USER PRESET", "NAME", juce::MessageBoxIconType::NoIcon);
+            w->addTextEditor ("name", proc.presetName().isEmpty() ? juce::String ("USER 01") : proc.presetName());
+            w->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            w->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            juce::Component::SafePointer<SFEditor> safe (this);
+            w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int res)
+            {
+                if (res == 1 && safe != nullptr) safe->proc.saveUserPreset (w->getTextEditorContents ("name"));
+            }), true);
+        }
+        else if (r == 2001)
+        {
+            auto folder = proc.userPresetFolder();
+            folder.createDirectory();
+            folder.revealToUser();
+        }
+        updatePresetLabel();
+    });
+}
+
+void SFEditor::updatePresetLabel()
+{
+    const auto nm = proc.presetName();
+    presetButton.setButtonText (nm.isEmpty() ? juce::String ("PRESET") : "PRESET  " + nm.fromLastOccurrenceOf ("/", false, false));
 }
 
 void SFEditor::mouseDown (const juce::MouseEvent& e)
 {
     if (auto d = displayArea(); d.contains (e.getPosition()))
         proc.mod().displayMouse (e.position, d.toFloat(), true);
-    if (e.y < kHeader && e.x > getWidth() - 160) proc.clipped = false;
+    if (e.y < kHeader && e.x > getWidth() - 140) { proc.clipped = false; proc.fault = false; }
 }
 
 void SFEditor::mouseUp (const juce::MouseEvent&) { proc.mod().displayMouseUp(); }
@@ -331,4 +460,10 @@ void SFEditor::filesDropped (const juce::StringArray& files, int, int)
     repaint();
 }
 
-void SFEditor::timerCallback() { repaint (0, 0, getWidth(), kHeader); if (auto d = displayArea(); ! d.isEmpty()) repaint (d); }
+void SFEditor::timerCallback()
+{
+    if (presetButton.getButtonText() != (proc.presetName().isEmpty() ? juce::String ("PRESET") : "PRESET  " + proc.presetName().fromLastOccurrenceOf ("/", false, false)))
+        updatePresetLabel();
+    repaint (0, 0, getWidth(), kHeader);
+    if (auto d = displayArea(); ! d.isEmpty()) repaint (d);
+}

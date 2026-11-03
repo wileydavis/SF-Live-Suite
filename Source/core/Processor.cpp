@@ -1,9 +1,17 @@
 #include "Processor.h"
 #include "Editor.h"
+#include "Registry.h"
 #include <chrono>
 #include <cstring>
+#include <random>
 
 using namespace sf;
+
+static double posMod (double x, double m)
+{
+    const double r = std::fmod (x, m);
+    return r < 0.0 ? r + m : r;
+}
 
 juce::AudioProcessor::BusesProperties SFProcessor::busesFor (const Module& m)
 {
@@ -20,23 +28,45 @@ juce::AudioProcessor::BusesProperties SFProcessor::busesFor (const Module& m)
     return b;
 }
 
-static std::vector<ParamSpec> withSystem (std::vector<ParamSpec> s)
+// MOTION can move any visible continuous parameter of the module.
+static std::vector<int> motionTargetsFor (const std::vector<ParamSpec>& p)
 {
-    auto g = choice ("slow", "SLOW", SFProcessor::glideNames(), 0); g.song = false;
-    auto ms = choice ("macro_src", "MACRO SRC", { "OFF", "MACRO 1", "MACRO 2", "MACRO 3", "MACRO 4", "MACRO 5", "MACRO 6" }, 0); ms.song = false;
-    auto ma = knob ("macro_amt", "MACRO AMT", -1.0f, 1.0f, 0.5f, "%"); ma.song = false; ma.glide = false;
+    std::vector<int> t;
+    for (size_t i = 0; i < p.size(); ++i)
+        if (p[i].type == PType::Float && ! p[i].hidden) t.push_back ((int) i);
+    return t;
+}
+
+static std::vector<ParamSpec> withSystem (std::vector<ParamSpec> s, bool instrument, const std::vector<int>& targets)
+{
+    std::vector<std::string> tnames { "OFF" };
+    for (int i : targets) tnames.push_back (s[(size_t) i].name);
+    auto g = choice ("slow", "SLOW", SFProcessor::glideNames(), 0); g.song = false; g.preset = false;
+    auto ms = choice ("macro_src", "MACRO SRC", { "OFF", "MACRO 1", "MACRO 2", "MACRO 3", "MACRO 4", "MACRO 5", "MACRO 6" }, 0); ms.song = false; ms.preset = false;
+    auto ma = knob ("macro_amt", "MACRO AMT", -1.0f, 1.0f, 0.5f, "%"); ma.song = false; ma.glide = false; ma.preset = false;
     s.push_back (g); s.push_back (ms); s.push_back (ma);
+    for (int k = 1; k <= SFProcessor::kMotions; ++k)
+    {
+        const std::string id = "m" + std::to_string (k), nm = "M" + std::to_string (k);
+        s.push_back (choice ((id + "_src").c_str(), (nm + " SOURCE").c_str(), motionSourceNames (instrument), 0));
+        s.push_back (choice ((id + "_rate").c_str(), (nm + " RATE").c_str(), motionRateNames(), 4));
+        s.push_back (choice ((id + "_target").c_str(), (nm + " TARGET").c_str(), tnames, 0));
+        auto dp = knob ((id + "_depth").c_str(), (nm + " DEPTH").c_str(), -1.0f, 1.0f, 0.0f, "%");
+        dp.glide = false;
+        s.push_back (dp);
+    }
     return s;
 }
 
 SFProcessor::SFProcessor (ModulePtr m)
     : juce::AudioProcessor (busesFor (*m)),
       module (std::move (m)),
-      specs (withSystem (module->params())),
+      motionTargets (motionTargetsFor (module->params())),
+      specs (withSystem (module->params(), module->instrument(), motionTargets)),
       numModParams ((int) module->params().size()),
       apvts (*this, nullptr, "PARAMS", makeLayout())
 {
-    jassert (specs.size() <= 96);
+    jassert (specs.size() <= (size_t) kMaxParams);
     for (auto& s : specs)
     {
         params.push_back (apvts.getParameter (s.id));
@@ -46,10 +76,12 @@ SFProcessor::SFProcessor (ModulePtr m)
     prev.resize (specs.size());
     base.resize (specs.size());
     macroOff.assign (specs.size(), 0.0f);
+    modAmt.assign (specs.size(), 0.0f);
     ovr.assign (specs.size(), NAN);
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
+    for (auto& o : motionOut) o = 0.0f;
 
     module->setParam = [this] (int i, float v)
     {
@@ -61,11 +93,21 @@ SFProcessor::SFProcessor (ModulePtr m)
     };
     module->getParam = [this] (int i) { return i >= 0 && i < (int) raw.size() ? raw[(size_t) i]->load() : 0.0f; };
     glideFrom.assign (specs.size(), 0.0f); glideTo.assign (specs.size(), NAN); glideElapsed.assign (specs.size(), 0.0);
+    std::random_device rd;
+    motionSeed = (uint32_t) rd() | 1u;
+    factory = sf::factoryPresets (module->id());
+    chunkMidi.ensureSize (8192);
     sf::Bus::get();     // map the shared bus here, not on the audio thread
     startTimerHz (30);
 }
 
 SFProcessor::~SFProcessor() { stopTimer(); }
+
+int SFProcessor::paramIndex (const std::string& id) const
+{
+    for (size_t i = 0; i < specs.size(); ++i) if (specs[i].id == id) return (int) i;
+    return -1;
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout SFProcessor::makeLayout()
 {
@@ -129,13 +171,15 @@ bool SFProcessor::isBusesLayoutSupported (const BusesLayout& l) const
     return true;
 }
 
-void SFProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void SFProcessor::prepareToPlay (double sampleRate, int)
 {
     sr = sampleRate;
-    module->prepare (sampleRate, samplesPerBlock);
+    module->prepare (sampleRate, kChunk);
     setLatencySamples (module->latency());
-    extraScratch.setSize (2 * std::max<int> (1, (int) module->extraOutputs().size()), samplesPerBlock);
-    sideScratch.setSize (2, samplesPerBlock);
+    extraScratch.setSize (2 * std::max<int> (1, (int) module->extraOutputs().size()), kChunk);
+    chunkMidi.ensureSize (8192);
+    for (int k = 0; k < kMotions; ++k) motion[(size_t) k].prepare (sr, motionSeed + 0x9E3779B9u * (uint32_t) k);
+    overSamples = 0;
     firstBlock = true;
 }
 
@@ -176,24 +220,31 @@ void SFProcessor::flushHostNotifications()
 void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    const int n = buffer.getNumSamples();
+    const int total = buffer.getNumSamples();
     auto& bus = sf::Bus::get();
+    auto& d = bus.d();
 
-    // Transport. When stopped, a wall clock stands in so tempo-synced motion keeps running
-    // and every SF plugin agrees on the beat.
+    // Transport, once per host block. When stopped, an internal clock stands in so tempo-synced
+    // motion keeps running and every SF plugin agrees on the beat.
     Ctx c;
-    c.sr = sr; c.n = n; c.bus = &bus;
+    c.sr = sr; c.bus = &bus;
     c.trackName = trackName; c.trackNameSeq = trackNameSeq.load();
     c.bpm = lastBpm;
     bool havePos = false;
+    double ppq0 = 0.0;
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
         {
             if (auto b = pos->getBpm()) { c.bpm = juce::jlimit (20.0, 400.0, *b); lastBpm = c.bpm; }
-            if (auto ts = pos->getTimeSignature()) c.beatsPerBar = ts->numerator * 4.0 / std::max (1, ts->denominator);
+            if (auto ts = pos->getTimeSignature()) c.beatsPerBar = juce::jlimit (0.5, 32.0, ts->numerator * 4.0 / std::max (1, ts->denominator));
             c.playing = pos->getIsPlaying();
             if (c.playing)
-                if (auto q = pos->getPpqPosition()) { c.ppq = *q; havePos = true; }
+                if (auto q = pos->getPpqPosition())
+                {
+                    ppq0 = *q;
+                    havePos = true;
+                    if (auto lb = pos->getPpqPositionOfLastBarStart()) barPhase = posMod (*lb, c.beatsPerBar);
+                }
         }
     if (! havePos)
     {
@@ -204,16 +255,22 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
             using namespace std::chrono;
             const double secs = duration<double> (steady_clock::now().time_since_epoch()).count();
             internalPpq = std::fmod (secs, 3600.0) * c.bpm / 60.0;
-            clockAnchored = true;
         }
-        c.ppq = internalPpq;
+        ppq0 = internalPpq;
     }
-    internalPpq = c.ppq + n * c.beatsPerSample();
+    const double bps = c.beatsPerSample();
+    internalPpq = ppq0 + total * bps;
     clockAnchored = true;
+    const int key = d.keyRoot.load();
+    c.keyRoot = key >= 0 && key < 12 ? key : -1;
 
-    // Song recall + store requests from SF CONTROL (or this plugin's STORE button).
-    auto& d = bus.d();
-    if (! seqInit) { lastSongSeq = d.songSeq.load(); lastStoreSeq = d.storeSeq.load(); seqInit = true; if (songIndex.load() < 0) songIndex = d.song.load(); }
+    // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
+    if (! seqInit)
+    {
+        lastSongSeq = d.songSeq.load(); lastStoreSeq = d.storeSeq.load(); lastPanicSeq = d.panicSeq.load();
+        seqInit = true;
+        if (songIndex.load() < 0) songIndex = d.song.load();
+    }
     if (d.songSeq.load() != lastSongSeq)
     {
         lastSongSeq = d.songSeq.load();
@@ -229,26 +286,75 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         for (size_t i = 0; i < specs.size(); ++i) songVals[(size_t) s][i] = raw[i]->load();
         songHas[(size_t) s] = true;
     }
-    if (const int ps = pendingSong.load(); ps >= 0)
+    bool panicNow = localPanic.exchange (false);
+    if (const uint32_t ps = d.panicSeq.load(); ps != lastPanicSeq) { lastPanicSeq = ps; panicNow = true; }
+
+    auto mainOut = getBusBuffer (buffer, false, 0);
+    juce::AudioBuffer<float> sideAll;
+    juce::AudioBuffer<float>* side = nullptr;
+    const int sideBus = module->instrument() ? 0 : 1;
+    if (module->sidechain() && getBusCount (true) > sideBus && getBus (true, sideBus)->isEnabled())
     {
-        // On the next bar line while playing, at once when stopped.
-        const double bar = c.beatsPerBar;
-        const double next = std::ceil (c.ppq / bar - 1e-9) * bar;
-        if (! c.playing || (next - c.ppq) * c.samplesPerBeat() < n)
-        {
-            applySong (ps);
-            pendingSong = -1;
-        }
+        sideAll = getBusBuffer (buffer, true, sideBus);
+        if (sideAll.getNumChannels() > 0) side = &sideAll;
     }
 
-    // Parameter values: target -> macro -> glide or smoothing.
+    for (int start = 0; start < total;)
+    {
+        int n = std::min (kChunk, total - start);
+        c.ppq = ppq0 + start * bps;
+        if (const int ps = pendingSong.load(); ps >= 0)
+        {
+            // Recall exactly on the bar line while playing (the chunk is cut there), at once when stopped.
+            if (! c.playing) { applySong (ps); pendingSong = -1; }
+            else
+            {
+                const double spb = c.samplesPerBeat();
+                const double inBar = posMod (c.ppq - barPhase, c.beatsPerBar);
+                if (inBar * spb < 1.0 - 1e-6) { applySong (ps); pendingSong = -1; }
+                else n = std::max (1, std::min (n, (int) std::ceil ((c.beatsPerBar - inBar) * spb - 1e-9)));
+            }
+        }
+        c.n = n;
+        processChunk (buffer, mainOut, side, start, n, c, midi, panicNow && start == 0, start + n >= total);
+        start += n;
+    }
+    firstBlock = false;
+
+    outMeter.push (mainOut.getArrayOfReadPointers(), mainOut.getNumChannels(), total);
+    if (outMeter.peak > 0.999f) clipped = true;
+    // Clear any remaining output channels (unused buses).
+    if (module->extraOutputs().empty())
+        for (int ch = mainOut.getNumChannels(); ch < getTotalNumOutputChannels(); ++ch)
+            buffer.clear (ch, 0, total);
+}
+
+void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
+{
+    const auto& d = c.bus->d();
     const int glideIdx = numModParams + SYS_GLIDE;
     const double gBars = glideBars ((int) raw[(size_t) glideIdx]->load());
     const int mSrc = (int) raw[(size_t) (numModParams + SYS_MACRO_SRC)]->load();
     const float mAmt = raw[(size_t) (numModParams + SYS_MACRO_AMT)]->load();
-    const float macro = mSrc > 0 ? d.macro[mSrc - 1].load() : 0.0f;
+    const float macro = mSrc > 0 && mSrc <= kMacros ? d.macro[mSrc - 1].load() : 0.0f;
     const float smooth = std::exp (-(float) n / (float) (0.03 * sr));
-    const double blockBeats = n * c.beatsPerSample();
+    const double chunkBeats = n * c.beatsPerSample();
+
+    // MOTION, evaluated at the end of this chunk (the module ramps from the previous value).
+    std::fill (modAmt.begin(), modAmt.end(), 0.0f);
+    const double ppqEnd = c.ppq + chunkBeats;
+    for (int k = 0; k < kMotions; ++k)
+    {
+        const size_t base0 = (size_t) (numModParams + SYS_M1_SRC + k * 4);
+        const int src = (int) std::lround (cur[base0]);
+        if (src <= MOT_OFF || src >= kNumMotionSrc) { motion[(size_t) k].reset(); motionOut[(size_t) k] = 0.0f; continue; }
+        const float m = motion[(size_t) k].tick (src, (int) std::lround (cur[base0 + 1]), c, ppqEnd, n, motionInput);
+        motionOut[(size_t) k] = m;
+        const int tgt = (int) std::lround (cur[base0 + 2]);
+        if (tgt <= 0 || tgt > (int) motionTargets.size()) continue;
+        modAmt[(size_t) motionTargets[(size_t) tgt - 1]] += cur[base0 + 3] * m;
+    }
+
     for (size_t i = 0; i < specs.size(); ++i)
     {
         const auto& s = specs[i];
@@ -260,7 +366,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
             if (std::abs (t - ovr[i]) < 1e-4f * (1.0f + std::abs (t)) || (ovrAge[i] += n) > (int) (3.0 * sr)) ovr[i] = NAN;
             else t = ovr[i];
         }
-        if (s.type != PType::Float) { cur[i] = t; continue; }
+        if (s.type != PType::Float) { cur[i] = t; base[i] = t; continue; }
         const float range = s.max - s.min;
         // SLOW: performance-row knobs travel to a new setting over exactly N bars, however far.
         if (gBars > 0.0 && s.glide && s.primary && (int) i < numModParams && ! firstBlock)
@@ -271,7 +377,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
                 glideTo[i] = t;
                 glideElapsed[i] = 0.0;
             }
-            glideElapsed[i] += blockBeats;
+            glideElapsed[i] += chunkBeats;
             const double total = gBars * c.beatsPerBar;
             const float k = (float) std::min (1.0, glideElapsed[i] / total);
             base[i] = glideFrom[i] + (glideTo[i] - glideFrom[i]) * k;
@@ -281,78 +387,129 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
             glideTo[i] = NAN;
             base[i] = firstBlock ? t : t + smooth * (base[i] - t);
         }
-        // MACRO is added after the glide, so macro moves stay immediate.
-        float v = base[i];
+        // MACRO and MOTION act on the knob's travel (normalised, skew included), after the glide,
+        // so they stay immediate and move a frequency knob as evenly as the hand does.
+        float off = modAmt[i];
         if (s.macroDir != 0 && (int) i < numModParams)
         {
-            macroOff[i] = (macro * mAmt * (float) s.macroDir * range) + smooth * (macroOff[i] - macro * mAmt * (float) s.macroDir * range);
-            v = juce::jlimit (s.min, s.max, v + macroOff[i]);
+            const float target = macro * mAmt * (float) s.macroDir;
+            macroOff[i] = target + smooth * (macroOff[i] - target);
+            off += macroOff[i];
         }
-        cur[i] = v;
+        float v = base[i];
+        if (off != 0.0f)
+        {
+            auto* p = params[i];
+            v = p->convertFrom0to1 (clamp01 (p->convertTo0to1 (v) + off));
+        }
+        cur[i] = juce::jlimit (s.min, s.max, v);
     }
-    firstBlock = false;
-    c.p = cur.data();
-    c.p0 = prev.data();
+}
 
-    // Buses
-    auto mainOut = getBusBuffer (buffer, false, 0);
+void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
+                                int start, int n, Ctx& c, const juce::MidiBuffer& midi, bool panicNow, bool lastChunk)
+{
+    const int numMain = std::min (2, mainOut.getNumChannels());
+    if (numMain == 0) return;
+
+    // Views into the host buffers (AudioBuffer keeps up to 32 channel pointers inline: no allocation).
+    float* mp[2] = { mainOut.getWritePointer (0, start), mainOut.getWritePointer (numMain - 1, start) };
+    mainView.setDataToReferTo (mp, numMain, n);
     juce::AudioBuffer<float>* side = nullptr;
-    juce::AudioBuffer<float> sideView;
-    const int sideBus = module->instrument() ? 0 : 1;
-    if (module->sidechain() && getBusCount (true) > sideBus && getBus (true, sideBus)->isEnabled())
+    if (sideAll != nullptr)
     {
-        sideView = getBusBuffer (buffer, true, sideBus);
-        if (sideView.getNumChannels() > 0) side = &sideView;
+        const int ns = std::min (2, sideAll->getNumChannels());
+        float* sp[2] = { sideAll->getWritePointer (0, start), sideAll->getWritePointer (ns - 1, start) };
+        sideView.setDataToReferTo (sp, ns, n);
+        side = &sideView;
     }
-    juce::AudioBuffer<float>* extra = nullptr;
-    juce::AudioBuffer<float> extraView;
     const int numExtra = (int) module->extraOutputs().size();
+    juce::AudioBuffer<float>* extra = nullptr;
     if (numExtra > 0)
     {
-        // Gather enabled extra outputs into one buffer view (2 channels each); disabled ones use scratch.
-        extraScratch.setSize (2 * numExtra, n, false, false, true);
-        extraScratch.clear();
-        extra = &extraScratch;
+        float* ep[16] {};
+        const int ne = std::min (16, 2 * numExtra);
+        for (int ch = 0; ch < ne; ++ch) ep[ch] = extraScratch.getWritePointer (ch);
+        extraView.setDataToReferTo (ep, ne, n);
+        extraView.clear();
+        extra = &extraView;
     }
-    if (module->instrument()) mainOut.clear();
 
-    module->process (c, mainOut, side, extra, midi);
-
-    if (extra != nullptr)
+    // This chunk's MIDI, offsets relative to the chunk (the last chunk takes any stragglers).
+    chunkMidi.clear();
+    float noteIn = 0.0f;
+    for (auto it = midi.findNextSamplePosition (start); it != midi.cend(); ++it)
     {
-        // Same safety stage as the main output.
-        for (int ch = 0; ch < extraScratch.getNumChannels(); ++ch)
-        {
-            auto* x = extraScratch.getWritePointer (ch);
-            for (int i = 0; i < n; ++i) x[i] = std::isfinite (x[i]) ? juce::jlimit (-4.0f, 4.0f, x[i]) : 0.0f;
-        }
+        const auto m = *it;
+        if (m.samplePosition >= start + n && ! lastChunk) break;
+        chunkMidi.addEvent (m.data, m.numBytes, juce::jlimit (0, n - 1, m.samplePosition - start));
+        if (m.numBytes >= 3 && (m.data[0] & 0xf0) == 0x90 && m.data[2] > 0) noteIn = std::max (noteIn, m.data[2] / 127.0f);
     }
+
+    // MOTION input: effects follow their input level, instruments their note velocities.
+    float motionIn = 0.0f;
+    if (module->instrument()) motionIn = noteIn;
+    else
+    {
+        float pk = 0.0f;
+        for (int ch = 0; ch < numMain; ++ch) pk = std::max (pk, mainView.getMagnitude (ch, 0, n));
+        motionIn = clamp01 ((gainToDb (pk) + 48.0f) / 48.0f);
+    }
+
+    updateParams (c, n, motionIn);
+    c.p = cur.data();
+    c.p0 = prev.data();
+    if (module->instrument()) mainView.clear();
+
+    module->process (c, mainView, side, extra, chunkMidi);
+
+    // Safety: never pass NaN/Inf, never exceed +12 dBFS. A fault resets the module.
+    bool bad = false;
+    float peak = 0.0f;
+    auto guard = [&] (juce::AudioBuffer<float>& b)
+    {
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        {
+            auto* x = b.getWritePointer (ch);
+            for (int i = 0; i < n; ++i)
+            {
+                if (! std::isfinite (x[i])) { bad = true; x[i] = 0.0f; continue; }
+                peak = std::max (peak, std::fabs (x[i]));
+                x[i] = juce::jlimit (-4.0f, 4.0f, x[i]);
+            }
+        }
+    };
+    guard (mainView);
+    if (extra != nullptr) guard (*extra);
+    // Held at the clamp for 250 ms = runaway (feedback, broken state): reset.
+    if (peak >= 3.99f) overSamples += n;
+    else if (peak < 2.0f) overSamples = 0;
+    const bool runaway = overSamples > (int) (0.25 * sr);
+    if (bad || runaway)
+    {
+        mainView.clear();
+        if (extra != nullptr) extra->clear();
+        module->reset();
+        overSamples = 0;
+        fault = true;
+        faultCount.fetch_add (1);
+    }
+    else if (panicNow)
+    {
+        // PANIC: fade this chunk out, then silence every voice, tail and delay line.
+        for (int ch = 0; ch < mainView.getNumChannels(); ++ch) mainView.applyGainRamp (ch, 0, n, 1.0f, 0.0f);
+        if (extra != nullptr) for (int ch = 0; ch < extra->getNumChannels(); ++ch) extra->applyGainRamp (ch, 0, n, 1.0f, 0.0f);
+        module->reset();
+    }
+
     if (extra != nullptr)
         for (int e = 0; e < numExtra; ++e)
             if (getBusCount (false) > e + 1 && getBus (false, e + 1)->isEnabled())
             {
                 auto out = getBusBuffer (buffer, false, e + 1);
                 for (int ch = 0; ch < std::min (2, out.getNumChannels()); ++ch)
-                    out.copyFrom (ch, 0, extraScratch, e * 2 + ch, 0, n);
+                    out.copyFrom (ch, start, *extra, e * 2 + ch, 0, n);
             }
-
-    // Safety: never pass NaN/Inf, never exceed +12 dBFS.
-    bool bad = false;
-    for (int ch = 0; ch < mainOut.getNumChannels(); ++ch)
-    {
-        auto* x = mainOut.getWritePointer (ch);
-        for (int i = 0; i < n; ++i)
-        {
-            if (! std::isfinite (x[i])) { bad = true; x[i] = 0.0f; }
-            else x[i] = juce::jlimit (-4.0f, 4.0f, x[i]);
-        }
-    }
-    if (bad) { mainOut.clear(); module->reset(); }
-    outMeter.push (mainOut.getArrayOfReadPointers(), mainOut.getNumChannels(), n);
-    if (outMeter.peak > 0.999f) clipped = true;
-    // Clear any remaining output channels (unused buses).
-    for (int ch = mainOut.getNumChannels(); ch < getTotalNumOutputChannels(); ++ch)
-        if (numExtra == 0) buffer.clear (ch, 0, n);
 }
 
 void SFProcessor::timerCallback() { flushHostNotifications(); }
@@ -366,11 +523,92 @@ void SFProcessor::updateTrackProperties (const TrackProperties& p)
     trackNameSeq.fetch_add (1);
 }
 
+// ------------------------------------------------------------------------------ presets
+void SFProcessor::applyPreset (const Preset& pr)
+{
+    for (size_t i = 0; i < specs.size(); ++i)
+    {
+        const auto& s = specs[i];
+        if (! s.preset || s.type == PType::Momentary) continue;
+        float v = s.def;
+        for (auto& kv : pr.values) if (kv.first == s.id) { v = kv.second; break; }
+        auto* p = params[i];
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (s.min, s.max, v)));
+        p->endChangeGesture();
+    }
+    currentPreset = pr.name;
+}
+
+Preset SFProcessor::capturePreset (const juce::String& name) const
+{
+    Preset p;
+    p.name = name.toStdString();
+    for (size_t i = 0; i < specs.size(); ++i)
+        if (specs[i].preset && specs[i].type != PType::Momentary)
+            p.values.push_back ({ specs[i].id, raw[i]->load() });
+    return p;
+}
+
+juce::File SFProcessor::userPresetFolder() const
+{
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+               .getChildFile ("SF Live Suite").getChildFile ("Presets").getChildFile (module->id());
+}
+
+juce::Array<juce::File> SFProcessor::userPresets() const
+{
+    auto files = userPresetFolder().findChildFiles (juce::File::findFiles, false, "*.sfpreset");
+    files.sort();
+    return files;
+}
+
+bool SFProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim()).toUpperCase();
+    if (clean.isEmpty()) return false;
+    auto folder = userPresetFolder();
+    if (! folder.createDirectory()) return false;
+    const auto pr = capturePreset (clean);
+    juce::ValueTree t ("SFPRESET");
+    t.setProperty ("module", juce::String (module->id()), nullptr);
+    t.setProperty ("name", clean, nullptr);
+    t.setProperty ("version", 1, nullptr);
+    for (auto& kv : pr.values)
+    {
+        juce::ValueTree v ("PARAM");
+        v.setProperty ("id", juce::String (kv.first), nullptr);
+        v.setProperty ("value", kv.second, nullptr);
+        t.appendChild (v, nullptr);
+    }
+    auto xml = t.createXml();
+    if (xml == nullptr || ! xml->writeTo (folder.getChildFile (clean + ".sfpreset"))) return false;
+    currentPreset = clean;
+    return true;
+}
+
+bool SFProcessor::loadUserPreset (const juce::File& f)
+{
+    auto xml = juce::XmlDocument::parse (f);
+    if (xml == nullptr) return false;
+    auto t = juce::ValueTree::fromXml (*xml);
+    if (! t.hasType ("SFPRESET") || t.getProperty ("module").toString() != juce::String (module->id())) return false;
+    Preset p;
+    p.name = t.getProperty ("name", f.getFileNameWithoutExtension()).toString().toStdString();
+    for (auto v : t)
+        if (v.hasType ("PARAM")) p.values.push_back ({ v.getProperty ("id").toString().toStdString(), (float) v.getProperty ("value") });
+    applyPreset (p);
+    return true;
+}
+
+// ------------------------------------------------------------------------------ state
 void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
 {
     juce::ValueTree root ("SFSTATE");
     root.setProperty ("module", juce::String (module->id()), nullptr);
-    root.setProperty ("version", 1, nullptr);
+    root.setProperty ("version", 2, nullptr);
+    root.setProperty ("motionSeed", (int) motionSeed, nullptr);
+    root.setProperty ("preset", currentPreset, nullptr);
     root.appendChild (apvts.copyState(), nullptr);
     juce::ValueTree songs ("SONGS");
     songs.setProperty ("active", songIndex.load(), nullptr);
@@ -397,6 +635,12 @@ void SFProcessor::setStateInformation (const void* data, int size)
     if (! root.isValid() || root.getType().toString() != "SFSTATE") return;
     auto p = root.getChildWithName ("PARAMS");
     if (p.isValid()) apvts.replaceState (p);
+    if (root.hasProperty ("motionSeed"))
+    {
+        motionSeed = (uint32_t) (int) root.getProperty ("motionSeed");
+        for (int k = 0; k < kMotions; ++k) motion[(size_t) k].setSeed (motionSeed + 0x9E3779B9u * (uint32_t) k);
+    }
+    currentPreset = root.getProperty ("preset", "").toString();
     auto songs = root.getChildWithName ("SONGS");
     for (auto& h : songHas) h = false;
     if (songs.isValid())

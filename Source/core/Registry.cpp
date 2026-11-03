@@ -7,11 +7,11 @@ static const std::vector<std::pair<std::string, ModulePtr (*)()>>& table()
 {
     static const std::vector<std::pair<std::string, ModulePtr (*)()>> t {
         { "KICK", makeKICK }, { "PERC", makePERC }, { "RUMBLE", makeRUMBLE }, { "BASS", makeBASS }, { "LEAD", makeLEAD },
-        { "PAD", makePAD }, { "VOICE", makeVOICE }, { "DECK", makeDECK }, { "CONTROL", makeCONTROL },
+        { "PAD", makePAD }, { "VOICE", makeVOICE }, { "STRIKE", makeSTRIKE }, { "DECK", makeDECK }, { "CONTROL", makeCONTROL },
         { "FILTER", makeFILTER }, { "GATE", makeGATE }, { "DENSITY", makeDENSITY }, { "DELAY", makeDELAY },
         { "REVERB", makeREVERB }, { "DRIVE", makeDRIVE }, { "RADIO", makeRADIO }, { "REPEAT", makeREPEAT },
         { "DUCK", makeDUCK }, { "ENERGY", makeENERGY }, { "ISOLATOR", makeISOLATOR }, { "BUILD", makeBUILD },
-        { "GLUE", makeGLUE }, { "LOWEND", makeLOWEND }, { "LIMIT", makeLIMIT }, { "ROOMEQ", makeROOMEQ },
+        { "GLUE", makeGLUE }, { "TONE", makeTONE }, { "LOWEND", makeLOWEND }, { "LIMIT", makeLIMIT }, { "ROOMEQ", makeROOMEQ },
         { "ALLOC", makeALLOC }, { "TAP", makeTAP }, { "STRIP", makeSTRIP } };
     return t;
 }

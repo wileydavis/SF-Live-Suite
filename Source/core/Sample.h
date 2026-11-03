@@ -23,27 +23,28 @@ struct SampleData
 };
 using SamplePtr = std::shared_ptr<const SampleData>;
 
-// Decode, resample to `targetSr`, analyse. Returns null on failure. Message/background thread.
-SamplePtr loadSampleFile (const juce::File&, double targetSr);
+// Decode, resample to `targetSr` (windowed sinc), analyse. Returns null on failure.
+// Message/background thread. Files longer than maxSeconds are cut there.
+SamplePtr loadSampleFile (const juce::File&, double targetSr, double maxSeconds = 60.0);
 SamplePtr loadSampleFlac (const juce::MemoryBlock&, const juce::String& name, double targetSr);
 SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double targetSr, const juce::String& name, bool encode);
 
-// Lock-free holder: message thread sets, audio thread reads a snapshot per block.
+// Sample holder shared by the message thread (set, save, paint) and the audio thread (audio()).
+// The audio thread only ever loads a raw pointer (lock-free, wait-free); a replaced sample is
+// kept alive on the message thread for 2 s, long after any audio callback that saw it ended.
 class SampleSlot
 {
 public:
-    SamplePtr get() const { return std::atomic_load (&ptr); }
-    void set (SamplePtr p)
-    {
-        auto old = std::atomic_exchange (&ptr, std::move (p));
-        retired.push_back (old);            // freed later on the message thread, never on audio
-        if (retired.size() > 6) retired.erase (retired.begin());
-    }
+    const SampleData* audio() const noexcept { return live.load (std::memory_order_acquire); }   // audio thread
+    const SamplePtr& get() const { return owned; }                                                // message thread
+    void set (SamplePtr p);
     void save (juce::ValueTree& t, const juce::Identifier& key) const;
     void load (const juce::ValueTree& t, const juce::Identifier& key, double sr);
 private:
-    SamplePtr ptr;
-    std::vector<SamplePtr> retired;
+    std::atomic<const SampleData*> live { nullptr };
+    SamplePtr owned;
+    struct Retired { SamplePtr p; juce::uint32 at; };
+    std::vector<Retired> retired;
 };
 
 // Audio file extensions every sampler accepts.

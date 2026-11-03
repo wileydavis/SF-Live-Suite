@@ -58,6 +58,8 @@ struct BusData
     std::atomic<uint32_t> songSeq;
     std::atomic<uint32_t> storeSeq;
     std::atomic<int64_t> controlSeenMs;
+    std::atomic<uint32_t> panicSeq;           // SF CONTROL PANIC: every SF plugin resets
+    std::atomic<int32_t> keyRoot;             // SF CONTROL KEY: 0..11 = C..B, -1 = not set
 
     std::atomic<uint32_t> kickWrite;
     std::atomic<int64_t> kickSeenMs;

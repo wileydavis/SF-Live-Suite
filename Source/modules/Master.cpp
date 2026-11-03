@@ -1,6 +1,8 @@
-// ISOLATOR, BUILD, GLUE, LOWEND, LIMIT, ROOMEQ
+// ISOLATOR, BUILD, GLUE, TONE, LOWEND, LIMIT, ROOMEQ
 #include "Kit.h"
-#include <deque>
+#include "../core/Loudness.h"
+#include "../core/Oversample.h"
+#include <complex>
 
 namespace sf
 {
@@ -19,7 +21,8 @@ public:
                  knob ("xover_hi", "XOVER HI", 1000.0f, 8000.0f, 2500.0f, "Hz", 2500.0f).prim() };
     }
     static float gainFor (float v) { return v <= 0.75f ? std::pow (v / 0.75f, 2.0f) : dbToGain ((v - 0.75f) / 0.25f * 6.0f); }
-    void prepare (double rate, int) override { sr = rate; for (auto& x : a) x.reset(); for (auto& x : b) x.reset(); for (auto& x : ap) x.reset(); for (auto& g : gz) g = 1.0f; }
+    void prepare (double rate, int) override { sr = rate; reset(); }
+    void reset() override { for (auto& x : a) x.reset(); for (auto& x : b) x.reset(); for (auto& x : ap) x.reset(); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         for (int k = 0; k < 2; ++k) { a[k].set (c.v (XLO), sr); b[k].set (c.v (XHI), sr); ap[k].set (c.v (XHI), sr); }
@@ -81,7 +84,8 @@ public:
                  levelParam().prim() };
     }
     double tailSeconds() const override { return 8.0; }
-    void prepare (double rate, int) override { sr = rate; fdn.prepare (rate); for (auto& h : hp) for (auto& f : h) f.reset(); armed = released = false; }
+    void prepare (double rate, int) override { sr = rate; fdn.prepare (rate); armed = released = false; reset(); }
+    void reset() override { fdn.clear(); for (auto& h : hp) for (auto& f : h) f.reset(); nbp.reset(); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const float knobV = c.v (BUILD);
@@ -155,7 +159,8 @@ public:
                  pct ("mix", "MIX", 1.0f).prim(),
                  levelParam().prim() };
     }
-    void prepare (double rate, int) override { sr = rate; for (auto& f : sc) f.reset(); env = 0; slow = 0; }
+    void prepare (double rate, int) override { sr = rate; reset(); }
+    void reset() override { for (auto& f : sc) f.reset(); env = 0; slow = 0; }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         static const float atk[] = { 0.0001f, 0.0003f, 0.001f, 0.003f, 0.01f, 0.03f };
@@ -177,8 +182,12 @@ public:
             const float l = io.getSample (0, i), r = io.getSample (1, i);
             const float d = std::max (std::fabs (sc[0].tickHP (l)), std::fabs (sc[1].tickHP (r)));
             const float db = gainToDb (d);
-            const float over = std::max (0.0f, db - thr);
-            const float gr = over * (1.0f - 1.0f / ratio);
+            // 6 dB soft knee: the ratio fades in over threshold +-3 dB.
+            const float over = db - thr;
+            const float slope = 1.0f - 1.0f / ratio;
+            const float gr = over <= -kKnee * 0.5f ? 0.0f
+                           : over >= kKnee * 0.5f ? over * slope
+                           : slope * (over + kKnee * 0.5f) * (over + kKnee * 0.5f) / (2.0f * kKnee);
             if (autoRel)
             {
                 env = gr > env ? gr + aC * (env - gr) : gr + rFast * (env - gr);
@@ -212,6 +221,7 @@ public:
         ui::label (g, juce::String (-grNow.load(), 1) + " dB", r.reduced (8, 2).removeFromBottom (14), ui::kText, 11.0f, juce::Justification::centredRight);
     }
 private:
+    static constexpr float kKnee = 6.0f;
     double sr = 48000.0;
     Svf sc[2];
     float env = 0, slow = 0;
@@ -219,6 +229,112 @@ private:
     std::atomic<float> grNow { 0 };
 };
 ModulePtr makeGLUE() { return std::make_unique<GlueModule>(); }
+
+// =====================================================================================  TONE
+// Master voicing EQ for techno: five moves that matter, at fixed, tuned frequencies, run 2x
+// oversampled so the AIR shelf keeps its shape up to 20 kHz (no cramping near Nyquist).
+//   LOW       shelf 70 Hz, +-6 dB       weight of kick and sub
+//   MUD       bell 280 Hz, cut 0..6 dB  the boxy build-up of stacked parts
+//   PRESENCE  bell 3.2 kHz, +-4 dB      hats, clap edges, voice
+//   AIR       shelf 12 kHz, +-6 dB      top sheen
+//   TILT      +-3 dB around 900 Hz      darker / brighter overall
+class ToneModule : public Module
+{
+public:
+    enum { LOW, MUD, PRES, AIR, TILT, LEVEL };
+    std::string id() const override { return "TONE"; }
+    std::vector<ParamSpec> params() const override
+    {
+        return { knob ("low", "LOW", -6.0f, 6.0f, 0.0f, "dB").prim(),
+                 knob ("mud", "MUD", 0.0f, 6.0f, 0.0f, "dB").prim(),
+                 knob ("presence", "PRESENCE", -4.0f, 4.0f, 0.0f, "dB").prim(),
+                 knob ("air", "AIR", -6.0f, 6.0f, 0.0f, "dB").prim(),
+                 knob ("tilt", "TILT", -3.0f, 3.0f, 0.0f, "dB").prim(),
+                 levelParam().prim() };
+    }
+    void prepare (double rate, int) override { sr = rate; os.prepare (rate, 2); reset(); }
+    void reset() override { os.reset(); for (auto& c : eq) for (auto& b : c) b.reset(); }
+    void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
+    {
+        const double osr = 2.0 * sr;
+        float v[5] = { c.v (LOW), -c.v (MUD), c.v (PRES), c.v (AIR), c.v (TILT) };
+        bool changed = false;
+        for (int k = 0; k < 5; ++k) if (std::abs (v[k] - last[k]) > 1e-4f) { changed = true; last[k] = v[k]; }
+        if (changed || ! designed)
+        {
+            designed = true;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                eq[ch][0].lowShelf (70.0f, 0.7071f, v[0], osr);
+                eq[ch][1].peak (280.0f, 1.0f, v[1], osr);
+                eq[ch][2].peak (3200.0f, 0.8f, v[2], osr);
+                eq[ch][3].highShelf (12000.0f, 0.7071f, v[3], osr);
+                eq[ch][4].lowShelf (900.0f, 0.5f, -v[4], osr);
+                eq[ch][5].highShelf (900.0f, 0.5f, v[4], osr);
+            }
+            active = false;
+            for (int k = 0; k < 5; ++k) active = active || std::abs (v[k]) > 0.01f;
+        }
+        if (active || os.factor() > 0)
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                auto& e = eq[ch];
+                os.process (ch, io.getWritePointer (ch), c.n, [&e] (float x)
+                {
+                    for (auto& b : e) x = b.tick (x);
+                    return x;
+                });
+            }
+        float g0; const float g1 = levelDb (c, LEVEL, g0);
+        applyGain (io, g0, g1);
+        for (int k = 0; k < 5; ++k) disp[k] = v[k];
+    }
+    int displayHeight() const override { return 90; }
+    void paint (juce::Graphics& g, juce::Rectangle<float> r) override
+    {
+        ui::frame (g, r, "RESPONSE");
+        auto in = r.reduced (10, 18);
+        g.setColour (ui::kGrid);
+        g.drawHorizontalLine ((int) in.getCentreY(), in.getX(), in.getRight());
+        // Magnitude of the six sections (analytic, at 2x rate).
+        Biquad s[6];
+        const double osr = 96000.0;
+        s[0].lowShelf (70.0f, 0.7071f, disp[0].load(), osr);
+        s[1].peak (280.0f, 1.0f, disp[1].load(), osr);
+        s[2].peak (3200.0f, 0.8f, disp[2].load(), osr);
+        s[3].highShelf (12000.0f, 0.7071f, disp[3].load(), osr);
+        s[4].lowShelf (900.0f, 0.5f, -disp[4].load(), osr);
+        s[5].highShelf (900.0f, 0.5f, disp[4].load(), osr);
+        juce::Path p;
+        for (int i = 0; i <= 200; ++i)
+        {
+            const float f = expMap ((float) i / 200.0f, 20.0f, 20000.0f);
+            const double w = 2.0 * 3.14159265358979 * f / osr;
+            const std::complex<double> z1 = std::polar (1.0, -w), z2 = z1 * z1;
+            double db = 0.0;
+            for (auto& b : s)
+            {
+                const auto num = (double) b.b0 + (double) b.b1 * z1 + (double) b.b2 * z2;
+                const auto den = 1.0 + (double) b.a1 * z1 + (double) b.a2 * z2;
+                db += 20.0 * std::log10 (std::abs (num / den) + 1e-12);
+            }
+            const float x = in.getX() + in.getWidth() * (float) i / 200.0f;
+            const float y = in.getCentreY() - (float) juce::jlimit (-9.0, 9.0, db) / 9.0f * in.getHeight() * 0.5f;
+            if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+        }
+        g.setColour (ui::kText); g.strokePath (p, juce::PathStrokeType (1.5f));
+        ui::label (g, "+9", in.withHeight (12), ui::kFaint, 9.0f);
+        ui::label (g, "-9", in.withTrimmedTop (in.getHeight() - 12), ui::kFaint, 9.0f);
+    }
+private:
+    double sr = 48000.0;
+    Oversampler os;
+    Biquad eq[2][6];
+    float last[5] {};
+    bool designed = false, active = false;
+    std::atomic<float> disp[5] {};
+};
+ModulePtr makeTONE() { return std::make_unique<ToneModule>(); }
 
 // =====================================================================================  LOWEND
 class LowEndModule : public Module
@@ -235,11 +351,14 @@ public:
                  knob ("low_trim", "LOW TRIM", -12.0f, 6.0f, 0.0f, "dB").prim(),
                  levelParam().prim() };
     }
-    void prepare (double rate, int) override { sr = rate; for (auto& x : xo) x.reset(); for (auto& h : hp) for (auto& f : h) f.reset(); }
+    void prepare (double rate, int) override { sr = rate; up.set (HalfbandDesign::forStage (rate, 0)); dn.set (HalfbandDesign::forStage (rate, 0)); reset(); }
+    void reset() override { for (auto& x : xo) x.reset(); for (auto& h : hp) for (auto& f : h) f.reset(); up.reset(); dn.reset(); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         for (int k = 0; k < 2; ++k) { xo[k].set (c.v (MONOF), sr); hp[k][0].set (c.v (RUMBLE), 0.5412f, sr); hp[k][1].set (c.v (RUMBLE), 1.3066f, sr); }
         const float clip = c.v (SUBCLIP), drv = 1.0f + clip * 4.0f, lowG = dbToGain (c.v (LOWTRIM)), w = c.v (WIDTH);
+        const float clipNorm = 1.1f / std::min (drv, 2.0f);
+        auto sub = [=] (float m) { return lerp (m, fastTanh (m * drv) * clipNorm, clip); };
         float peakLow = 0.0f;
         for (int i = 0; i < c.n; ++i)
         {
@@ -250,7 +369,10 @@ public:
                 xo[k].split (x, lo[k], hi[k]);
             }
             float m = 0.5f * (lo[0] + lo[1]) * lowG;
-            if (clip > 0.001f) m = lerp (m, fastTanh (m * drv) / std::min (drv, 2.0f) * 1.1f, clip);
+            // SUB CLIP, 2x oversampled (always run, so the phase never changes with the knob).
+            float a0, a1;
+            up.up (m, a0, a1);
+            m = dn.down (sub (a0), sub (a1));
             peakLow = std::max (peakLow, std::fabs (m));
             const float hm = 0.5f * (hi[0] + hi[1]), hs = 0.5f * (hi[0] - hi[1]) * w;
             io.setSample (0, i, m + hm + hs);
@@ -270,13 +392,21 @@ private:
     double sr = 48000.0;
     Crossover xo[2];
     Svf hp[2][2];
+    Halfband up, dn;
     std::atomic<float> lowPk { 0 };
 };
 ModulePtr makeLOWEND() { return std::make_unique<LowEndModule>(); }
 
 // =====================================================================================  LIMIT
-// Clipper + lookahead true-peak limiter + LUFS meter (BS.1770 K-weighting).
-// AUTO trims the input slowly so short-term loudness sits at TARGET.
+// Master stage: INPUT (+ AUTO trim) -> soft-knee CLIP at 4x, linear-phase FIR oversampling ->
+// true-peak lookahead limiter -> CEILING.
+//   Detection: 4x interpolated true peak (BS.1770-4 style) of the clipped signal.
+//   Gain: min-hold over the 2 ms lookahead, program-dependent release (fast envelope at
+//   RELEASE, held down by a slow envelope during sustained limiting: no pumping on dense
+//   material, quick recovery after a single peak), then a 2 ms moving average, which is
+//   guaranteed to have reached every peak's gain when that peak leaves the delay line.
+//   Meters (output, BS.1770): momentary, short-term, integrated (gated), true peak.
+// AUTO trims the input slowly (<= 1 dB/s) so short-term loudness before the limiter sits at TARGET.
 class LimitModule : public Module
 {
 public:
@@ -292,84 +422,99 @@ public:
                  toggle ("auto", "AUTO").prim(),
                  momentary ("reset", "RESET").prim() };
     }
-    int latency() const override { return look; }
+    int latency() const override { return (int) std::lround (FirOversampler4x::latency() + TruePeak::kDelay + look - 1); }
+    double tailSeconds() const override { return 0.1; }
     void prepare (double rate, int) override
     {
         sr = rate;
-        look = (int) std::lround (0.0015 * rate);
-        for (auto& d : dl) d.prepare (look + 8);
-        win.assign ((size_t) look + 1, 1.0f);
-        kShelf[0].highShelf (1681.97f, 0.7072f, 3.9998f, rate); kShelf[1] = kShelf[0];
-        kHp[0].highPass (38.1355f, 0.5003f, rate); kHp[1] = kHp[0];
-        blockLen = (int) (0.1 * rate); blockAcc = 0; blockCount = 0;
-        blocks.clear(); gated.clear();
-        gz = 1.0f; autoGainDb = 0.0f; tpMax = 0.0f;
-        for (auto& p : prevS) p = 0;
+        look = std::max (16, (int) std::lround (0.002 * rate));
+        os.prepare (rate);
+        for (auto& d : dl) d.prepare (TruePeak::kDelay + look + 8);
+        outMeter.prepare (rate);
+        preMeter.prepare (rate);
+        autoGainDb = 0.0f; tpMax = 0.0f;
+        reset();
+    }
+    void reset() override
+    {
+        os.reset();
+        for (auto& d : dl) d.clear();
+        tpIn.reset(); tpOut.reset();
+        for (int i = 0; i < kMaxLook; ++i) { minIdx[i] = 0; minVal[i] = 1.0f; boxRing[i] = 1.0f; }
+        minHead = minTail = 0; t = 0;
+        boxSum = (double) look; boxPos = 0;
+        gFast = gSlow = 1.0f;
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
-        if (c.b (RESET)) { gated.clear(); tpMax = 0.0f; }
-        const float ceil = dbToGain (c.v (CEILING));
+        const bool rst = c.b (RESET);
+        if (rst && ! resetWas) { outMeter.resetIntegrated(); tpMax = 0.0f; }
+        resetWas = rst;
+        const float ceilDb = c.v (CEILING), ceil = dbToGain (ceilDb);
         const float clip = c.v (CLIP);
-        const float rel = std::exp (-1.0f / (c.v (RELEASE) * 0.001f * (float) sr));
-        const float attC = std::exp (-4.0f / (float) std::max (1, look));
-        // Auto input: move toward TARGET at <= 1 dB/s while there is programme (> -40 LUFS).
-        if (c.b (AUTO) && shortTerm > -40.0f)
+        const float knee = ceil * dbToGain (-6.0f * clip), span = std::max (1e-6f, ceil - knee);
+        const bool clipOn = clip > 0.01f;
+        auto clipper = [=] (float x)
         {
-            const float err = c.v (TARGET) - shortTerm;
+            if (! clipOn) return x;
+            const float a = std::fabs (x);
+            return a <= knee ? x : std::copysign (knee + span * fastTanh ((a - knee) / span), x);
+        };
+        const float relT = c.v (RELEASE) * 0.001f;
+        const float relFast = std::exp (-1.0f / (relT * (float) sr));
+        const float relSlow = std::exp (-1.0f / (relT * 4.0f * (float) sr));
+        const float attSlow = std::exp (-1.0f / (0.08f * (float) sr));
+        // Auto input: toward TARGET at <= 1 dB/s while there is programme (> -40 LUFS).
+        if (c.b (AUTO) && preMeter.shortTerm > -40.0f)
+        {
+            const float err = c.v (TARGET) - preMeter.shortTerm;
             autoGainDb += juce::jlimit (-1.0f, 1.0f, err) * (float) c.n / (float) sr;
             autoGainDb = juce::jlimit (-12.0f, 12.0f, autoGainDb);
         }
-        const float inG = dbToGain (c.v (INPUT) + (c.b (AUTO) ? autoGainDb : 0.0f));
+        const float g0 = gIn, g1 = dbToGain (c.v (INPUT) + (c.b (AUTO) ? autoGainDb : 0.0f));
+        gIn = g1;
+        auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         float grMax = 0.0f;
+        const int delayC = TruePeak::kDelay + look - 1;
         for (int i = 0; i < c.n; ++i)
         {
-            float s[2];
-            for (int k = 0; k < 2; ++k)
-            {
-                float x = io.getSample (k, i) * inG;
-                if (clip > 0.001f) { const float cl = fastTanh (x / ceil) * ceil; x = lerp (x, cl, clip); }
-                s[k] = x;
-                // K-weighted loudness (on the post-input signal).
-                const float kw = kHp[k].tick (kShelf[k].tick (x));
-                blockAcc += kw * kw;
-            }
-            // Inter-sample peak estimate (Hermite at 3 points between samples).
-            float pk = std::max (std::fabs (s[0]), std::fabs (s[1]));
-            for (int k = 0; k < 2; ++k)
-            {
-                const float xm1 = prevS[k * 3], x0 = prevS[k * 3 + 1], x1 = prevS[k * 3 + 2], x2 = s[k];
-                for (float f : { 0.25f, 0.5f, 0.75f })
-                {
-                    const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
-                    pk = std::max (pk, std::fabs (((c3 * f + c2) * f + c1) * f + x0));
-                }
-                prevS[k * 3] = x0; prevS[k * 3 + 1] = x1; prevS[k * 3 + 2] = x2;
-            }
-            const float need = pk > ceil ? ceil / pk : 1.0f;
-            win[(size_t) wPos] = need; wPos = (wPos + 1) % (int) win.size();
-            float mn = 1.0f;
-            for (float v : win) mn = std::min (mn, v);
-            gz = mn < gz ? mn + attC * (gz - mn) : mn + rel * (gz - mn);
-            gz = std::min (gz, 1.0f);
-            for (int k = 0; k < 2; ++k)
-            {
-                dl[k].push (s[k]);
-                const float y = hardClip (dl[k].tap (look) * gz, ceil);
-                io.setSample (k, i, y);
-                tpMax = std::max (tpMax, std::fabs (y));
-            }
-            grMax = std::max (grMax, -gainToDb (gz));
-            if (++blockCount >= blockLen) closeBlock();
+            const float ig = g0 + (g1 - g0) * (float) i / (float) c.n;
+            const float cl = os.process (0, L[i] * ig, clipper);
+            const float cr = os.process (1, R[i] * ig, clipper);
+            preMeter.push (cl, cr);
+            // Gain needed for the true peak of the clipped signal (TruePeak::kDelay samples ago).
+            const float tp = tpIn.push (cl, cr);
+            const float need = tp > ceil ? ceil / tp : 1.0f;
+            // Min-hold over the lookahead window (monotonic queue).
+            while (minTail != minHead && minVal[(minTail - 1 + kMaxLook) % kMaxLook] >= need) minTail = (minTail - 1 + kMaxLook) % kMaxLook;
+            minVal[minTail] = need; minIdx[minTail] = t; minTail = (minTail + 1) % kMaxLook;
+            while (t - minIdx[minHead] >= look) minHead = (minHead + 1) % kMaxLook;
+            const float hold = minVal[minHead];
+            ++t;
+            // Program-dependent release.
+            gFast = hold < gFast ? hold : hold + relFast * (gFast - hold);
+            gSlow = hold < gSlow ? hold + attSlow * (gSlow - hold) : hold + relSlow * (gSlow - hold);
+            const float g = std::min (gFast, gSlow);
+            // Moving average over the lookahead.
+            boxSum += (double) g - (double) boxRing[boxPos];
+            boxRing[boxPos] = g; boxPos = (boxPos + 1) % look;
+            const float ga = std::min (1.0f, (float) (boxSum / (double) look));
+            dl[0].push (cl); dl[1].push (cr);
+            const float yl = hardClip (dl[0].tap (delayC) * ga, ceil), yr = hardClip (dl[1].tap (delayC) * ga, ceil);
+            L[i] = yl; R[i] = yr;
+            outMeter.push (yl, yr);
+            tpMax = std::max (tpMax, tpOut.push (yl, yr));
+            grMax = std::max (grMax, -gainToDb (ga));
         }
         dGr = grMax; dTp = gainToDb (tpMax); dIn = c.b (AUTO) ? autoGainDb : 0.0f;
+        dMom = outMeter.momentary; dShort = outMeter.shortTerm; dInt = outMeter.integrated;
     }
     int displayHeight() const override { return 90; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
-        ui::frame (g, r, "LOUDNESS");
+        ui::frame (g, r, "LOUDNESS (OUTPUT, BS.1770)");
         auto in = r.reduced (12, 18);
-        const float cw = in.getWidth() / 5.0f;
+        const float cw = in.getWidth() / 6.0f;
         auto cell = [&] (const char* name, const juce::String& v, juce::Colour col)
         {
             auto c2 = in.removeFromLeft (cw);
@@ -377,49 +522,32 @@ public:
             ui::label (g, v, c2, col, 20.0f);
         };
         auto fmt = [] (float v) { return v < -69.0f ? juce::String ("--") : juce::String (v, 1); };
+        cell ("MOMENTARY", fmt (dMom.load()), ui::kText);
         cell ("SHORT-TERM", fmt (dShort.load()), ui::kText);
         cell ("INTEGRATED", fmt (dInt.load()), ui::kText);
         cell ("TRUE PEAK", fmt (dTp.load()), dTp.load() > -0.1f ? ui::kRed : ui::kText);
         cell ("GR", dGr.load() < 0.05f ? juce::String ("0.0") : juce::String (-dGr.load(), 1), dGr.load() > 6.0f ? ui::kAmber : ui::kText);
         cell ("AUTO IN", juce::String (dIn.load(), 1), ui::kDim);
     }
+    // Tests
+    float integratedLufs() const { return dInt.load(); }
+    float truePeakDb() const { return dTp.load(); }
+
 private:
-    void closeBlock()
-    {
-        const float ms = blockAcc / (float) (blockCount * 2) * 2.0f;   // sum of both channels' mean squares
-        blockAcc = 0; blockCount = 0;
-        blocks.push_back (ms);
-        if (blocks.size() > 30) blocks.pop_front();
-        // Short-term: 3 s.
-        float sum = 0; for (float b : blocks) sum += b;
-        shortTerm = -0.691f + 10.0f * std::log10 (sum / (float) blocks.size() + 1e-12f);
-        dShort = shortTerm;
-        // Integrated: 400 ms blocks (4 x 100 ms, 75 % overlap), absolute -70 and relative -10 gates.
-        if (blocks.size() >= 4)
-        {
-            float m = 0; for (size_t i = blocks.size() - 4; i < blocks.size(); ++i) m += blocks[i];
-            m /= 4.0f;
-            const float l = -0.691f + 10.0f * std::log10 (m + 1e-12f);
-            if (l > -70.0f && gated.size() < 200000) gated.push_back (m);
-            if (! gated.empty())
-            {
-                double s1 = 0; for (float v : gated) s1 += v;
-                const double rel = -0.691 + 10.0 * std::log10 (s1 / (double) gated.size() + 1e-12) - 10.0;
-                double s2 = 0; size_t n2 = 0;
-                for (float v : gated) if (-0.691 + 10.0 * std::log10 (v + 1e-12) > rel) { s2 += v; ++n2; }
-                dInt = n2 > 0 ? (float) (-0.691 + 10.0 * std::log10 (s2 / (double) n2 + 1e-12)) : -70.0f;
-            }
-        }
-    }
+    static constexpr int kMaxLook = 1024;
     double sr = 48000.0;
-    int look = 72, wPos = 0, blockLen = 4800, blockCount = 0;
+    int look = 96;
+    FirOversampler4x os;
     DelayLine dl[2];
-    std::vector<float> win;
-    Biquad kShelf[2], kHp[2];
-    float blockAcc = 0, gz = 1.0f, autoGainDb = 0, tpMax = 0, shortTerm = -70.0f, prevS[6] {};
-    std::deque<float> blocks;
-    std::vector<float> gated;
-    std::atomic<float> dShort { -70 }, dInt { -70 }, dTp { -70 }, dGr { 0 }, dIn { 0 };
+    TruePeak tpIn, tpOut;
+    LoudnessMeter outMeter, preMeter;
+    long long minIdx[kMaxLook] {}, t = 0;
+    int minHead = 0, minTail = 0, boxPos = 0;
+    float minVal[kMaxLook] {}, boxRing[kMaxLook] {};
+    double boxSum = 96.0;
+    float gFast = 1.0f, gSlow = 1.0f, gIn = 1.0f, autoGainDb = 0, tpMax = 0;
+    bool resetWas = false;
+    std::atomic<float> dShort { -70 }, dInt { -70 }, dMom { -70 }, dTp { -70 }, dGr { 0 }, dIn { 0 };
 };
 ModulePtr makeLIMIT() { return std::make_unique<LimitModule>(); }
 
@@ -455,7 +583,8 @@ public:
         p.push_back (momentary ("store_venue", "STORE VENUE"));
         return p;
     }
-    void prepare (double rate, int) override { sr = rate; for (auto& c : eq) for (auto& b : c) b.reset(); }
+    void prepare (double rate, int) override { sr = rate; reset(); }
+    void reset() override { for (auto& c : eq) for (auto& b : c) b.reset(); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         for (int b = 0; b < kB; ++b)

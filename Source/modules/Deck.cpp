@@ -2,6 +2,8 @@
 // trim, tempo sync to Live with key lock (Signalsmith Stretch, MIT), phrase-quantised starts,
 // hot cues from MIDI, loop roll, per-deck isolator + filter, crossfader, CUE output, track log.
 #include "Kit.h"
+#include "../core/BandLimited.h"
+#include "../core/Resample.h"
 #include <signalsmith-stretch/signalsmith-stretch.h>
 
 namespace sf
@@ -153,7 +155,7 @@ static TrackPtr loadTrack (const juce::String& path, double sr, const std::atomi
     for (int c = 0; c < 2; ++c)
     {
         if (std::abs (ratio - 1.0) < 1e-9) t->buf.copyFrom (c, 0, in, c, 0, len);
-        else { juce::LagrangeInterpolator li; li.process (ratio, in.getReadPointer (c), t->buf.getWritePointer (c), outN, len, 0); }
+        else SincResampler::process (in.getReadPointer (c), len, t->buf.getWritePointer (c), outN, r->sampleRate, sr);
     }
     if (cancel.load()) return nullptr;
     if (cachedBpm > 0.0) { t->bpm = cachedBpm; t->firstBeat = cachedFirst * sr; t->lufs = cachedLufs; }   // already analysed (grid in seconds)
@@ -218,8 +220,23 @@ public:
             d.scratchIn.setSize (2, 65536);
             d.scratchOut.setSize (2, std::max (mb, 4096));
             d.deck.setSize (2, std::max (mb, 4096));
+            primeStretch (d);
         }
         if (srChanged) for (int k = 0; k < 2; ++k) if (! deckPath[k].isEmpty()) loadIntoDeck (k, deckPath[k]);
+    }
+    // PANIC / fault: clear filters and the stretcher, keep playing (re-synced, faded back in).
+    void reset() override
+    {
+        for (auto& d : decks)
+        {
+            d.stretch.reset();
+            d.synced = false;
+            d.fade = 0.0f;
+            d.filter.reset();
+            for (auto& row : d.xo) for (auto& x : row) x.reset();
+        }
+        allocTap.reset();
+        gateZ = 1.0f;
     }
 
     struct Deck
@@ -513,10 +530,27 @@ private:
     }
     static float readAt (const TrackData& t, int c, double p)
     {
-        const int i = (int) std::floor (p);
-        if (i < 0 || i + 1 >= t.buf.getNumSamples()) return 0.0f;
-        const float fr = (float) (p - i);
-        return t.buf.getSample (c, i) + fr * (t.buf.getSample (c, i + 1) - t.buf.getSample (c, i));
+        const int n = t.buf.getNumSamples();
+        if (p < 0.0 || (int) p + 2 >= n) return 0.0f;
+        return hermiteAt (t.buf.getReadPointer (c), n, p);
+    }
+    // Run the stretcher once on noise (message thread) so every internal buffer reaches its
+    // working size before the audio thread uses it.
+    void primeStretch (Deck& d)
+    {
+        Noise nz;
+        const int L = d.stretch.outputSeekLength (1.0f) + 8192;
+        juce::AudioBuffer<float> in (2, L), out (2, 4096);
+        for (int c = 0; c < 2; ++c) for (int i = 0; i < L; ++i) in.setSample (c, i, nz.next() * 0.5f);
+        float* ins[2] = { in.getWritePointer (0), in.getWritePointer (1) };
+        float* outs[2] = { out.getWritePointer (0), out.getWritePointer (1) };
+        d.stretch.outputSeek (ins, d.stretch.outputSeekLength (1.0f));
+        for (int k = 0; k < 4; ++k)
+        {
+            float* in2[2] = { ins[0] + 2048 * k, ins[1] + 2048 * k };
+            d.stretch.process (in2, 2048, outs, 2048);
+        }
+        d.stretch.reset();
     }
     void analyseEntry (int idx)
     {

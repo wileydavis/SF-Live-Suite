@@ -1,0 +1,184 @@
+#pragma once
+// Band-limited oscillators for voices rendered at an oversampled rate (2x).
+// Mipmap: one 4096-point single-cycle table per octave, each holding only the harmonics that stay
+// below 0.75 x the oversampled rate for the highest note it serves. Everything that would fold
+// back lands above 0.25 x that rate, inside the stopband of the 2x decimator: the audible band is
+// alias-free (SFTests --oversampling measures it). Read with 4-point Hermite interpolation.
+// Tables are built once per rate and shared by every instance in the process.
+#include "Dsp.h"
+#include <complex>
+#include <map>
+#include <memory>
+#include <mutex>
+
+namespace sf
+{
+class Mipmap
+{
+public:
+    static constexpr int kSize = 4096, kOct = 12;
+    static constexpr float kLowestTop = 27.5f;     // table 0 serves fundamentals up to 27.5 Hz
+
+    // amp/phase per harmonic (1-based in the vectors' index + 1); sine phase.
+    void build (const std::vector<float>& amp, const std::vector<float>& phase, double osr, int maxHarm = 1 << 30)
+    {
+        const double limit = 0.75 * osr;
+        for (int k = 0; k < kOct; ++k)
+        {
+            const double top = kLowestTop * std::pow (2.0, (double) k);
+            int h = (int) std::floor (limit / top);
+            h = std::max (1, std::min ({ h, kSize / 4, (int) amp.size(), maxHarm }));
+            synth (k, amp, phase, h);
+        }
+        rate = osr;
+    }
+
+    // Table for a fundamental of f Hz.
+    int octaveFor (float f) const
+    {
+        int e;
+        std::frexp (std::max (1.0f, f * 1.03f) / kLowestTop, &e);   // f/27.5 in [2^(e-1), 2^e)
+        return std::max (0, std::min (kOct - 1, e));
+    }
+    // p: phase 0..1
+    float read (int oct, double p) const
+    {
+        const float* t = tab[oct].data() + 1;
+        const double x = p * kSize;
+        const int i = (int) x;
+        const float f = (float) (x - i);
+        const float xm1 = t[i - 1], x0 = t[i], x1 = t[i + 1], x2 = t[i + 2];
+        const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+        return ((c3 * f + c2) * f + c1) * f + x0;
+    }
+
+private:
+    void synth (int k, const std::vector<float>& amp, const std::vector<float>& phase, int harmonics)
+    {
+        // Inverse DFT by radix-2 FFT (double precision).
+        std::vector<std::complex<double>> X ((size_t) kSize);
+        for (int h = 1; h <= harmonics; ++h)
+        {
+            const double a = amp[(size_t) h - 1], ph = h - 1 < (int) phase.size() ? phase[(size_t) h - 1] : 0.0;
+            // a sin(wt + ph) = a (e^{j(wt+ph)} - e^{-j(wt+ph)}) / 2j
+            const auto v = std::polar (a * 0.5, ph) / std::complex<double> (0.0, 1.0);
+            X[(size_t) h] += v;
+            X[(size_t) (kSize - h)] += std::conj (v);
+        }
+        fft (X, true);
+        auto& t = tab[k];
+        t.assign ((size_t) kSize + 4, 0.0f);
+        for (int i = 0; i < kSize; ++i) t[(size_t) i + 1] = (float) X[(size_t) i].real();
+        t[0] = t[(size_t) kSize];                  // [-1]
+        t[(size_t) kSize + 1] = t[1];              // [N]
+        t[(size_t) kSize + 2] = t[2];              // [N+1]
+        t[(size_t) kSize + 3] = t[3];
+    }
+    static void fft (std::vector<std::complex<double>>& a, bool inverse)
+    {
+        const size_t n = a.size();
+        for (size_t i = 1, j = 0; i < n; ++i)
+        {
+            size_t bit = n >> 1;
+            for (; j & bit; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j) std::swap (a[i], a[j]);
+        }
+        for (size_t len = 2; len <= n; len <<= 1)
+        {
+            const double ang = 2.0 * 3.14159265358979323846 / (double) len * (inverse ? 1.0 : -1.0);
+            const std::complex<double> wl (std::cos (ang), std::sin (ang));
+            for (size_t i = 0; i < n; i += len)
+            {
+                std::complex<double> w (1.0);
+                for (size_t j = 0; j < len / 2; ++j)
+                {
+                    const auto u = a[i + j], v = a[i + j + len / 2] * w;
+                    a[i + j] = u + v;
+                    a[i + j + len / 2] = u - v;
+                    w *= wl;
+                }
+            }
+        }
+    }
+    std::vector<float> tab[kOct];
+    double rate = 0.0;
+};
+
+// The shared table set for one oversampled rate.
+struct WaveSet
+{
+    Mipmap saw, square, tri;
+    Mipmap frame[4];          // WAVETABLE engine frames: sine, saw 32, square 32, vowel
+    double osr = 0.0;
+
+    static std::shared_ptr<const WaveSet> get (double osr)
+    {
+        static std::mutex m;
+        static std::map<long, std::shared_ptr<const WaveSet>> cache;
+        std::lock_guard<std::mutex> lock (m);
+        const long key = std::lround (osr);
+        if (auto it = cache.find (key); it != cache.end()) return it->second;
+        auto w = std::make_shared<WaveSet>();
+        w->build (osr);
+        cache[key] = w;
+        return w;
+    }
+
+private:
+    void build (double rate)
+    {
+        osr = rate;
+        constexpr int H = Mipmap::kSize / 4;
+        const float pi = 3.14159265358979f;
+        std::vector<float> a ((size_t) H), p ((size_t) H, 0.0f);
+        // Rising saw 2t-1 = -(2/pi) sum sin(2 pi h t) / h
+        for (int h = 1; h <= H; ++h) { a[(size_t) h - 1] = 2.0f / (pi * (float) h); p[(size_t) h - 1] = pi; }
+        saw.build (a, p, rate);
+        // Square: +1 for t < 0.5
+        for (int h = 1; h <= H; ++h) { a[(size_t) h - 1] = (h & 1) ? 4.0f / (pi * (float) h) : 0.0f; p[(size_t) h - 1] = 0.0f; }
+        square.build (a, p, rate);
+        // Triangle from 0, rising
+        for (int h = 1; h <= H; ++h)
+        {
+            a[(size_t) h - 1] = (h & 1) ? 8.0f / (pi * pi * (float) (h * h)) : 0.0f;
+            p[(size_t) h - 1] = ((h - 1) / 2) % 2 == 0 ? 0.0f : pi;
+        }
+        tri.build (a, p, rate);
+        // WAVETABLE frames (32 harmonics, as the original 2048-point tables).
+        std::vector<float> f ((size_t) 32), fp ((size_t) 32, 0.0f);
+        std::fill (f.begin(), f.end(), 0.0f); f[0] = 1.0f;
+        frame[0].build (f, fp, rate);
+        for (int h = 1; h <= 32; ++h) f[(size_t) h - 1] = 0.55f / (float) h;
+        frame[1].build (f, fp, rate);
+        for (int h = 1; h <= 32; ++h) f[(size_t) h - 1] = (h & 1) ? 0.9f / (float) h : 0.0f;
+        frame[2].build (f, fp, rate);
+        for (int h = 1; h <= 32; ++h)
+        {
+            const float hz = (float) h * 130.0f;
+            const float formant = std::exp (-std::pow ((hz - 700.0f) / 300.0f, 2.0f)) + 0.6f * std::exp (-std::pow ((hz - 1200.0f) / 300.0f, 2.0f));
+            f[(size_t) h - 1] = (formant + 0.05f / (float) h) * 0.5f;
+        }
+        frame[3].build (f, fp, rate);
+    }
+};
+
+// 2-sample polyBLEP residual (for hard sync resets at the oversampled rate).
+inline float polyBlep (double t, double dt)
+{
+    if (t < dt) { t /= dt; return (float) (t + t - t * t - 1.0); }
+    if (t > 1.0 - dt) { t = (t - 1.0) / dt; return (float) (t * t + t + t + 1.0); }
+    return 0.0f;
+}
+
+// 4-point Hermite read of a sample buffer channel at a fractional position (pos >= 0).
+inline float hermiteAt (const float* x, int len, double pos)
+{
+    const int i = (int) pos;
+    const float f = (float) (pos - i);
+    auto at = [&] (int k) { return k < 0 ? x[0] : (k >= len ? 0.0f : x[k]); };
+    const float xm1 = at (i - 1), x0 = at (i), x1 = at (i + 1), x2 = at (i + 2);
+    const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+    return ((c3 * f + c2) * f + c1) * f + x0;
+}
+} // namespace sf

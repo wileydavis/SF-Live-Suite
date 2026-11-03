@@ -24,6 +24,15 @@ public:
         sideDelay.prepare (kLatency + 8);
         sideLp.set (150.0f, 0.7071f, sr);
         sideFollow.set (0.0005f, 0.12f, sr);
+        reset();
+    }
+    // Clears the lookahead line and the filters (PANIC). The latency stays the same.
+    void reset()
+    {
+        for (auto& d : delay) d.clear();
+        sideDelay.clear();
+        sideLp.reset();
+        sideFollow.z = 0.0f;
         for (auto& x : xo) x.reset();
         for (auto& b : bell) b.reset();
         presence = 0.0f; duty = 0.0f; envHold = 0.0f; sidePeak = 0.05f;

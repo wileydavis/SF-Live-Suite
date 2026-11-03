@@ -210,32 +210,41 @@ struct DJFilter
         for (int i = 0; i < n; ++i)
         {
             const float k = k0 + (k1 - k0) * (float) i / (float) std::max (1, n);
-            // Weights glide (4 ms) so block-wise knob values never step the mix.
-            wLp = lpWeight (k) + wCoef * (wLp - lpWeight (k));
-            wHp = hpWeight (k) + wCoef * (wHp - hpWeight (k));
-            if ((counter++ & 7) == 0)
+            float l = ch[0][i], r = numCh > 1 ? ch[1][i] : l;
+            step (k, res, l, r);
+            ch[0][i] = l;
+            if (numCh > 1) ch[1][i] = r;
+        }
+    }
+    // One stereo sample. knee = false inside feedback loops (the loop has its own saturation).
+    void step (float k, float res, float& l, float& r, bool knee = true)
+    {
+        // Weights glide (4 ms) so block-wise knob values never step the mix.
+        wLp = lpWeight (k) + wCoef * (wLp - lpWeight (k));
+        wHp = hpWeight (k) + wCoef * (wHp - hpWeight (k));
+        if ((counter++ & 7) == 0)
+        {
+            kz = k;
+            const float lpf = lpHz (std::min (k, 0.5f)), hpf = hpHz (std::max (k, 0.5f));
+            const float qL = 0.7071f + res * 4.5f * wLp, qH = 0.7071f + res * 4.5f * wHp;
+            for (int c = 0; c < 2; ++c)
             {
-                kz = k;
-                const float lpf = lpHz (std::min (k, 0.5f)), hpf = hpHz (std::max (k, 0.5f));
-                const float qL = 0.7071f + res * 4.5f * wLp, qH = 0.7071f + res * 4.5f * wHp;
-                for (int c = 0; c < 2; ++c)
-                {
-                    lp[c][0].set (lpf, 0.5412f, sr); lp[c][1].set (lpf, qL, sr);
-                    hp[c][0].set (hpf, 0.5412f, sr); hp[c][1].set (hpf, qH, sr);
-                }
+                lp[c][0].set (lpf, 0.5412f, sr); lp[c][1].set (lpf, qL, sr);
+                hp[c][0].set (hpf, 0.5412f, sr); hp[c][1].set (hpf, qH, sr);
             }
-            const float gL = 1.0f / (1.0f + res * 0.9f * wLp), gH = 1.0f / (1.0f + res * 0.9f * wHp);
-            const float wDry = std::max (0.0f, 1.0f - wLp - wHp);
-            for (int c = 0; c < std::min (numCh, 2); ++c)
-            {
-                const float x = ch[c][i];
-                const float yl = lp[c][1].tickLP (lp[c][0].tickLP (x)) * gL;
-                const float yh = hp[c][1].tickHP (hp[c][0].tickHP (x)) * gH;
-                // Transparent below 0.9; a soft knee above catches resonant peaks.
-                const float y = x * wDry + yl * wLp + yh * wHp;
-                const float a = std::fabs (y);
-                ch[c][i] = a <= 0.9f ? y : std::copysign (0.9f + 0.1f * fastTanh ((a - 0.9f) * 10.0f), y);
-            }
+        }
+        const float gL = 1.0f / (1.0f + res * 0.9f * wLp), gH = 1.0f / (1.0f + res * 0.9f * wHp);
+        const float wDry = std::max (0.0f, 1.0f - wLp - wHp);
+        float* xs[2] = { &l, &r };
+        for (int c = 0; c < 2; ++c)
+        {
+            const float x = *xs[c];
+            const float yl = lp[c][1].tickLP (lp[c][0].tickLP (x)) * gL;
+            const float yh = hp[c][1].tickHP (hp[c][0].tickHP (x)) * gH;
+            // Transparent below 0.9; a soft knee above catches resonant peaks.
+            const float y = x * wDry + yl * wLp + yh * wHp;
+            const float a = std::fabs (y);
+            *xs[c] = a <= 0.9f || ! knee ? y : std::copysign (0.9f + 0.1f * fastTanh ((a - 0.9f) * 10.0f), y);
         }
     }
 };
@@ -342,60 +351,112 @@ struct Ladder
     void reset() { for (auto& v : s) v = 0; }
 };
 
-// 8-line feedback delay network reverb (Hadamard mixing, modulated, damped).
+// Schroeder all-pass (input diffusion).
+struct Allpass
+{
+    DelayLine d;
+    int len = 1;
+    float g = 0.6f;
+    void prepare (int maxLen) { d.prepare (maxLen + 2); }
+    float tick (float x)
+    {
+        const float vm = d.tap (len - 1);
+        const float v = x + g * vm;
+        d.push (v);
+        return vm - g * v;
+    }
+    void clear() { d.clear(); }
+};
+
+// 8-line feedback delay network reverb (Hadamard mixing, modulated).
+//  - Input diffusion: 4 series all-passes per channel smear the attack into a dense onset.
+//  - Two-band decay (Jot): every line has its own first-order absorption filter whose DC gain
+//    gives DECAY (RT60) and whose Nyquist gain gives the shorter high-frequency RT60 set by DARK,
+//    each computed for that line's length, so every mode dies at the same rate.
+//  - FREEZE: lossless loop, input closed.
 struct Fdn
 {
     static constexpr int N = 8;
     DelayLine line[N];
-    float len[N] {}, damp[N] {}, lfo = 0.0f;
+    Allpass diff[2][4];
+    float len[N] {}, a0[N] {}, b1[N] {}, z[N] {}, lfo = 0.0f;
     OnePole lowCut[2];
     double sr = 48000.0;
-    float fb = 0.8f, dampHz = 6000.0f, modDepth = 0.0f;
+    float modDepth = 0.0f;
+    bool frozen = false;
     void prepare (double rate)
     {
         sr = rate;
         for (auto& l : line) l.prepare ((int) (rate * 0.6));
+        static const float dl[4] = { 0.00473f, 0.00359f, 0.01271f, 0.00930f };
+        for (int c = 0; c < 2; ++c)
+            for (int k = 0; k < 4; ++k)
+            {
+                auto& ap = diff[c][k];
+                ap.prepare ((int) (rate * 0.02));
+                ap.len = std::max (1, (int) (dl[k] * (c == 0 ? 1.0f : 1.087f) * (float) rate));
+                ap.g = k < 2 ? 0.70f : 0.62f;
+            }
         for (auto& c : lowCut) c.setHz (60.0f, rate);
+        clear();
     }
-    void clear() { for (auto& l : line) l.clear(); for (auto& d : damp) d = 0.0f; }
-    // size 0..1, decay seconds, dark 0..1 (damping), freeze -> infinite
+    void clear()
+    {
+        for (auto& l : line) l.clear();
+        for (auto& c : diff) for (auto& ap : c) ap.clear();
+        for (auto& v : z) v = 0.0f;
+        for (auto& c : lowCut) c.reset();
+    }
+    // size 0..1, decay = RT60 seconds (lows/mids), dark 0..1 (highs decay faster), freeze -> infinite
     void set (float size, float decaySeconds, float dark, float mod, bool freeze)
     {
         static const float base[N] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0533f, 0.0617f, 0.0683f, 0.0751f };
         const float scale = 0.35f + size * 2.4f;
-        float meanLen = 0.0f;
-        for (int i = 0; i < N; ++i) { len[i] = base[i] * scale * (float) sr; meanLen += len[i]; }
-        meanLen /= (float) N;
-        fb = freeze ? 1.0f : std::pow (10.0f, -3.0f * meanLen / (float) sr / std::max (0.1f, decaySeconds));
-        fb = std::min (fb, freeze ? 1.0f : 0.985f);
-        dampHz = expMap (1.0f - dark, 900.0f, 16000.0f);
+        const float rtLow = std::max (0.1f, decaySeconds);
+        const float rtHigh = rtLow * lerp (0.85f, 0.07f, clamp01 (dark));
+        frozen = freeze;
+        for (int i = 0; i < N; ++i)
+        {
+            len[i] = base[i] * scale * (float) sr;
+            if (freeze) { a0[i] = 1.0f; b1[i] = 0.0f; continue; }
+            const float secs = len[i] / (float) sr;
+            const float gDc = std::min (0.9995f, std::pow (10.0f, -3.0f * secs / rtLow));
+            const float gNy = std::min (gDc, std::pow (10.0f, -3.0f * secs / rtHigh));
+            const float b = (gDc - gNy) / (gDc + gNy);
+            b1[i] = b;
+            a0[i] = gDc * (1.0f - b);
+        }
         modDepth = mod * 0.0025f * (float) sr;
     }
     void tick (float inL, float inR, float& outL, float& outR, bool freeze)
     {
         float x[N];
         lfo += 0.7f / (float) sr; if (lfo > 1.0f) lfo -= 1.0f;
-        const float a = std::exp (-kTwoPi * dampHz / (float) sr);
         for (int i = 0; i < N; ++i)
         {
             const float m = modDepth * std::sin (kTwoPi * (lfo + (float) i * 0.125f));
-            float y = line[i].read (len[i] + m);
-            if (! freeze) { damp[i] = y + a * (damp[i] - y); y = damp[i]; }
-            x[i] = y;
+            const float y = line[i].read (len[i] + m);
+            z[i] = a0[i] * y + b1[i] * z[i];          // absorption: per-line RT60, two bands
+            x[i] = z[i];
         }
-        // Hadamard 8
+        outL = lowCut[0].hp (x[0] + x[2] + x[4] + x[6]) * 0.5f;
+        outR = lowCut[1].hp (x[1] + x[3] + x[5] + x[7]) * 0.5f;
+        // Hadamard 8 (unitary with the 1/sqrt(8) below).
         for (int h = 1; h < N; h <<= 1)
             for (int i = 0; i < N; i += h << 1)
                 for (int j = i; j < i + h; ++j) { const float u = x[j], v = x[j + h]; x[j] = u + v; x[j + h] = u - v; }
-        const float nrm = 0.35355339f * fb;
-        const float inGain = freeze ? 0.0f : 1.0f;
+        float dl = 0.0f, dr = 0.0f;
+        if (! freeze)
+        {
+            dl = inL; dr = inR;
+            for (int k = 0; k < 4; ++k) { dl = diff[0][k].tick (dl); dr = diff[1][k].tick (dr); }
+        }
         for (int i = 0; i < N; ++i)
         {
-            const float in = (i & 1) ? inR : inL;
-            line[i].push (fastTanh ((x[i] * nrm + in * inGain) * 0.5f) * 2.0f);
+            const float in = (i & 1) ? dr : dl;
+            // Soft limit in the loop: never runs away, transparent at normal levels.
+            line[i].push (fastTanh ((x[i] * 0.35355339f + in) * 0.5f) * 2.0f);
         }
-        outL = lowCut[0].hp (line[0].tap (0) + line[2].tap (0) + line[4].tap (0) + line[6].tap (0)) * 0.35f;
-        outR = lowCut[1].hp (line[1].tap (0) + line[3].tap (0) + line[5].tap (0) + line[7].tap (0)) * 0.35f;
     }
 };
 

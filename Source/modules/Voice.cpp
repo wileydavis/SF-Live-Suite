@@ -1,14 +1,19 @@
 // VOICE: spoken-word / vocal instrument. A loaded phrase is sliced (C3 = slice 1, C#3 = slice 2 ...,
 // keys below C3 play the whole phrase). Models process it: SAMPLE, RADIO, VOCODER, ROBOT, CHOIR,
 // STUTTER. Built-in dub echo send. With no phrase loaded it plays a formant choir from the notes.
+// Carriers are band-limited (polyBLEP), phrases read with Hermite interpolation, DRIVE runs 2x
+// oversampled. KEY FOLLOW moves the carriers and the choir to the SF CONTROL key (phrases keep
+// their own pitch; TUNE moves them).
 #include "Kit.h"
+#include "../core/BandLimited.h"
+#include "../core/Oversample.h"
 
 namespace sf
 {
 class VoiceModule : public Module
 {
 public:
-    enum { SIGNAL, TONE, GATE, DENS, FILT, ECHO, DRIVE, LEVEL, MODEL, SLICEMODE, TUNE, ECHOTIME, ECHOFB, PDEPTH, PSHAPE, ESPACE, ALLOCON };
+    enum { SIGNAL, TONE, GATE, DENS, FILT, ECHO, DRIVE, LEVEL, MODEL, SLICEMODE, TUNE, ECHOTIME, ECHOFB, PDEPTH, PSHAPE, ESPACE, ALLOCON, KEYFOLLOW };
     std::string id() const override { return "VOICE"; }
     bool instrument() const override { return true; }
     int latency() const override { return Pocket::kLatency; }
@@ -31,11 +36,12 @@ public:
                  pct ("pocket_depth", "POCKET DEPTH", 0.2f),
                  pct ("pocket_shape", "POCKET SHAPE", 0.3f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
-                 toggle ("alloc", "ALLOC", true) };
+                 toggle ("alloc", "ALLOC", true),
+                 toggle ("key_follow", "KEY FOLLOW", true) };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP PHRASE (C3 = SLICE 1)"; }
-    void loadFiles (const juce::StringArray& f) override { if (f.size() > 0) sample.set (loadSampleFile (juce::File (f[0]), sr)); }
+    void loadFiles (const juce::StringArray& f) override { if (f.size() > 0) sample.set (loadSampleFile (juce::File (f[0]), sr, 300.0)); }
     void save (juce::ValueTree& t) const override { sample.save (t, "SAMPLE"); }
     void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); }
 
@@ -44,7 +50,6 @@ public:
         if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
         sr = rate;
         out.prepare (rate, mb, ROLE_VOICE, "VOICE", true);
-        echoes.reset();
         events.reserve (2048);
         for (auto& d : echoLine) d.prepare ((int) (rate * 9));
         for (int b = 0; b < kVb; ++b)
@@ -53,22 +58,48 @@ public:
             ana[b].set (f, 6.0f, rate); car[b].set (f, 6.0f, rate);
             fol[b].set (0.002f, 0.03f, rate);
         }
+        os.prepare (rate, 2);
+        reset();
+    }
+    void reset() override
+    {
+        out.reset();
+        echoes.reset();
         play = {};
-        for (auto& v : choir) v.active = false;
+        for (auto& v : choir) { v.active = false; for (auto& f : v.fm) f.reset(); }
         for (auto& f : echoLp) f.reset();
+        for (auto& d : echoLine) d.clear();
+        for (int b = 0; b < kVb; ++b) { ana[b].reset(); car[b].reset(); fol[b].z = 0.0f; }
+        for (auto& f : radio) f.reset();
+        for (auto& f : radioHi) f.reset();
+        os.reset();
+        heldY = 0.0f;
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), 0.0f, 1.0f, true);
-        const auto smp = sample.get();
+        const SampleData* smp = sample.audio();
         const int model = c.ci (MODEL);
         int autoOff; float relMul;
         gateShape (c.v (GATE), c.samplesPerBeat(), autoOff, relMul);
         const float tone = c.v (TONE), sig = c.v (SIGNAL), drive = c.v (DRIVE);
         const float rate = semis (c.v (TUNE));
-        // Carrier pitch for VOCODER / ROBOT / CHOIR: C1..C4 from TONE.
-        const float carrierHz = noteHz (36.0f + std::round (tone * 36.0f));
+        keyShift = c.b (KEYFOLLOW) ? (float) keyOffset (c.keyRoot) : 0.0f;
+        // Carrier pitch for VOCODER / ROBOT / CHOIR: C1..C4 from TONE (in the KEY).
+        const float carrierHz = noteHz (36.0f + std::round (tone * 36.0f) + keyShift);
+        // Choir formants for A E I O U, morphed by TONE (set once per chunk).
+        {
+            static const float F[5][3] = { { 800, 1150, 2900 }, { 400, 1600, 2700 }, { 270, 2140, 2950 }, { 450, 800, 2830 }, { 325, 700, 2530 } };
+            const float pos = tone * 4.0f;
+            const int a = std::min (3, (int) pos);
+            const float fr = pos - (float) a;
+            for (auto& v : choir)
+                if (v.active)
+                    for (int k = 0; k < 3; ++k) v.fm[k].set (lerp (F[a][k], F[a + 1][k], fr), 8.0f, sr);
+        }
+        float dry[Oversampler::kBlock];
+        const int nn = std::min (c.n, Oversampler::kBlock);
         for (int k = 0; k < 2; ++k) { radio[k].set (300.0f * (1.0f - sig * 0.6f), 0.7f, sr); radioHi[k].set (2200.0f + sig * 9000.0f, 0.7f, sr); }
         const double echoBeats = divisionBeats (c.ci (ECHOTIME), divIndex ("1 BAR"));
         const float echoD = (float) std::min (echoBeats * c.samplesPerBeat(), sr * 8.5);
@@ -76,12 +107,13 @@ public:
         for (auto& f : echoLp) f.set (2800.0f, 0.7f, sr);
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
-        for (int i = 0; i < c.n; ++i)
+        // Pass 1: the voice itself.
+        for (int i = 0; i < nn; ++i)
         {
             while (e < events.size() && events[e].offset <= i)
             {
                 const auto& ev = events[e++];
-                if (ev.on) noteOn (ev, smp.get(), c.ci (SLICEMODE), autoOff, relMul);
+                if (ev.on) noteOn (ev, smp, c.ci (SLICEMODE), autoOff, relMul);
                 else if (ev.gen == 0 || ev.note < 0) noteOff (ev.note);
             }
             float x = 0.0f;
@@ -90,16 +122,15 @@ public:
                 if (play.active)
                 {
                     const int ip = (int) play.pos;
-                    if (ip + 1 >= play.end || ip + 1 >= smp->length()) play.active = false;
+                    const int len = smp->length();
+                    if (ip + 2 >= play.end || ip + 2 >= len) play.active = false;
                     else
                     {
-                        const float fr = (float) (play.pos - ip);
-                        const float a = 0.5f * (smp->buf.getSample (0, ip) + smp->buf.getSample (1, ip));
-                        const float b = 0.5f * (smp->buf.getSample (0, ip + 1) + smp->buf.getSample (1, ip + 1));
+                        const float a = 0.5f * (hermiteAt (smp->buf.getReadPointer (0), len, play.pos) + hermiteAt (smp->buf.getReadPointer (1), len, play.pos));
                         float env = std::min (1.0f, (float) (play.pos - play.start) / (0.003f * (float) sr) + 0.001f);
                         if (play.releasing) { play.rel *= play.relCoef; env *= play.rel; if (play.rel < 1e-4f) play.active = false; }
                         if (play.autoOff > 0 && --play.autoOff == 0) startRelease (relMul);
-                        x = (a + fr * (b - a)) * env * play.vel;
+                        x = a * env * play.vel;
                         play.pos += rate;
                         if (model == 5)
                         {
@@ -117,9 +148,19 @@ public:
                 }
             }
             else
-                x = choirSynth (tone);
-            if (drive > 0.001f) { const float g = 1.0f + drive * 8.0f; x = fastTanh (x * g) / std::sqrt (g); }
-            // Dub echo send.
+                x = choirSynth();
+            dry[i] = x;
+        }
+        // DRIVE, 2x oversampled.
+        if (drive > 0.001f)
+        {
+            const float g = 1.0f + drive * 8.0f, nrm = 1.0f / std::sqrt (g);
+            os.process (0, dry, nn, [g, nrm] (float x) { return fastTanh (x * g) * nrm; });
+        }
+        // Pass 2: dub echo send.
+        for (int i = 0; i < nn; ++i)
+        {
+            const float x = dry[i];
             const float yl = echoLine[0].read (echoD), yr = echoLine[1].read (echoD * 1.5f > sr * 8.5f ? echoD : echoD * 1.5f);
             echoLine[0].push (x * echoAmt + echoLp[0].tickLP (fastTanh (yr * echoFb)));
             echoLine[1].push (echoLp[1].tickLP (fastTanh (yl * echoFb)));
@@ -147,10 +188,10 @@ public:
             const float h = pk / s->peak * in.getHeight() * 0.5f;
             g.drawVerticalLine ((int) in.getX() + x, in.getCentreY() - h, in.getCentreY() + h);
         }
-        const auto sl = slicesFor (*s, sliceModeDisp);
-        for (size_t k = 0; k < sl.size(); ++k)
+        const int count = sliceCount (*s, sliceModeDisp);
+        for (int k = 0; k < count; ++k)
         {
-            const float x = in.getX() + (float) sl[k] / (float) n * in.getWidth();
+            const float x = in.getX() + (float) sliceStart (*s, sliceModeDisp, k) / (float) n * in.getWidth();
             g.setColour ((int) k == dispSlice.load() ? ui::kGreen : ui::kText);
             g.drawVerticalLine ((int) x, in.getY(), in.getBottom());
             ui::label (g, juce::MidiMessage::getMidiNoteName (60 + (int) k, true, true, 3), { x + 2, in.getY(), 30, 12 }, ui::kFaint, 9.0f);
@@ -161,19 +202,21 @@ public:
 private:
     static constexpr int kVb = 16;
     struct Play { bool active = false, releasing = false; double pos = 0, start = 0; int end = 0, slice = -1, autoOff = -1; float vel = 1, rel = 1, relCoef = 0.999f; };
-    struct ChoirVoice { bool active = false; int note = 0; float f = 220, a = 0, target = 0; double ph = 0; Svf fm[3]; };
+    struct ChoirVoice { bool active = false; int note = 0; float f = 220, a = 0, target = 0; Osc osc; Svf fm[3]; };
 
-    std::vector<int> slicesFor (const SampleData& s, int mode) const
+    // Slice layout without allocation (audio thread): count, and the start of slice k.
+    static int sliceCount (const SampleData& s, int mode)
     {
-        std::vector<int> sl;
-        if (mode == 0) sl = s.slices;
-        else if (mode == 1 || mode == 2)
-        {
-            const int k = mode == 1 ? 8 : 16;
-            for (int i = 0; i < k; ++i) sl.push_back ((int) ((long long) s.length() * i / k));
-        }
-        if (sl.empty()) sl.push_back (0);
-        return sl;
+        if (mode == 0) return std::max (1, (int) s.slices.size());
+        if (mode == 1) return 8;
+        if (mode == 2) return 16;
+        return 1;
+    }
+    static int sliceStart (const SampleData& s, int mode, int k)
+    {
+        if (mode == 0) return s.slices.empty() ? 0 : s.slices[(size_t) juce::jlimit (0, (int) s.slices.size() - 1, k)];
+        if (mode == 1 || mode == 2) return (int) ((long long) s.length() * k / (mode == 1 ? 8 : 16));
+        return 0;
     }
 
     void noteOn (const NoteEvent& ev, const SampleData* s, int sliceMode, int autoOff, float relMul)
@@ -184,14 +227,16 @@ private:
             ChoirVoice* v = nullptr;
             for (auto& x : choir) if (! x.active) { v = &x; break; }
             if (v == nullptr) v = &choir[0];
-            v->active = true; v->note = ev.note; v->f = noteHz ((float) ev.note); v->target = ev.vel; v->ph = 0;
+            v->active = true; v->note = ev.note; v->f = noteHz ((float) ev.note + keyShift); v->target = ev.vel; v->osc = Osc();
+            static const float F0[3] = { 800, 1150, 2900 };
+            for (int k = 0; k < 3; ++k) v->fm[k].set (F0[k], 8.0f, sr);
             return;
         }
-        const auto sl = slicesFor (*s, sliceMode);
+        const int count = sliceCount (*s, sliceMode);
         const int idx = ev.note - 60;
-        play.slice = (idx >= 0 && sliceMode != 3) ? std::min (idx, (int) sl.size() - 1) : -1;
-        play.start = play.slice >= 0 ? sl[(size_t) play.slice] : 0;
-        play.end = play.slice >= 0 && play.slice + 1 < (int) sl.size() ? sl[(size_t) play.slice + 1] : s->length();
+        play.slice = (idx >= 0 && sliceMode != 3) ? std::min (idx, count - 1) : -1;
+        play.start = play.slice >= 0 ? sliceStart (*s, sliceMode, play.slice) : 0;
+        play.end = play.slice >= 0 && play.slice + 1 < count ? sliceStart (*s, sliceMode, play.slice + 1) : s->length();
         play.pos = play.start;
         play.active = true; play.releasing = false; play.rel = 1.0f;
         play.vel = 0.5f + 0.5f * ev.vel;
@@ -214,18 +259,17 @@ private:
 
     float vocode (float x, int model, float carrierHz, float sig)
     {
-        // Carrier
+        // Carrier (band-limited).
         float c = 0.0f;
-        cph += carrierHz / (float) sr; if (cph > 1.0f) cph -= 1.0f;
-        if (model == 3) c = cph < 0.04f ? 1.0f : -0.04f;                                          // ROBOT: pulse train
+        if (model == 3) c = 0.52f * (carrier[0].tick (carrierHz, sr, 1, 0.04f) + 0.92f);           // ROBOT: pulse train
         else if (model == 4)
         {
-            cph2 += carrierHz * 1.1892f / (float) sr; if (cph2 > 1.0f) cph2 -= 1.0f;               // CHOIR: minor third + fifth
-            cph3 += carrierHz * 1.4983f / (float) sr; if (cph3 > 1.0f) cph3 -= 1.0f;
-            c = (2.0f * cph - 1.0f) + (2.0f * cph2 - 1.0f) * 0.8f + (2.0f * cph3 - 1.0f) * 0.7f;
+            c = carrier[0].tick (carrierHz, sr, 0)                                                   // CHOIR: minor third + fifth
+              + carrier[1].tick (carrierHz * 1.1892f, sr, 0) * 0.8f
+              + carrier[2].tick (carrierHz * 1.4983f, sr, 0) * 0.7f;
             c *= 0.5f;
         }
-        else c = 2.0f * cph - 1.0f;                                                                 // VOCODER: saw
+        else c = carrier[0].tick (carrierHz, sr, 0);                                               // VOCODER: saw
         c += rng.next() * 0.15f * sig;
         float y = 0.0f;
         for (int b = 0; b < kVb; ++b)
@@ -243,27 +287,18 @@ private:
         return y;
     }
 
-    float choirSynth (float tone)
+    float choirSynth()
     {
-        // Formants for A E I O U, morphed by TONE.
-        static const float F[5][3] = { { 800, 1150, 2900 }, { 400, 1600, 2700 }, { 270, 2140, 2950 }, { 450, 800, 2830 }, { 325, 700, 2530 } };
-        const float pos = tone * 4.0f;
-        const int a = std::min (3, (int) pos);
-        const float fr = pos - (float) a;
+        // Formants are set once per chunk (process); band-limited saw source.
         float y = 0.0f;
         for (auto& v : choir)
         {
             if (! v.active) continue;
             v.a += (v.target - v.a) * (v.target > v.a ? 0.0005f : 0.0002f);
             if (v.target <= 0.0f && v.a < 1e-4f) { v.active = false; continue; }
-            v.ph += v.f * (1.0 + 0.003 * std::sin (v.ph * 0.0001)) / sr; if (v.ph > 1.0) v.ph -= 1.0;
-            const float src = (float) (2.0 * v.ph - 1.0) + rng.next() * 0.05f;
+            const float src = v.osc.tick (v.f, sr, 0) + rng.next() * 0.05f;
             float out = 0.0f;
-            for (int k = 0; k < 3; ++k)
-            {
-                v.fm[k].set (lerp (F[a][k], F[a + 1][k], fr), 8.0f, sr);
-                out += v.fm[k].tickBP (src) * (k == 0 ? 1.0f : 0.6f);
-            }
+            for (int k = 0; k < 3; ++k) out += v.fm[k].tickBP (src) * (k == 0 ? 1.0f : 0.6f);
             y += out * v.a * 0.25f;
         }
         return y;
@@ -280,7 +315,9 @@ private:
     Follower fol[kVb];
     DelayLine echoLine[2];
     Noise rng;
-    float cph = 0, cph2 = 0, cph3 = 0, heldY = 0;
+    Osc carrier[3];
+    Oversampler os;
+    float heldY = 0, keyShift = 0;
     int holdN = 0, sliceModeDisp = 0;
     std::atomic<int> dispSlice { -1 };
 };

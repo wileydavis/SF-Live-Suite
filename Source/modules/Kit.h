@@ -61,6 +61,7 @@ struct RoleOutput
         tap.prepare (sr);
     }
     int latency() const { return usePocket ? Pocket::kLatency : 0; }
+    void reset() { filter.reset(); pocket.reset(); tap.reset(); }
     void process (const Ctx& c, juce::AudioBuffer<float>& b, int filtIdx, int resIdx, float pocketDepth, float pocketShape,
                   bool allocOn, int levelIdx, bool delayAudio = true)
     {
@@ -72,6 +73,17 @@ struct RoleOutput
         applyGain (b, g0, g1);
     }
 };
+
+// KEY: semitones that move a pitch of `hz` to the nearest note of pitch class keyRoot (C = 0).
+inline float keySnap (float hz, int keyRoot)
+{
+    if (keyRoot < 0 || hz <= 0.0f) return 0.0f;
+    const float note = 69.0f + 12.0f * std::log2 (hz / 440.0f);
+    float d = std::fmod ((float) keyRoot - note, 12.0f);
+    if (d < -6.0f) d += 12.0f;
+    if (d >= 6.0f) d -= 12.0f;
+    return d;
+}
 
 // Voice-steal helper: index of the quietest / oldest voice.
 template <typename V, size_t N>

@@ -43,6 +43,11 @@ public:
         msCoef = std::exp (-1.0f / (float) (0.15 * sr));
     }
 
+    void reset()
+    {
+        for (int b = 0; b < kBands; ++b) { analysis[b].reset(); for (auto& c : eq) c[b].reset(); }
+    }
+
     // Analyse and apply. Call on the module's final output.
     void process (float* const* ch, int numCh, int n, bool enabled, const Ctx* c = nullptr)
     {

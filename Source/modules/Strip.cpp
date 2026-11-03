@@ -1,8 +1,10 @@
 // STRIP: the suite's performance row for any track. Goes after any Live instrument, sampler or
 // hardware input. Audio only (Live sends no MIDI to effects), so DENSITY and GATE work on the
 // hits it hears.
-//   chain: GATE -> DENSITY -> DRIVE -> FILTER -> SPACE -> POCKET -> ALLOC -> LEVEL
+//   chain: GATE -> DENSITY -> DRIVE (4x) -> FILTER -> SPACE -> POCKET -> ALLOC -> LEVEL
 #include "Kit.h"
+#include "../core/Oversample.h"
+#include <cstring>
 
 namespace sf
 {
@@ -58,14 +60,32 @@ public:
         pocket.prepare (rate, mb);
         tap.prepare (rate);
         fast.set (0.0005f, 0.01f, rate); slow.set (0.01f, 0.25f, rate);
-        gateG = 1.0f; holdLeft = 0; sinceOnset = 1 << 20; throwG = 0.0f;
+        os.prepare (rate, 4);
+        reset();
+    }
+    void reset() override
+    {
+        for (auto& d : dline) d.clear();
+        for (auto& d : passLine) d.clear();
+        for (auto& d : echo) d.clear();
+        for (auto& tp : taps) { for (auto& f : tp.lp) f.reset(); tp.g = 1.0f; }
+        for (auto& f : echoLp) f.reset();
+        filt.reset(); fdn.clear(); pocket.reset(); tap.reset(); os.reset();
+        fast.z = slow.z = 0.0f;
+        gateG = 1.0f; holdLeft = 0; sinceOnset = 1 << 20; throwG = 0.0f; spaceActive = false;
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const int n = c.n;
         const int role = c.ci (ROLE);
-        if (role != lastRole) { lastRole = role; tap.setIdentity (role, (std::string ("STRIP ") + kRoleNames[role]).c_str()); }
+        if (role != lastRole)
+        {
+            lastRole = role;
+            char nm[24] = "STRIP ";
+            std::strncat (nm, kRoleNames[juce::jlimit (0, kNumRoles - 1, role)], 16);
+            tap.setIdentity (role, nm);
+        }
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
 
         // ---- onsets (shared by GATE HITS and DENSITY PROB)
@@ -140,20 +160,19 @@ public:
                 wl += taps[k].lp[0].tickLP (dline[0].read (delays[k])) * a;
                 wr += taps[k].lp[1].tickLP (dline[1].read (delays[k])) * a;
             }
-            float yl = gl + wl, yr = gr + wr;
-            if (drive > 0.001f)
+            L[i] = gl + wl; R[i] = gr + wr;
+        }
+        // DRIVE, 4x oversampled: TAPE (soft) .. FUZZ (hard) by CHARACTER.
+        if (drive > 0.001f)
+        {
+            const float comp = 1.6f / (1.0f + drive * 2.5f);
+            auto shape = [ch, pre, comp] (float x)
             {
-                auto shape = [ch] (float x)
-                {
-                    const float tape = fastTanh (x);
-                    const float fuzz = hardClip (x * 2.5f, 0.8f);
-                    return lerp (tape, fuzz, ch);
-                };
-                const float comp = 1.0f / (1.0f + drive * 2.5f);
-                yl = shape (yl * pre) * comp * 1.6f;
-                yr = shape (yr * pre) * comp * 1.6f;
-            }
-            L[i] = yl; R[i] = yr;
+                x *= pre;
+                return lerp (fastTanh (x), hardClip (x * 2.5f, 0.8f), ch) * comp;
+            };
+            os.process (0, L, n, shape);
+            os.process (1, R, n, shape);
         }
 
         // ---- FILTER
@@ -214,6 +233,7 @@ private:
     struct Tap { Svf lp[2]; float g = 1.0f; } taps[3];
     Svf echoLp[2];
     DJFilter filt;
+    Oversampler os;
     Fdn fdn;
     Pocket pocket;
     AllocTap tap;

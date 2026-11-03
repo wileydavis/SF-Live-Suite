@@ -61,7 +61,14 @@ public:
             }
             else ++i;
         }
-        std::stable_sort (out.begin(), out.end(), [] (const NoteEvent& a, const NoteEvent& b) { return a.offset < b.offset; });
+        // Stable insertion sort by offset (a handful of events; std::stable_sort may allocate).
+        for (size_t a = 1; a < out.size(); ++a)
+        {
+            const NoteEvent e = out[a];
+            size_t b = a;
+            while (b > 0 && out[b - 1].offset > e.offset) { out[b] = out[b - 1]; --b; }
+            out[b] = e;
+        }
         now += c.n;
     }
 

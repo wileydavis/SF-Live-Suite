@@ -81,6 +81,7 @@ if(SF_BUILD_PLUGINS)
         "LEAD|SfLd|TRUE|SF LEAD"
         "PAD|SfPd|TRUE|SF PAD"
         "VOICE|SfVc|TRUE|SF VOICE"
+        "STRIKE|SfSk|TRUE|SF STRIKE"
         "DECK|SfDk|TRUE|SF DECK"
         "CONTROL|SfCt|TRUE|SF CONTROL"
         # Effects
@@ -98,6 +99,7 @@ if(SF_BUILD_PLUGINS)
         "ISOLATOR|SfIs|FALSE|SF ISOLATOR"
         "BUILD|SfBu|FALSE|SF BUILD"
         "GLUE|SfGl|FALSE|SF GLUE"
+        "TONE|SfTn|FALSE|SF TONE"
         "LOWEND|SfLe|FALSE|SF LOWEND"
         "LIMIT|SfLm|FALSE|SF LIMIT"
         "ROOMEQ|SfRq|FALSE|SF ROOM EQ"

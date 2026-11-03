@@ -37,7 +37,7 @@ Boring, practical, uppercase. Plugins appear in Live as `SF <ROLE>`. Parameters 
 # Shared architecture
 
 ## SF BUS
-One block of POSIX shared memory (`/sf_live_suite_bus_v2`) mapped by every SF plugin, across plugin binaries and processes. Lock-free atomics only. A segment of the wrong size or version (another build) is never mapped; that plugin falls back to a local bus. Verified Nov 2: two separately built plugin binaries (SF KICK, SF DUCK) loaded in a VST3 host share the bus and Pocket works between them. Carries: macros, song select / store requests, kick reports, ALLOC source energies and cuts, conflict-slot bindings. If shared memory is unavailable the bus falls back to process-local (plugins in one process still talk); SF CONTROL shows BUS SHARED / LOCAL ONLY.
+One block of POSIX shared memory (`/sf_live_suite_bus_v3`) mapped by every SF plugin, across plugin binaries and processes. Lock-free atomics only. A segment of the wrong size or version (another build) is never mapped; that plugin falls back to a local bus. Verified Nov 2: two separately built plugin binaries (SF KICK, SF DUCK) loaded in a VST3 host share the bus and Pocket works between them. Carries: macros, song select / store requests, kick reports, ALLOC source energies and cuts, conflict-slot bindings. If shared memory is unavailable the bus falls back to process-local (plugins in one process still talk); SF CONTROL shows BUS SHARED / LOCAL ONLY.
 
 ## Clock
 Live's transport when playing. When stopped, a wall clock at the last tempo stands in, so tempo-synced motion keeps running and every SF plugin agrees on the beat.

@@ -1,4 +1,5 @@
 #include "Sample.h"
+#include "Resample.h"
 #include <cmath>
 
 namespace sf
@@ -106,29 +107,28 @@ SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double ta
         const int src = std::min (c, inCh - 1);
         if (std::abs (ratio - 1.0) < 1e-9)
             s->buf.copyFrom (c, 0, audio, src, 0, inN);
+        else if (c == 1 && inCh == 1)
+            s->buf.copyFrom (1, 0, s->buf, 0, 0, outN);
         else
-        {
-            juce::LagrangeInterpolator interp;
-            interp.process (ratio, audio.getReadPointer (src), s->buf.getWritePointer (c), outN, inN, 0);
-        }
+            SincResampler::process (audio.getReadPointer (src), inN, s->buf.getWritePointer (c), outN, fileSr, targetSr);
     }
     analyse (*s);
     return s;
 }
 
-static SamplePtr readFrom (juce::AudioFormatReader* r, double targetSr, const juce::String& name, bool encode)
+static SamplePtr readFrom (juce::AudioFormatReader* r, double targetSr, const juce::String& name, bool encode, double maxSeconds)
 {
     std::unique_ptr<juce::AudioFormatReader> reader (r);
     if (reader == nullptr || reader->lengthInSamples <= 0) return nullptr;
-    const int len = (int) std::min<juce::int64> (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 60 * 20));
+    const int len = (int) std::min<juce::int64> (reader->lengthInSamples, (juce::int64) (reader->sampleRate * maxSeconds));
     juce::AudioBuffer<float> b ((int) std::max (1u, std::min (2u, reader->numChannels)), len);
     reader->read (&b, 0, len, 0, true, true);
     return makeSample (std::move (b), reader->sampleRate, targetSr, name, encode);
 }
 
-SamplePtr loadSampleFile (const juce::File& f, double targetSr)
+SamplePtr loadSampleFile (const juce::File& f, double targetSr, double maxSeconds)
 {
-    return readFrom (formats().createReaderFor (f), targetSr, f.getFileNameWithoutExtension(), true);
+    return readFrom (formats().createReaderFor (f), targetSr, f.getFileNameWithoutExtension(), true, maxSeconds);
 }
 
 SamplePtr loadSampleFlac (const juce::MemoryBlock& mb, const juce::String& name, double targetSr)
@@ -136,9 +136,18 @@ SamplePtr loadSampleFlac (const juce::MemoryBlock& mb, const juce::String& name,
     juce::FlacAudioFormat flacFmt;
     auto* r = flacFmt.createReaderFor (new juce::MemoryInputStream (mb, true), true);
     if (r == nullptr) return nullptr;
-    auto s = readFrom (r, targetSr, name, false);
+    auto s = readFrom (r, targetSr, name, false, 60.0 * 20.0);
     if (s != nullptr) const_cast<SampleData&> (*s).flac = mb;
     return s;
+}
+
+void SampleSlot::set (SamplePtr p)
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    if (owned != nullptr) retired.push_back ({ owned, now });
+    owned = std::move (p);
+    live.store (owned.get(), std::memory_order_release);
+    retired.erase (std::remove_if (retired.begin(), retired.end(), [now] (const Retired& r) { return now - r.at > 2000; }), retired.end());
 }
 
 void SampleSlot::save (juce::ValueTree& t, const juce::Identifier& key) const

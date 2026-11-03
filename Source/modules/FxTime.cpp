@@ -1,5 +1,7 @@
 // FILTER, GATE, DENSITY, DELAY, REVERB, REPEAT
 #include "Kit.h"
+#include "../core/BandLimited.h"
+#include "../core/Oversample.h"
 
 namespace sf
 {
@@ -21,8 +23,8 @@ public:
                  levelParam().prim(),
                  choice ("throw_to", "THROW TO", { "HP", "LP" }, 0) };
     }
-    void prepare (double rate, int) override { sr = rate; filt.prepare (rate); throwPos = 0; }
-    void reset() override { filt.reset(); }
+    void prepare (double rate, int) override { sr = rate; filt.prepare (rate); os.prepare (rate, 2); throwPos = 0; }
+    void reset() override { filt.reset(); os.reset(); fol.z = 0.0f; }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const int n = c.n;
@@ -46,14 +48,11 @@ public:
         const float k0 = lastK < 0 ? k1 : lastK;
         lastK = k1;
         posDisplay = k1;
-        // Drive before the filter.
-        const float dg = 1.0f + c.v (DRIVE) * 10.0f, comp = 1.0f / (1.0f + c.v (DRIVE) * 3.0f);
+        // Drive before the filter, 2x oversampled.
+        const float dg = 1.0f + c.v (DRIVE) * 10.0f, comp = 1.0f / (1.0f + c.v (DRIVE) * 3.0f) * 1.6f;
         if (c.v (DRIVE) > 0.001f)
             for (int ch = 0; ch < 2; ++ch)
-            {
-                auto* x = io.getWritePointer (ch);
-                for (int i = 0; i < n; ++i) x[i] = fastTanh (x[i] * dg) * comp * 1.6f;
-            }
+                os.process (ch, io.getWritePointer (ch), n, [dg, comp] (float x) { return fastTanh (x * dg) * comp; });
         filt.process (io.getArrayOfWritePointers(), 2, n, k0, k1, c.v (RES));
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
@@ -72,6 +71,7 @@ public:
 private:
     double sr = 48000.0;
     DJFilter filt;
+    Oversampler os;
     Follower fol;
     float throwPos = 0, lastK = -1;
     std::atomic<float> posDisplay { 0.5f }, envDisplay { 0.0f };
@@ -107,6 +107,7 @@ public:
                  choice ("rate", "RATE", { "1/8", "1/16", "1/32", "1/16T" }, 1).prim() };
     }
     void prepare (double rate, int) override { sr = rate; z = 1.0f; }
+    void reset() override { z = 1.0f; }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         static const double rates[] = { 0.5, 0.25, 0.125, 1.0 / 6.0 };
@@ -195,7 +196,15 @@ public:
         for (auto& d : line) d.prepare ((int) (rate * 4.5));
         for (auto& d : gateLine) d.prepare ((int) (rate * 4.5));
         fast.set (0.0005f, 0.01f, sr); slow.set (0.01f, 0.25f, sr);
-        for (auto& t : taps) for (auto& f : t.lp) f.reset();
+        reset();
+    }
+    void reset() override
+    {
+        for (auto& d : line) d.clear();
+        for (auto& d : gateLine) d.clear();
+        for (auto& t : taps) { for (auto& f : t.lp) f.reset(); t.g = 1.0f; }
+        fast.z = slow.z = 0.0f;
+        sinceOnset = 1 << 20;
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
@@ -275,7 +284,9 @@ ModulePtr makeDENSITY() { return std::make_unique<DensityModule>(); }
 
 // =====================================================================================  DELAY
 // Tape-style dub delay. Changing TIME slews the read head (pitch bend). Feedback can pass 100%:
-// the loop saturates instead of exploding. THROW sends only while held. FREEZE loops forever.
+// the loop saturates (2x oversampled) instead of exploding. TONE sits inside the loop, so every
+// repeat is filtered once more than the one before (darker / thinner). THROW sends only while
+// held. FREEZE loops forever (lossless: no tone, no saturation).
 class DelayModule : public Module
 {
 public:
@@ -309,11 +320,21 @@ public:
         loopFilt.prepare (rate);
         pocket.prepare (rate, mb);
         wet.setSize (2, mb);
+        const auto hb = HalfbandDesign::forStage (rate, 0);
+        for (int k = 0; k < 2; ++k) { upF[k].set (hb); dnF[k].set (hb); }
+        osDelay = measureOsDelay (hb);
         curDelay = -1;
-        for (auto& f : lo) f.reset();
-        fb[0] = fb[1] = 0;
+        reset();
     }
-    void reset() override { for (auto& d : line) d.clear(); fb[0] = fb[1] = 0; loopFilt.reset(); }
+    void reset() override
+    {
+        for (auto& d : line) d.clear();
+        for (auto& d : dry) d.clear();
+        for (auto& f : lo) f.reset();
+        for (int k = 0; k < 2; ++k) { upF[k].reset(); dnF[k].reset(); }
+        loopFilt.reset();
+        pocket.reset();
+    }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const int n = c.n;
@@ -332,28 +353,38 @@ public:
         if (throwOn && ! throwOnly) inGainTarget = 1.6f;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         auto* wl = wet.getWritePointer (0); auto* wr = wet.getWritePointer (1);
+        const float g = 1.0f + drive * 3.0f, invG = 1.0f / g;
+        // Loop saturation: drive, then a soft ceiling (runaway becomes saturation).
+        auto sat = [&] (float x)
+        {
+            if (drive > 0.0f) x = fastTanh (x * g) * invG;
+            return fastTanh (x * 0.85f) * (1.0f / 0.85f);
+        };
+        const float k0 = c.v0 (TONE), k1 = c.v (TONE);
         for (int i = 0; i < n; ++i)
         {
             inGain += 0.002f * (inGainTarget - inGain);
             if (std::abs (target - curDelay) > 0.5f) curDelay += juce::jlimit (-slewRate, slewRate, target - curDelay) + 0.0f;
             wowPhase += (float) (0.6 / sr); if (wowPhase > 1.0f) wowPhase -= 1.0f;
-            const float d = curDelay * (1.0f + wow * 0.004f * std::sin (kTwoPi * wowPhase));
+            const float d = curDelay * (1.0f + wow * 0.004f * std::sin (kTwoPi * wowPhase)) - (freeze ? 0.0f : osDelay);
             const float yl = line[0].read (d), yr = line[1].read (d);
             float fl = yl * fbk, fr = yr * fbk;
             if (! freeze)
             {
                 fl = lo[0].hp (fl); fr = lo[1].hp (fr);
-                if (drive > 0.0f) { const float g = 1.0f + drive * 3.0f; fl = fastTanh (fl * g) / g; fr = fastTanh (fr * g) / g; }
-                fl = fastTanh (fl * 0.85f) / 0.85f; fr = fastTanh (fr * 0.85f) / 0.85f;   // runaway becomes saturation
+                float a0, a1;
+                upF[0].up (fl, a0, a1); fl = dnF[0].down (sat (a0), sat (a1));
+                upF[1].up (fr, a0, a1); fr = dnF[1].down (sat (a0), sat (a1));
             }
             const float il = L[i] * inGain, ir = R[i] * inGain;
-            if (ping) { line[0].push (0.5f * (il + ir) + fr); line[1].push (fl); }
-            else      { line[0].push (il + fl); line[1].push (ir + fr); }
+            float w0, w1;
+            if (ping) { w0 = 0.5f * (il + ir) + fr; w1 = fl; }
+            else      { w0 = il + fl; w1 = ir + fr; }
+            if (! freeze) loopFilt.step (k0 + (k1 - k0) * (float) i / (float) n, 0.0f, w0, w1, false);
+            line[0].push (w0); line[1].push (w1);
             const float mid = 0.5f * (yl + yr), side = 0.5f * (yl - yr) * width * 2.0f;
             wl[i] = mid + side; wr[i] = mid - side;
         }
-        // In-loop tone shapes the repeats (applied to the output tap: cheaper, near-identical feel).
-        loopFilt.process (wet.getArrayOfWritePointers(), 2, n, c.v0 (TONE), c.v (TONE), 0.15f);
         pocket.process (c, wet.getArrayOfWritePointers(), 2, n, c.v (DUCK), c.v (DUCKSHAPE), nullptr, c.v (DUCK) > 0.001f);
         for (int i = 0; i < n; ++i)
         {
@@ -372,13 +403,28 @@ public:
         pocket.paint (g, r.withTrimmedLeft (8));
     }
 private:
+    // Group delay of the in-loop 2x stage at low frequencies (subtracted from the read head so
+    // the repeats stay on the grid).
+    static float measureOsDelay (const HalfbandDesign& d)
+    {
+        Halfband u, dn; u.set (d); dn.set (d);
+        double num = 0.0, den = 0.0;
+        for (int i = 0; i < 256; ++i)
+        {
+            float a, b; u.up (i == 0 ? 1.0f : 0.0f, a, b);
+            const double y = dn.down (a, b);
+            num += i * y; den += y;
+        }
+        return den != 0.0 ? (float) (num / den) : 0.0f;
+    }
     double sr = 48000.0;
     DelayLine line[2], dry[2];
     DJFilter loopFilt;
     OnePole lo[2];
+    Halfband upF[2], dnF[2];
     Pocket pocket;
     juce::AudioBuffer<float> wet;
-    float curDelay = -1, inGain = 1.0f, wowPhase = 0, fb[2] {};
+    float curDelay = -1, inGain = 1.0f, wowPhase = 0, osDelay = 0.0f;
     std::atomic<float> disp { 0 };
 };
 ModulePtr makeDELAY() { return std::make_unique<DelayModule>(); }
@@ -419,8 +465,17 @@ public:
         wet.setSize (2, mb);
         dryFol.set (0.002f, 0.25f, rate);
         onsetFast.set (0.0005f, 0.01f, rate); onsetSlow.set (0.01f, 0.3f, rate);
+        reset();
     }
-    void reset() override { fdn.clear(); }
+    void reset() override
+    {
+        fdn.clear();
+        for (auto& d : pre) d.clear();
+        for (auto& d : dry) d.clear();
+        for (auto& f : lo) f.reset();
+        pocket.reset();
+        gateZ = 0.0f; gateCount = 0;
+    }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const int n = c.n;
@@ -507,6 +562,11 @@ public:
     {
         sr = rate;
         for (auto& d : ring) d.assign ((size_t) (rate * 4), 0.0f);
+        reset();
+    }
+    void reset() override
+    {
+        for (auto& d : ring) std::fill (d.begin(), d.end(), 0.0f);
         w = 0; state = Idle; x = 0.0f;
         for (auto& f : lp) f.reset();
     }
@@ -530,7 +590,7 @@ public:
         {
             const float inL = io.getSample (0, i), inR = io.getSample (1, i);
             ring[0][(size_t) w] = inL; ring[1][(size_t) w] = inR;
-            if (state == Armed && i >= startAt) { state = Rolling; capStart = w; pos = 0.0; pass = 0; }
+            if (state == Armed && i >= startAt) { state = Rolling; capStart = w; pos = 0.0; pass = 0; passRate = 1.0f; passGain = 1.0f; }
             float target = 0.0f;
             float oL = inL, oR = inR;
             if (state == Rolling)
@@ -538,13 +598,18 @@ public:
                 target = 1.0f;
                 if (pass > 0)
                 {
-                    const float rate = semis (pitch * (float) pass / 4.0f);
+                    const float rate = passRate;
                     const int ip = (int) pos;
                     const float fr = (float) (pos - ip);
-                    const size_t a = (size_t) ((capStart + ip) % size), b = (size_t) ((capStart + ip + 1) % size);
-                    float l = ring[0][a] + fr * (ring[0][b] - ring[0][a]);
-                    float r = ring[1][a] + fr * (ring[1][b] - ring[1][a]);
-                    const float g = std::pow (1.0f - decay * 0.5f, (float) pass);
+                    auto at = [&] (int ch, int k) { return ring[(size_t) ch][(size_t) (((capStart + k) % size + size) % size)]; };
+                    auto herm = [&] (int ch)
+                    {
+                        const float xm1 = at (ch, ip - 1), x0 = at (ch, ip), x1 = at (ch, ip + 1), x2 = at (ch, ip + 2);
+                        const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+                        return ((c3 * fr + c2) * fr + c1) * fr + x0;
+                    };
+                    float l = herm (0), r = herm (1);
+                    const float g = passGain;
                     const float within = (float) (pos / segLen);
                     const float gt = within < gate ? std::min (1.0f, (gate - within) * 60.0f) * std::min (1.0f, within * 400.0f + 0.05f) : 0.0f;
                     const float cut = expMap (1.0f - filt * std::min (1.0f, pass / 8.0f), 300.0f, 20000.0f);
@@ -553,7 +618,7 @@ public:
                     pos += rate;
                 }
                 else pos += 1.0;
-                if (pos >= segLen) { pos -= segLen; ++pass; }
+                if (pos >= segLen) { pos -= segLen; ++pass; passRate = semis (pitch * (float) pass / 4.0f); passGain = std::pow (1.0f - decay * 0.5f, (float) pass); }
             }
             else if (state == Releasing) { target = 0.0f; if (x < 0.001f) state = Idle; }
             x += 0.004f * (target - x);
@@ -578,7 +643,7 @@ private:
     int w = 0, capStart = 0, pass = 0;
     double pos = 0;
     State state = Idle;
-    float x = 0;
+    float x = 0, passRate = 1.0f, passGain = 1.0f;
     Svf lp[2];
     std::atomic<int> dispPass { -1 };
 };

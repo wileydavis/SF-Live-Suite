@@ -26,6 +26,7 @@ struct ParamSpec
     bool song = true;               // stored in song slots
     int macroDir = 0;               // response to the plugin's MACRO: +1 / -1 / 0
     bool hidden = false;            // not in the generic grid (the module draws its own control)
+    bool preset = true;             // set by presets (false: setup values a preset must not touch)
 
     ParamSpec& prim()           { primary = true; return *this; }
     ParamSpec& dir (int d)      { macroDir = d; return *this; }
@@ -33,6 +34,7 @@ struct ParamSpec
     ParamSpec& noSong()         { song = false; return *this; }
     ParamSpec& u (const char* s){ unit = s; return *this; }
     ParamSpec& hide()           { hidden = true; return *this; }
+    ParamSpec& noPreset()       { preset = false; return *this; }
 };
 
 inline ParamSpec knob (const char* id, const char* name, float mn, float mx, float def, const char* unit = "", float centre = NAN)
@@ -55,7 +57,17 @@ inline ParamSpec momentary (const char* id, const char* name)
     ParamSpec p; p.id = id; p.name = name; p.type = PType::Momentary; p.glide = false; p.song = false; return p;
 }
 
-// Per-block context handed to Module::process.
+// A preset: parameter values by id (plain units). Anything a preset does not name is set to its
+// default, so a preset always fully defines the sound. Factory presets: Source/modules/Presets.cpp.
+struct Preset
+{
+    std::string name;
+    std::vector<std::pair<std::string, float>> values;
+};
+
+// Per-chunk context handed to Module::process (the processor splits every host block into
+// chunks of at most SFProcessor::kChunk = 64 samples, so the sound never depends on Live's
+// buffer size).
 struct Ctx
 {
     double sr = 48000.0;
@@ -64,6 +76,7 @@ struct Ctx
     double ppq = 0.0;             // quarter-note position at block start (internal clock when stopped)
     bool playing = false;
     double beatsPerBar = 4.0;
+    int keyRoot = -1;             // SF CONTROL KEY: 0..11 = C..B, -1 = not set
     const float* p = nullptr;     // parameter values at block end (glided, macro applied)
     const float* p0 = nullptr;    // values at block start (for per-sample ramps)
     Bus* bus = nullptr;
@@ -97,7 +110,10 @@ public:
     virtual std::vector<std::string> extraOutputs() const { return {}; }   // extra stereo outputs (instruments)
     virtual std::vector<ParamSpec> params() const = 0;           // module params; system params are appended
 
+    // maxBlock is the largest chunk the processor will pass (the processor always splits the
+    // host block into chunks of at most SFProcessor::kChunk samples).
     virtual void prepare (double sr, int maxBlock) = 0;
+    // Silence everything now: voices off, delay lines and reverbs cleared (PANIC, NaN recovery).
     virtual void reset() {}
     // main: in/out stereo. side: sidechain (may be null). extra: extra outputs (may be null).
     virtual void process (Ctx& c, juce::AudioBuffer<float>& main, juce::AudioBuffer<float>* side,

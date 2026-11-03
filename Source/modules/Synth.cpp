@@ -1,5 +1,10 @@
 // BASS, LEAD, PAD: one synth engine, role-specific model lists and defaults.
+// Voices render at 2x the host rate from band-limited mipmapped tables (saw, square, triangle,
+// PWM as the difference of two saws, BLEP-corrected hard sync), filters and drive run at 2x, and
+// one halfband decimator per channel brings the sum back down: no audible aliasing at any pitch.
 #include "Kit.h"
+#include "../core/BandLimited.h"
+#include "../core/Oversample.h"
 
 namespace sf
 {
@@ -73,6 +78,41 @@ static std::vector<SynthModel> padModels()
     return m;
 }
 
+// Hard-sync saw (master resets slave), polyBLEP at every edge. One sample of delay so the
+// sample before an edge can be corrected too.
+struct SyncSaw
+{
+    double pm = 0.0, ps = 0.0;
+    float held = 0.0f;
+    float tick (double im, double is)
+    {
+        pm += im; ps += is;
+        float now = 0.0f, before = 0.0f;
+        auto step = [&] (double jump, double d)            // d: samples since the edge (0..1)
+        {
+            now += (float) (0.5 * jump * (2.0 * d - d * d - 1.0));
+            before += (float) (0.5 * jump * d * d);
+        };
+        if (pm >= 1.0)
+        {
+            pm -= 1.0;
+            const double d = pm / im;
+            double pr = ps - d * is;                        // slave phase at the reset
+            if (pr >= 1.0) { step (-2.0, (ps - 1.0) / is); pr -= 1.0; }
+            step (-2.0 * pr, d);
+            ps = d * is;
+        }
+        else if (ps >= 1.0)
+        {
+            ps -= 1.0;
+            step (-2.0, ps / is);
+        }
+        const float out = held + before;
+        held = (float) (2.0 * ps - 1.0) + now;
+        return out;
+    }
+};
+
 // Exponential ADSR.
 struct Adsr
 {
@@ -108,6 +148,7 @@ struct Ensemble
     float ph = 0.0f;
     double sr = 48000.0;
     void prepare (double rate) { sr = rate; for (auto& x : d) x.prepare ((int) (rate * 0.05)); }
+    void reset() { for (auto& x : d) x.clear(); }
     void process (float* L, float* R, int n, float amt)
     {
         if (amt <= 0.001f) { for (int i = 0; i < n; ++i) { d[0].push (L[i]); d[1].push (R[i]); } return; }
@@ -134,7 +175,7 @@ class SynthModule : public Module
 {
 public:
     enum { CUTOFF, RES, ENVAMT, GATE, DENS, FILT, DRIVE, LEVEL, MODEL, DECAY, ATTACK, ACCENT, GLIDE, TUNE, DETUNE, COLOR,
-           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON };
+           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW };
 
     SynthModule (const char* idName, int role, std::vector<SynthModel> m, float cutDef, float resDef, float envDef, float gateDef, float pDepth)
         : name (idName), roleId (role), models (std::move (m)), dCut (cutDef), dRes (resDef), dEnv (envDef), dGate (gateDef), dPocket (pDepth) {}
@@ -170,7 +211,8 @@ public:
                  pct ("pocket_shape", "POCKET SHAPE", 0.25f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
                  pct ("echo_swing", "ECHO SWING", 0.0f),
-                 toggle ("alloc", "ALLOC", true) };
+                 toggle ("alloc", "ALLOC", true),
+                 toggle ("key_follow", "KEY FOLLOW", true) };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP SAMPLE (MODELS: SAMPLE, GRANULAR)"; }
@@ -182,15 +224,25 @@ public:
     {
         if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
         sr = rate;
+        osr = 2.0 * rate;
+        waves = WaveSet::get (osr);
+        dec.prepare (rate);
         out.prepare (rate, mb, roleId, name.c_str(), true);
         ens.prepare (rate);
-        echoes.reset();
         events.reserve (2048);
         held.reserve (128);
+        buildGrainSource();
+        reset();
+    }
+    void reset() override
+    {
+        echoes.reset();
         for (auto& v : voices) v.active = false;
         held.clear();
-        buildTables();
-        buildGrainSource();
+        dec.reset();
+        ens.reset();
+        out.reset();
+        activeVoices = 0;
     }
 
     struct Voice
@@ -201,6 +253,7 @@ public:
         double ph[8] {}, ph2[8] {}, subPh = 0.0, modPh = 0.0, spos = 0.0;
         float pan[8] {};
         Adsr amp, fenv;
+        SyncSaw sync;
         Ladder ladder;
         Svf svf, svf2, nbp;
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
@@ -212,7 +265,8 @@ public:
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), c.v (ESWING), 1.0f, true);
-        const auto smp = sample.get();
+        const SampleData* smp = sample.audio();
+        pitchOffset = c.v (TUNE) + (c.b (KEYFOLLOW) ? (float) keyOffset (c.keyRoot) : 0.0f);
         const int modelA = c.ci (MODEL), modelB = c.ci (LAYERMODEL);
         ensembleAmt = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelA)].ensemble;
         if (modelA != lastModel)
@@ -227,23 +281,27 @@ public:
         gateShape (c.v (GATE), c.samplesPerBeat(), autoOff, relMul);
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
-        const int block = 32;
-        for (int i0 = 0; i0 < c.n; i0 += block)
+        for (int i0 = 0; i0 < c.n;)
         {
-            const int n = std::min (block, c.n - i0);
-            // Events landing in this sub-block are applied at its start (<= 0.7 ms early).
-            while (e < events.size() && events[e].offset < i0 + n)
+            // Sub-blocks end at the next event: every note starts on its own sample.
+            while (e < events.size() && events[e].offset <= i0)
             {
                 const auto& ev = events[e++];
                 if (ev.on)
                 {
-                    noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff, relMul);
-                    if (layer > 0.01f) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff, relMul);
+                    noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff * 2, relMul);
+                    if (layer > 0.01f) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff * 2, relMul);
                 }
                 else noteOff (ev.note, ev.gen, relMul);
             }
-            for (int i = i0; i < i0 + n; ++i) { L[i] = 0; R[i] = 0; }
-            for (auto& v : voices) if (v.active) render (c, v, L + i0, R + i0, n, smp.get());
+            int n = std::min (kSub, c.n - i0);
+            if (e < events.size()) n = std::min (n, std::max (1, events[e].offset - i0));
+            std::fill (L2, L2 + 2 * n, 0.0f);
+            std::fill (R2, R2 + 2 * n, 0.0f);
+            for (auto& v : voices) if (v.active) render (c, v, L2, R2, 2 * n, smp);
+            dec.process (0, L2, L + i0, n);
+            dec.process (1, R2, R + i0, n);
+            i0 += n;
         }
         ens.process (L, R, c.n, ensembleAmt * c.v (SPACE) * 2.0f);
         out.process (c, io, FILT, -1, c.v (PDEPTH), c.v (PSHAPE), c.b (ALLOCON), LEVEL);
@@ -269,7 +327,7 @@ private:
         const auto& m = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelIdx)];
         int chordIdx = c.ci (CHORD);
         const auto& chord = chordIdx == 0 ? chordTable()[(size_t) m.chord] : chordTable()[(size_t) std::max (0, chordIdx - 1)];
-        const float tune = c.v (TUNE);
+        const float tune = pitchOffset;
         const bool accent = ev.vel > 0.85f && ev.gen == 0;
         if (m.mono)
         {
@@ -282,7 +340,7 @@ private:
             const bool legato = v != nullptr && ev.gen == 0 && held.size() > 1;
             if (v == nullptr) v = &voices[(size_t) pickVoice (voices)];
             setupVoice (c, *v, m, modelIdx, ev, (float) ev.note + tune, gain, layerId, autoOff, relMul, ! legato, accent);
-            if (legato) v->glideCoef = std::exp (-1.0f / (0.06f * (float) sr * (m.acid ? 1.0f : 0.5f + c.v (GLIDE) * 3.0f)));
+            if (legato) v->glideCoef = std::exp (-1.0f / (0.06f * (float) osr * (m.acid ? 1.0f : 0.5f + c.v (GLIDE) * 3.0f)));
             return;
         }
         for (size_t k = 0; k < chord.size(); ++k)
@@ -308,13 +366,13 @@ private:
         v.vel = 0.55f + 0.45f * lerp (1.0f, ev.vel, 0.6f);
         v.gain = gain;
         v.target = noteHz (note);
-        v.glideCoef = c.v (GLIDE) > 0.02f && ! m.acid ? std::exp (-1.0f / ((0.005f + c.v (GLIDE) * 0.4f) * (float) sr)) : 0.0f;
+        v.glideCoef = c.v (GLIDE) > 0.02f && ! m.acid ? std::exp (-1.0f / ((0.005f + c.v (GLIDE) * 0.4f) * (float) osr)) : 0.0f;
         if (! wasActive) v.freq = v.target;
         v.accent = accent ? c.v (ACCENT) : 0.0f;
         const float decK = std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.6f, (float) ev.gen) * (1.0f - v.accent * 0.4f);
         const float attK = c.v (ATTACK) * 2.0f;
-        v.amp.set (m.att + attK, m.dec * (m.acid ? 1.0f : decK), m.sus, m.rel * relMul, sr);
-        v.fenv.set (m.fAtt + attK * 0.5f, m.fDec * decK, m.fSus, m.fRel * relMul, sr);
+        v.amp.set (m.att + attK, m.dec * (m.acid ? 1.0f : decK), m.sus, m.rel * relMul, osr);
+        v.fenv.set (m.fAtt + attK * 0.5f, m.fDec * decK, m.fSus, m.fRel * relMul, osr);
         v.amp.on (retrigger || ! wasActive);
         v.fenv.on (retrigger || ! wasActive || m.acid);
         v.autoOff = autoOff;
@@ -334,8 +392,8 @@ private:
                 if (v.active && ! v.releasing && v.note == note && models[(size_t) v.model].mono && ! held.empty())
                 {
                     v.note = held.back();
-                    v.target = noteHz ((float) held.back() + tuneCache);
-                    v.glideCoef = std::exp (-1.0f / (0.06f * (float) sr));
+                    v.target = noteHz ((float) held.back() + pitchOffset);
+                    v.glideCoef = std::exp (-1.0f / (0.06f * (float) osr));
                     slid = true;
                 }
             if (slid) return;
@@ -350,13 +408,16 @@ private:
             { v.amp.off(); v.fenv.off(); v.releasing = true; }
     }
 
+    // Renders n samples at the oversampled rate (osr) into L/R (accumulating).
     void render (Ctx& c, Voice& v, float* L, float* R, int n, const SampleData* smp)
     {
         const auto& m = models[(size_t) v.model];
-        tuneCache = c.v (TUNE);
-        // Filter settings for this sub-block.
+        const auto& W = *waves;
+        const float invOsr = (float) (1.0 / osr);
+        // Control values for this sub-block.
         const float cutK = c.v (CUTOFF), res = clamp01 (c.v (RES) * m.resMul), envA = c.v (ENVAMT) * m.envMul * (1.0f + v.accent);
         const float drive = clamp01 (c.v (DRIVE) + m.drive);
+        const float driveG = 1.0f + drive * 6.0f, driveNorm = 1.2f / std::sqrt (driveG);
         const float color = c.v (COLOR), det = c.v (DETUNE);
         const float fe = v.fenv.v;
         const float keyTrack = std::log2 (std::max (20.0f, v.freq) / 130.0f) * 0.3f;
@@ -364,25 +425,65 @@ private:
         const float cutHz = expMap (cutT, 35.0f, 18000.0f);
         switch (m.filt)
         {
-            case F_LADDER: v.ladder.set (cutHz, res * 0.98f, sr); break;
-            case F_SVF:    v.svf.set (cutHz, 0.6f + res * 8.0f, sr); break;
-            case F_MS20:   v.svf.set (cutHz, 0.6f + res * 12.0f, sr); v.svf2.set (std::max (20.0f, cutHz * 0.08f), 0.7f + res * 3.0f, sr); break;
+            case F_LADDER: v.ladder.set (cutHz, res * 0.98f, osr); break;
+            case F_SVF:    v.svf.set (cutHz, 0.6f + res * 8.0f, osr); break;
+            case F_MS20:   v.svf.set (cutHz, 0.6f + res * 12.0f, osr); v.svf2.set (std::max (20.0f, cutHz * 0.08f), 0.7f + res * 3.0f, osr); break;
             case F_NONE: break;
         }
-        if (m.engine == E_NOISE) v.nbp.set (v.freq, 4.0f + color * 40.0f, sr);
-        const int uni = std::max (1, m.unison);
+        if (m.engine == E_NOISE) v.nbp.set (v.freq, 4.0f + color * 40.0f, osr);
+        const int uni = std::max (1, std::min (8, m.unison));
         const float detCents = m.detune * 40.0f * (0.2f + det * 1.6f);
         const float gainAll = v.gain * v.vel * (1.0f + v.accent * 0.5f) * 0.32f * m.gain;
+        // Pitch multipliers that move slowly: computed once per sub-block.
+        float subMul = 1.0f;
+        if (m.pitchDive > 0.0f) subMul *= semis (-m.pitchDive * std::exp (-v.t / 0.08f));
+        if (m.wow > 0.0f)
+        {
+            v.drift += 0.3f * (float) n * invOsr; if (v.drift > 1.0f) v.drift -= 1.0f;
+            subMul *= semis (m.wow * (0.12f * std::sin (kTwoPi * v.drift) + 0.03f * std::sin (kTwoPi * v.drift * 17.0f)));
+        }
+        float uniR[8], pw[8], r2[8];
+        int oct1[8], oct2[8];
+        const float fTop = std::max (v.freq, v.target) * subMul;
+        const int shape1 = m.engine == E_HOOVER ? 1 : (m.acid ? (color < 0.5f ? 0 : 1) : m.wave);
+        for (int u = 0; u < uni; ++u)
+        {
+            const float cents = uni == 1 ? 0.0f : detCents * ((float) u / (float) (uni - 1) - 0.5f) * 2.0f;
+            uniR[u] = semis (cents / 100.0f);
+            pw[u] = m.engine == E_HOOVER ? 0.5f + 0.35f * std::sin (kTwoPi * (v.t * 0.7f + (float) u * 0.3f)) : 0.5f;
+            r2[u] = m.ratio * semis ((detCents * 0.5f + det * 7.0f * (m.unison > 1 ? 0.0f : 1.0f)) / 100.0f);
+            oct1[u] = W.saw.octaveFor (fTop * uniR[u]);
+            oct2[u] = W.saw.octaveFor (fTop * uniR[u] * r2[u]);
+        }
+        const int octSub = W.square.octaveFor (fTop * 0.5f);
+        const float pw2 = 0.3f + color * 0.4f;
+        const float osc2Amt = m.osc2 * (m.acid ? 0.0f : 1.0f);
+        const bool doSub = m.sub > 0.0f || (m.engine == E_SUB && ! m.acid && color > 0.0f && m.mono);
+        const float subLvl = m.sub * (m.mono ? (0.5f + color) : 1.0f) * 0.7f;
+        const float sideK = clamp01 (cutT * 1.5f);
+        auto sinT = [&W] (double ph) { return W.frame[0].read (0, ph); };
+        // Band-limited oscillator read: 0 saw, 1 pulse (pw), 2 triangle, 3 sine.
+        auto osc = [&W, &sinT] (int shape, int oct, double ph, float pwv) -> float
+        {
+            switch (shape)
+            {
+                case 0: return W.saw.read (oct, ph);
+                case 1:
+                {
+                    if (std::abs (pwv - 0.5f) < 1e-3f) return W.square.read (oct, ph);
+                    double p2 = ph - pwv; if (p2 < 0.0) p2 += 1.0;
+                    return (2.0f * pwv - 1.0f) - (W.saw.read (oct, ph) - W.saw.read (oct, p2));
+                }
+                case 2: return W.tri.read (oct, ph);
+                default: return sinT (ph);
+            }
+        };
+
         for (int i = 0; i < n; ++i)
         {
             if (v.glideCoef > 0.0f) v.freq = v.target + v.glideCoef * (v.freq - v.target); else v.freq = v.target;
-            float f = v.freq;
-            if (m.pitchDive > 0.0f) f *= semis (-m.pitchDive * std::exp (-v.t / 0.08f));
-            if (m.wow > 0.0f)
-            {
-                v.drift += 0.3f / (float) sr; if (v.drift > 1.0f) v.drift -= 1.0f;
-                f *= semis (m.wow * (0.12f * std::sin (kTwoPi * v.drift) + 0.03f * std::sin (kTwoPi * v.drift * 17.0f)));
-            }
+            const float f = v.freq * subMul;
+            const double inc = (double) f * invOsr;
             const float a = v.amp.tick();
             v.fenv.tick();
             float x = 0.0f, xl = 0.0f, xr = 0.0f;
@@ -392,63 +493,56 @@ private:
                 case E_SUB:
                 case E_HOOVER:
                 {
-                    const int shape1 = m.engine == E_HOOVER ? 1 : (m.acid ? (color < 0.5f ? 0 : 1) : m.wave);
                     for (int u = 0; u < uni; ++u)
                     {
-                        const float cents = uni == 1 ? 0.0f : detCents * ((float) u / (float) (uni - 1) - 0.5f) * 2.0f;
-                        const float pw = m.engine == E_HOOVER ? 0.5f + 0.35f * std::sin (kTwoPi * (v.t * 0.7f + u * 0.3f)) : 0.5f;
-                        Osc o; o.phase = v.ph[u];
-                        float y = o.tick (f * semis (cents / 100.0f), sr, shape1, pw);
-                        v.ph[u] = o.phase;
-                        if (m.osc2 > 0.0f && m.engine != E_HOOVER)
+                        float y = osc (shape1, oct1[u], v.ph[u], pw[u]);
+                        v.ph[u] += inc * uniR[u]; if (v.ph[u] >= 1.0) v.ph[u] -= 1.0;
+                        if (osc2Amt > 0.0f && m.engine != E_HOOVER)
                         {
-                            Osc o2; o2.phase = v.ph2[u];
-                            const float r2 = m.ratio * semis ((detCents * 0.5f + det * 7.0f * (m.unison > 1 ? 0.0f : 1.0f)) / 100.0f);
-                            y += o2.tick (f * r2, sr, m.wave2, 0.3f + color * 0.4f) * m.osc2 * (m.acid ? 0.0f : 1.0f);
-                            v.ph2[u] = o2.phase;
+                            y += osc (m.wave2, oct2[u], v.ph2[u], pw2) * osc2Amt;
+                            v.ph2[u] += inc * uniR[u] * r2[u]; if (v.ph2[u] >= 1.0) v.ph2[u] -= 1.0;
                         }
                         if (uni > 1) { xl += y * (1.0f - v.pan[u]); xr += y * v.pan[u]; stereo = true; }
                         else x += y;
                     }
-                    if (uni > 1) { xl /= std::sqrt ((float) uni); xr /= std::sqrt ((float) uni); }
-                    if (m.sub > 0.0f || (m.engine == E_SUB && ! m.acid && color > 0.0f && m.mono))
+                    if (uni > 1) { const float k = 1.0f / std::sqrt ((float) uni); xl *= k; xr *= k; }
+                    if (doSub)
                     {
-                        v.subPh += f * 0.5 / sr; if (v.subPh > 1.0) v.subPh -= 1.0;
-                        const float subLvl = m.sub * (m.mono ? (0.5f + color) : 1.0f);
-                        const float s = (v.subPh < 0.5 ? 1.0f : -1.0f) * subLvl * 0.7f;
-                        x += s; xl += s; xr += s;
+                        const float sq = W.square.read (octSub, v.subPh) * subLvl;
+                        v.subPh += inc * 0.5; if (v.subPh >= 1.0) v.subPh -= 1.0;
+                        x += sq; xl += sq; xr += sq;
                     }
                     if (m.noise > 0.0f) { const float nz = rng.next() * m.noise; x += nz; xl += nz; xr += nz; }
                     break;
                 }
                 case E_ORGAN:
                 {
-                    static const float h[6] = { 1, 2, 3, 4, 6, 8 };
+                    static const double h[6] = { 1, 2, 3, 4, 6, 8 };
                     const float w[6] = { 1.0f, 0.8f * color + 0.2f, 0.9f, 0.5f * color, 0.3f, 0.25f * color };
-                    v.ph[0] += f / sr; if (v.ph[0] > 1.0) v.ph[0] -= 1.0;
-                    for (int k = 0; k < 6; ++k) x += std::sin (kTwoPi * (float) std::fmod (v.ph[0] * h[k], 1.0)) * w[k];
+                    v.ph[0] += inc; if (v.ph[0] >= 1.0) v.ph[0] -= 1.0;
+                    for (int k = 0; k < 6; ++k) { const double p = v.ph[0] * h[k]; x += sinT (p - std::floor (p)) * w[k]; }
                     x *= 0.35f;
                     if (v.t < 0.004f) x += rng.next() * 0.3f * (1.0f - v.t / 0.004f);       // key click
-                    x += std::sin (kTwoPi * (float) std::fmod (v.ph[0] * 3.0, 1.0)) * 0.4f * std::exp (-v.t / 0.2f);   // percussion
+                    { const double p = v.ph[0] * 3.0; x += sinT (p - std::floor (p)) * 0.4f * std::exp (-v.t / 0.2f); }   // percussion
                     break;
                 }
                 case E_FM:
                 {
                     const float idx = (0.5f + color * 6.0f) * (0.3f + 0.7f * v.fenv.v) * (1.0f + v.accent);
-                    v.modPh += f * m.ratio * (0.98 + det * 0.04) / sr; if (v.modPh > 1.0) v.modPh -= 1.0;
-                    const float mod = std::sin (kTwoPi * (float) v.modPh + v.fb * 0.3f);
+                    v.modPh += inc * m.ratio * (0.98 + det * 0.04); if (v.modPh >= 1.0) v.modPh -= 1.0;
+                    double mp = v.modPh + v.fb * (0.3f / kTwoPi); mp -= std::floor (mp);
+                    const float mod = sinT (mp);
                     v.fb = mod;
-                    v.ph[0] += f / sr; if (v.ph[0] > 1.0) v.ph[0] -= 1.0;
-                    x = std::sin (kTwoPi * (float) v.ph[0] + idx * mod);
+                    v.ph[0] += inc; if (v.ph[0] >= 1.0) v.ph[0] -= 1.0;
+                    double cp = v.ph[0] + idx * mod / kTwoPi; cp -= std::floor (cp);
+                    x = sinT (cp);
                     break;
                 }
                 case E_SYNC:
                 {
-                    v.ph[0] += f / sr;
+                    // Hard sync: slave saw restarts with the master; every edge BLEP-corrected.
                     const float ratio = 1.0f + (color * 4.0f + v.fenv.v * c.v (ENVAMT) * 6.0f);
-                    if (v.ph[0] >= 1.0) { v.ph[0] -= 1.0; v.ph2[0] = 0.0; }
-                    v.ph2[0] += f * ratio / sr; if (v.ph2[0] > 1.0) v.ph2[0] -= 1.0;
-                    x = (float) (2.0 * v.ph2[0] - 1.0) * 0.8f;
+                    x = v.sync.tick (inc, std::min (0.45, inc * ratio)) * 0.8f;
                     break;
                 }
                 case E_NOISE:
@@ -456,13 +550,11 @@ private:
                     break;
                 case E_WAVETABLE:
                 {
-                    v.ph[0] += f / sr; if (v.ph[0] > 1.0) v.ph[0] -= 1.0;
                     const float pos = clamp01 (color + 0.15f * std::sin (kTwoPi * v.t * 0.13f)) * 3.0f;
                     const int t0 = std::min (2, (int) pos);
                     const float fr = pos - (float) t0;
-                    const float idxF = (float) v.ph[0] * kTable;
-                    const int i0 = (int) idxF & (kTable - 1);
-                    x = lerp (tables[t0][(size_t) i0], tables[t0 + 1][(size_t) i0], fr);
+                    x = lerp (W.frame[t0].read (oct1[0], v.ph[0]), W.frame[t0 + 1].read (oct1[0], v.ph[0]), fr);
+                    v.ph[0] += inc; if (v.ph[0] >= 1.0) v.ph[0] -= 1.0;
                     break;
                 }
                 case E_GRAIN:
@@ -470,30 +562,31 @@ private:
                     const auto& src = smp != nullptr ? smp->buf : grainSrc;
                     const int len = src.getNumSamples();
                     const float root = smp != nullptr && smp->rootHz > 0 ? smp->rootHz : 130.81f;
-                    const int glen = (int) ((0.03f + color * 0.25f) * sr);
-                    if (len > glen + 2 && --v.grainClock <= 0)
+                    const int glen = (int) ((0.03f + color * 0.25f) * sr);       // source samples
+                    if (len > glen + 4 && --v.grainClock <= 0)
                     {
-                        v.grainClock = std::max (1, glen / 4);
+                        v.grainClock = std::max (1, glen / 2);                    // 2x-rate samples (= glen / 4 at 1x)
                         for (auto& gr : v.grains)
                             if (! gr.on)
                             {
-                                gr.on = true; gr.age = 0; gr.len = glen;
+                                gr.on = true; gr.age = 0; gr.len = glen * 2;
                                 const float scatter = det * 0.3f;
-                                gr.pos = std::fmod (v.t * 0.05f * sr + rng.uni() * scatter * len, (double) (len - glen - 2));
-                                if (gr.pos < 0) gr.pos += len - glen - 2;
-                                gr.rate = (f / root) * (1.0 + (rng.uni() - 0.5f) * det * 0.02f);
+                                gr.pos = std::fmod (v.t * 0.05f * sr + rng.uni() * scatter * len, (double) (len - glen - 4));
+                                if (gr.pos < 0) gr.pos += len - glen - 4;
+                                gr.rate = 0.5 * (f / root) * (1.0 + (rng.uni() - 0.5f) * det * 0.02f);
                                 gr.pan = 0.5f + (rng.uni() - 0.5f) * 0.8f;
                                 break;
                             }
                     }
                     stereo = true;
+                    const float* s0 = src.getReadPointer (0);
+                    const float* s1 = src.getReadPointer (src.getNumChannels() > 1 ? 1 : 0);
                     for (auto& gr : v.grains)
                     {
                         if (! gr.on) continue;
-                        const int ip = (int) gr.pos;
-                        if (ip + 1 >= len || gr.age >= gr.len) { gr.on = false; continue; }
+                        if ((int) gr.pos + 2 >= len || gr.age >= gr.len) { gr.on = false; continue; }
                         const float w = 0.5f - 0.5f * std::cos (kTwoPi * (float) gr.age / (float) gr.len);
-                        const float y = (src.getSample (0, ip) + src.getSample (src.getNumChannels() > 1 ? 1 : 0, ip)) * 0.5f * w;
+                        const float y = (hermiteAt (s0, len, gr.pos) + hermiteAt (s1, len, gr.pos)) * 0.5f * w;
                         xl += y * (1.0f - gr.pan); xr += y * gr.pan;
                         gr.pos += gr.rate; ++gr.age;
                     }
@@ -502,13 +595,12 @@ private:
                 case E_SAMPLE:
                 {
                     if (smp == nullptr) { v.active = false; return; }
-                    const int ip = (int) v.spos;
-                    if (ip + 1 >= smp->length()) { v.active = false; return; }
-                    const float fr = (float) (v.spos - ip);
-                    xl = smp->buf.getSample (0, ip) + fr * (smp->buf.getSample (0, ip + 1) - smp->buf.getSample (0, ip));
-                    xr = smp->buf.getSample (1, ip) + fr * (smp->buf.getSample (1, ip + 1) - smp->buf.getSample (1, ip));
+                    const int len = smp->length();
+                    if ((int) v.spos + 2 >= len) { v.active = false; return; }
+                    xl = hermiteAt (smp->buf.getReadPointer (0), len, v.spos);
+                    xr = hermiteAt (smp->buf.getReadPointer (smp->buf.getNumChannels() > 1 ? 1 : 0), len, v.spos);
                     stereo = true;
-                    v.spos += (double) f / (double) noteHz (smp->rootNote);
+                    v.spos += 0.5 * (double) f / (double) noteHz (smp->rootNote);
                     break;
                 }
             }
@@ -516,7 +608,7 @@ private:
             // Filter (mono filters run on the mid; stereo engines get mid/side filtered as one).
             auto filt = [&] (float in) -> float
             {
-                if (drive > 0.001f) { const float g = 1.0f + drive * 6.0f; in = fastTanh (in * g) / std::sqrt (g) * 1.2f; }
+                if (drive > 0.001f) in = fastTanh (in * driveG) * driveNorm;
                 switch (m.filt)
                 {
                     case F_LADDER: return v.ladder.tick (in);
@@ -530,36 +622,18 @@ private:
             {
                 const float mid = filt (0.5f * (xl + xr));
                 const float side = 0.5f * (xl - xr);
-                yl = mid + side * (m.filt == F_NONE ? 1.0f : clamp01 (cutT * 1.5f)); yr = mid - side * clamp01 (cutT * 1.5f);
+                yl = mid + side * sideK; yr = mid - side * sideK;
             }
             else if (stereo) { yl = xl; yr = xr; }
             else { yl = yr = filt (xl); }
             L[i] += yl * a * gainAll;
             R[i] += yr * a * gainAll;
-            v.t += 1.0f / (float) sr;
+            v.t += invOsr;
             if (v.autoOff > 0 && --v.autoOff == 0 && ! v.releasing) { v.amp.off(); v.fenv.off(); v.releasing = true; }
             if (v.amp.st == Adsr::Idle && v.t > 0.001f) { v.active = false; return; }
         }
     }
 
-    void buildTables()
-    {
-        for (int t = 0; t < 4; ++t) tables[t].assign ((size_t) kTable, 0.0f);
-        for (int i = 0; i < kTable; ++i)
-        {
-            const float ph = (float) i / (float) kTable;
-            tables[0][(size_t) i] = std::sin (kTwoPi * ph);
-            float saw = 0, sq = 0, vox = 0;
-            for (int h = 1; h <= 32; ++h)
-            {
-                saw += std::sin (kTwoPi * ph * (float) h) / (float) h;
-                if (h & 1) sq += std::sin (kTwoPi * ph * (float) h) / (float) h;
-                const float formant = std::exp (-std::pow (((float) h * 130.0f - 700.0f) / 300.0f, 2.0f)) + 0.6f * std::exp (-std::pow (((float) h * 130.0f - 1200.0f) / 300.0f, 2.0f));
-                vox += std::sin (kTwoPi * ph * (float) h) * (formant + 0.05f / (float) h);
-            }
-            tables[1][(size_t) i] = saw * 0.55f; tables[2][(size_t) i] = sq * 0.9f; tables[3][(size_t) i] = vox * 0.5f;
-        }
-    }
     void buildGrainSource()
     {
         // Default grain source: 2 s of a slowly beating minor chord through a soft low-pass.
@@ -590,10 +664,13 @@ private:
     Ensemble ens;
     SampleSlot sample;
     Noise rng;
-    float ensembleAmt = 0.0f, tuneCache = 0.0f;
+    float ensembleAmt = 0.0f, pitchOffset = 0.0f;
     int lastModel = -1;
-    static constexpr int kTable = 2048;
-    std::vector<float> tables[4];
+    double osr = 96000.0;
+    std::shared_ptr<const WaveSet> waves;
+    Decimator2x dec;
+    static constexpr int kSub = 32;
+    float L2[2 * kSub] {}, R2[2 * kSub] {};
     juce::AudioBuffer<float> grainSrc;
     std::atomic<int> activeVoices { 0 };
 };

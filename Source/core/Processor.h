@@ -1,9 +1,15 @@
 #pragma once
-// SFProcessor: hosts one sf::Module. Owns parameters (Live-visible), smoothing, GLIDE (slow mode),
-// MACRO response, song slots (recalled on the bar), state save/load and the output safety stage.
+// SFProcessor: hosts one sf::Module. Owns parameters (Live-visible), smoothing, SLOW (glide),
+// MACRO response, MOTION (two song-locked modulators), song slots (recalled exactly on the bar),
+// presets, state save/load, PANIC and the output safety stage.
+//
+// Every host block is split into chunks of at most kChunk samples: parameters, MOTION, song
+// recall and every module's control-rate work run per chunk, so the sound is identical at any
+// Live buffer size (64 .. 2048) and no module ever sees a block larger than it prepared for.
 #include "Bus.h"
 #include "Dsp.h"
 #include "Module.h"
+#include "Motion.h"
 #include <array>
 #include <atomic>
 
@@ -11,15 +17,22 @@ class SFProcessor : public juce::AudioProcessor, private juce::Timer
 {
     // Declared first: the parameter layout is built from these.
     sf::ModulePtr module;
+    std::vector<int> motionTargets;         // module parameter index for MOTION TARGET choice k+1
     std::vector<sf::ParamSpec> specs;
     int numModParams = 0;
 
 public:
+    static constexpr int kChunk = 64;
+    static constexpr int kMaxParams = 128;
+    static constexpr int kMotions = 2;
+
     explicit SFProcessor (sf::ModulePtr);
     ~SFProcessor() override;
 
-    // System parameters appended after the module's own.
-    enum { SYS_GLIDE = 0, SYS_MACRO_SRC, SYS_MACRO_AMT, kNumSys };
+    // System parameters appended after the module's own (order fixed: saved sets depend on ids).
+    enum { SYS_GLIDE = 0, SYS_MACRO_SRC, SYS_MACRO_AMT,
+           SYS_M1_SRC, SYS_M1_RATE, SYS_M1_TARGET, SYS_M1_DEPTH,
+           SYS_M2_SRC, SYS_M2_RATE, SYS_M2_TARGET, SYS_M2_DEPTH, kNumSys };
     static std::vector<std::string> glideNames() { return { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR" }; }
     static double glideBars (int i) { static const double b[] = { 0, 1, 2, 4, 8, 16, 32, 64 }; return b[juce::jlimit (0, 7, i)]; }
 
@@ -54,15 +67,34 @@ public:
     const std::vector<sf::ParamSpec>& allSpecs() const { return specs; }
     int numModuleParams() const { return numModParams; }
     juce::RangedAudioParameter* param (int i) { return params[(size_t) i]; }
-    float currentValue (int i) const { return cur[(size_t) i]; }
+    int paramIndex (const std::string& id) const;
+    float currentValue (int i) const { return cur[(size_t) i]; }     // what the module hears (glide, macro, motion)
+    float baseValue (int i) const { return base[(size_t) i]; }       // after SLOW, before MACRO / MOTION
+    bool isModulated (int i) const { return std::abs (cur[(size_t) i] - base[(size_t) i]) > 1e-4f * (1.0f + std::abs (base[(size_t) i])); }
+    float motionValue (int k) const { return motionOut[(size_t) k].load(); }
     void storeSong();                       // store current values into the active song slot
     int activeSong() const { return songIndex.load(); }
     bool songStored (int s) const { return s >= 0 && s < sf::kSongs && songHas[(size_t) s].load(); }
     bool recallWaiting() const { return pendingSong.load() >= 0; }
     void flushHostNotifications();          // message thread (timer); public for tests
 
+    // Presets (message thread).
+    const std::vector<sf::Preset>& factoryPresets() const { return factory; }
+    void applyPreset (const sf::Preset&);
+    sf::Preset capturePreset (const juce::String& name) const;
+    juce::File userPresetFolder() const;
+    juce::Array<juce::File> userPresets() const;
+    bool saveUserPreset (const juce::String& name);
+    bool loadUserPreset (const juce::File&);
+    juce::String presetName() const { return currentPreset; }
+
+    // Panic: silence this plugin now (voices, tails, delay lines). SF CONTROL PANIC does it to all.
+    void panic() { localPanic = true; }
+
     sf::MeterState outMeter;
     std::atomic<bool> clipped { false };
+    std::atomic<bool> fault { false };      // NaN / runaway: the module was reset (header shows FAULT)
+    std::atomic<int> faultCount { 0 };
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -71,30 +103,46 @@ private:
     juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
     void timerCallback() override;
     void applySong (int s);
+    void updateParams (const sf::Ctx&, int n, float motionInput);
+    void processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
+                       int start, int n, sf::Ctx& c, const juce::MidiBuffer& midi, bool panicNow, bool lastChunk);
 
     std::vector<juce::RangedAudioParameter*> params;
     std::vector<std::atomic<float>*> raw;
-    std::vector<float> cur, prev, ovr, base, macroOff, glideFrom, glideTo;
+    std::vector<float> cur, prev, ovr, base, macroOff, glideFrom, glideTo, modAmt;
     std::vector<double> glideElapsed;
-    double internalPpq = 0.0;
+    std::vector<int> ovrAge;
+    double internalPpq = 0.0, barPhase = 0.0;
     char trackName[24] {};
     std::atomic<uint32_t> trackNameSeq { 0 };
     bool clockAnchored = false;    // ovr: recalled value in force until Live reports it back (NaN = none)
-    std::vector<int> ovrAge;
     bool firstBlock = true;
     double sr = 48000.0;
 
+    // MOTION
+    std::array<sf::Motion, kMotions> motion;
+    std::array<std::atomic<float>, kMotions> motionOut {};
+    uint32_t motionSeed = 1;
+    float noteVel = 0.0f;
+
     // Songs
-    std::array<std::array<float, 96>, sf::kSongs> songVals {};
+    std::array<std::array<float, kMaxParams>, sf::kSongs> songVals {};
     std::array<std::atomic<bool>, sf::kSongs> songHas {};
     std::atomic<int> songIndex { -1 }, pendingSong { -1 };
-    uint32_t lastSongSeq = 0, lastStoreSeq = 0;
+    uint32_t lastSongSeq = 0, lastStoreSeq = 0, lastPanicSeq = 0;
     bool seqInit = false;
-    std::atomic<bool> notifyHost { false }, storeRequested { false };
+    std::atomic<bool> notifyHost { false }, storeRequested { false }, localPanic { false };
 
-    // Internal clock when Live is stopped (shared wall clock, so all SF plugins agree).
+    // Safety
+    int overSamples = 0;
+
+    // Presets
+    std::vector<sf::Preset> factory;
+    juce::String currentPreset;
+
     double lastBpm = 120.0;
-    juce::AudioBuffer<float> extraScratch, sideScratch;
+    juce::AudioBuffer<float> extraScratch, mainView, sideView, extraView;   // views: never allocate
+    juce::MidiBuffer chunkMidi;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SFProcessor)
 };

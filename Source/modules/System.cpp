@@ -6,11 +6,12 @@ namespace sf
 {
 // =====================================================================================  CONTROL
 // Suite brain: six macros, song select (Program Change on the chosen channel, default 16),
-// STORE ALL. Put it on its own MIDI track receiving the OXI One.
+// STORE ALL, KEY (every pitched SF instrument follows) and PANIC (every SF plugin silences its
+// voices, tails and delay lines). Put it on its own MIDI track receiving the OXI One.
 class ControlModule : public Module, private juce::Timer
 {
 public:
-    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET };
+    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC };
     ControlModule() { startTimerHz (20); }
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
@@ -32,6 +33,9 @@ public:
         auto on = toggle ("pc_enable", "PC ENABLE", true); on.song = false; p.push_back (on);
         // Calibration for Pocket timing in Live (+ = every pocket later). Set once, by ear.
         auto off = knob ("pocket_offset", "POCKET OFFSET", -20.0f, 20.0f, 0.0f, "ms"); off.song = false; off.glide = false; p.push_back (off);
+        // KEY: parts written in C play in this key (each song can store its own).
+        p.push_back (choice ("key", "KEY", { "OFF", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
+        p.push_back (momentary ("panic", "PANIC"));
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
@@ -50,6 +54,10 @@ public:
         auto& d = c.bus->d();
         d.controlSeenMs = Bus::nowMs();
         d.pocketOffsetMs = c.v (POFFSET);
+        d.keyRoot = c.ci (KEY) - 1;
+        const bool pn = c.b (PANIC);
+        if (pn && ! panicWas) d.panicSeq.fetch_add (1);
+        panicWas = pn;
         for (int i = 0; i < kMacros; ++i) d.macro[i] = c.v (M1 + i);
         // Program Change selects the song.
         if (c.b (PCON))
@@ -106,6 +114,9 @@ public:
         };
         const int song = d.song.load();
         line ("SONG", song < 0 ? "--" : juce::String (song + 1).paddedLeft ('0', 2), ui::kText);
+        static const char* const keys[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        const int key = d.keyRoot.load();
+        line ("KEY", key >= 0 && key < 12 ? juce::String (keys[key]) : juce::String ("OFF"), key >= 0 ? ui::kText : ui::kFaint);
         line ("BUS", bus.shared() ? "SHARED" : "LOCAL ONLY", bus.shared() ? ui::kGreen : ui::kAmber);
         line ("KICK", bus.kickAlive (2000) ? "REPORTING" : "SILENT", bus.kickAlive (2000) ? ui::kGreen : ui::kFaint);
         line ("ALLOC", bus.allocAlive() ? "RUNNING" : "NOT LOADED", bus.allocAlive() ? ui::kGreen : ui::kFaint);
@@ -129,7 +140,7 @@ private:
     }
     std::atomic<int> pcSong { -1 };
     int lastSongParam = -1;
-    bool storeWas = false;
+    bool storeWas = false, panicWas = false;
 };
 ModulePtr makeCONTROL() { return std::make_unique<ControlModule>(); }
 
