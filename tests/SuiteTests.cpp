@@ -570,9 +570,39 @@ static void testRegressions()
     }
 }
 
+// --dump: every module's parameters as JSON (for the manual).
+static void dumpSpecs()
+{
+    std::printf ("{\n");
+    auto ids = allModuleIds();
+    for (size_t m = 0; m < ids.size(); ++m)
+    {
+        SFProcessor p (makeModule (ids[m]));
+        std::printf ("\"%s\": {\"instrument\": %s, \"latency\": %d, \"params\": [\n", ids[m].c_str(), p.mod().instrument() ? "true" : "false", p.mod().latency());
+        const auto& sp = p.allSpecs();
+        for (size_t k = 0; k < sp.size(); ++k)
+        {
+            const auto& s = sp[k];
+            juce::String choices;
+            for (size_t c = 0; c < s.choices.size(); ++c) choices << (c ? "|" : "") << s.choices[c];
+            auto* prm = p.param ((int) k);
+            const juce::String defText = s.type == PType::Float ? prm->getText (prm->convertTo0to1 (s.def), 64)
+                                       : s.type == PType::Choice ? juce::String (s.choices[(size_t) s.def]) : juce::String (s.def > 0.5f ? "ON" : "OFF");
+            const juce::String minText = s.type == PType::Float ? prm->getText (0.0f, 64) : juce::String();
+            const juce::String maxText = s.type == PType::Float ? prm->getText (1.0f, 64) : juce::String();
+            const char* type = s.type == PType::Float ? "knob" : s.type == PType::Choice ? "menu" : s.type == PType::Toggle ? "toggle" : "momentary";
+            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
+                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
+        }
+        std::printf ("]}%s\n", m + 1 < ids.size() ? "," : "");
+    }
+    std::printf ("}\n");
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && std::string (argv[1]) == "--dump") { dumpSpecs(); return 0; }
     std::vector<std::string> ids = allModuleIds();
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
