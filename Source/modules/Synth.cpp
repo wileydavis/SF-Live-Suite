@@ -274,6 +274,8 @@ private:
         if (m.mono)
         {
             // Mono: legato slides (acid), else retrigger. Note stack for releases.
+            // DENSITY echoes never interrupt a note that is still held.
+            if (ev.gen > 0 && ! held.empty()) return;
             if (layerId == 0 && ev.gen == 0 && held.size() < 120) held.push_back (ev.note);
             Voice* v = nullptr;
             for (auto& x : voices) if (x.active && x.layer == layerId && x.model == modelIdx && ! x.releasing) v = &x;
@@ -326,18 +328,26 @@ private:
         if (gen == 0)
         {
             held.erase (std::remove (held.begin(), held.end(), note), held.end());
-            // Mono: return to the previous held note (slide).
+            // Mono: return to the previous held note (slide), every layer.
+            bool slid = false;
             for (auto& v : voices)
                 if (v.active && ! v.releasing && v.note == note && models[(size_t) v.model].mono && ! held.empty())
                 {
                     v.note = held.back();
                     v.target = noteHz ((float) held.back() + tuneCache);
                     v.glideCoef = std::exp (-1.0f / (0.06f * (float) sr));
-                    return;
+                    slid = true;
                 }
+            if (slid) return;
+            // A played note's release ends its voice even if an echo retriggered it.
+            for (auto& v : voices)
+                if (v.active && ! v.releasing && v.note == note && (v.gen == 0 || models[(size_t) v.model].mono)) { v.amp.off(); v.fenv.off(); v.releasing = true; }
+            return;
         }
+        // Echo releases only end echo voices, never a voice a held note owns.
         for (auto& v : voices)
-            if (v.active && ! v.releasing && v.note == note && v.gen == gen) { v.amp.off(); v.fenv.off(); v.releasing = true; }
+            if (v.active && ! v.releasing && v.note == note && v.gen == gen && ! (models[(size_t) v.model].mono && ! held.empty()))
+            { v.amp.off(); v.fenv.off(); v.releasing = true; }
     }
 
     void render (Ctx& c, Voice& v, float* L, float* R, int n, const SampleData* smp)

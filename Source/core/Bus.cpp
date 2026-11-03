@@ -45,15 +45,25 @@ Bus::Bus()
     if (fd >= 0)
     {
         struct stat st {};
-        if (fstat (fd, &st) == 0 && st.st_size < (off_t) sizeof (BusData))
+        if (fstat (fd, &st) == 0 && st.st_size == 0)
             (void) ftruncate (fd, (off_t) sizeof (BusData));   // new pages are zero: a valid empty bus
-        void* m = mmap (nullptr, sizeof (BusData), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        close (fd);
-        if (m != MAP_FAILED)
+        // An existing segment of the wrong size (another build) is never mapped: use a local bus.
+        if (fstat (fd, &st) == 0 && st.st_size >= (off_t) sizeof (BusData))
         {
-            data = static_cast<BusData*> (m);
-            isShared = true;
+            void* m = mmap (nullptr, sizeof (BusData), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (m != MAP_FAILED)
+            {
+                auto* candidate = static_cast<BusData*> (m);
+                const uint32_t magic = candidate->magic.load();
+                if (magic == 0 || (magic == kMagic && (candidate->version.load() == kVersion || candidate->version.load() == 0)))
+                {
+                    data = candidate;
+                    isShared = true;
+                }
+                else munmap (m, sizeof (BusData));
+            }
         }
+        close (fd);
     }
 #endif
     if (data == nullptr)
@@ -66,7 +76,7 @@ Bus::Bus()
     uint32_t expected = 0;
     if (data->magic.compare_exchange_strong (expected, kMagic))
     {
-        data->version = kVersion;
+        data->version.store (kVersion);
         data->song = -1;
         for (auto& m : data->macro) m = 0.0f;
     }

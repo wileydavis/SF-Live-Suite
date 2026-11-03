@@ -32,6 +32,16 @@ public:
         auto on = toggle ("pc_enable", "PC ENABLE", true); on.song = false; p.push_back (on);
         return p;
     }
+    // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
+    int numPrograms() const override { return kSongs; }
+    int currentProgram() const override { return std::max (0, (int) Bus::get().d().song.load()); }
+    void setProgram (int p) override
+    {
+        auto& d = Bus::get().d();
+        const int s = juce::jlimit (0, kSongs - 1, p);
+        if (d.song.load() != s) { d.song = s; d.songSeq.fetch_add (1); }
+        pcSong = s;
+    }
     void prepare (double, int) override {}
     void process (Ctx& c, juce::AudioBuffer<float>&, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
     {
@@ -213,7 +223,7 @@ public:
         const int64_t now = Bus::nowMs();
         for (int k = 0; k < kConflictSlots; ++k)
         {
-            const float v = c.v (SLOT1 + k);
+            const float v = getParam ? getParam (SLOT1 + k) : c.v (SLOT1 + k);
             if (std::abs (v - lastSlotVal[k].load()) > 0.002f) { lastSlotVal[k] = v; touchedMs[k] = now; }
             slotNow[k] = v;
         }
@@ -251,17 +261,18 @@ public:
             std::sort (parts, parts + np, [&] (int a, int b) { return role[a] != role[b] ? role[a] < role[b] : a < b; });
             float knobV = 0.5f;
             for (int k = 0; k < kConflictSlots; ++k) if (bound[k].mask == f.mask) knobV = c.v (SLOT1 + k);
+            // Centre (AUTO): the highest-priority source owns the band. Right half: ownership
+            // moves continuously along the priority order to the last source. Left half: SHARE,
+            // cuts fade out until nobody is cut.
             float w[kSources] {};
-            if (std::abs (knobV - 0.5f) < 0.04f) w[0] = 1.0f;
-            else
-            {
-                const float x = knobV * (float) (np - 1);
-                for (int i = 0; i < np; ++i) w[i] = std::max (0.0f, 1.0f - std::abs (x - (float) i));
-            }
+            const float right = clamp01 ((knobV - 0.54f) / 0.46f), share = clamp01 ((0.46f - knobV) / 0.46f);
+            const float x = right * (float) (np - 1);
+            for (int i = 0; i < np; ++i) w[i] = lerp (std::max (0.0f, 1.0f - std::abs (x - (float) i)), 1.0f, share);
             for (int b = f.lo; b <= f.hi; ++b)
             {
                 float ownerE = -120.0f;
-                for (int i = 0; i < np; ++i) if (w[i] > 0.5f) ownerE = std::max (ownerE, E[parts[i]][b]);
+                float wMax = 0.0f; for (int i = 0; i < np; ++i) wMax = std::max (wMax, w[i]);
+                for (int i = 0; i < np; ++i) if (w[i] >= wMax - 1e-4f) ownerE = std::max (ownerE, E[parts[i]][b]);
                 const float strength = clamp01 ((ownerE - floorDb) / 18.0f);
                 for (int i = 0; i < np; ++i) cut[parts[i]][b] = depth * (1.0f - w[i]) * strength;
             }
@@ -351,7 +362,8 @@ private:
     {
         auto& d = Bus::get().d();
         std::vector<std::string> parts;
-        for (int i = 0; i < kSources; ++i) if (mask & (1u << i)) { char nm[24]; Bus::unpackName (d.src[i].name, nm); parts.push_back (std::string (nm) + "#" + std::to_string (i)); }
+        // Names only (bus slot numbers change between sessions), so choices survive reloading the set.
+        for (int i = 0; i < kSources; ++i) if (mask & (1u << i)) { char nm[24]; Bus::unpackName (d.src[i].name, nm); parts.push_back (nm); }
         std::sort (parts.begin(), parts.end());
         std::string k; for (auto& p : parts) k += p + "|";
         return k;

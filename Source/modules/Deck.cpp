@@ -116,7 +116,7 @@ static void analyseTrack (TrackData& t)
     for (int c = 0; c < 2; ++c) { sh[c].highShelf (1681.97f, 0.7072f, 3.9998f, sr); hp[c].highPass (38.1355f, 0.5003f, sr); }
     const int blk = (int) (0.4 * sr);
     std::vector<double> blocks;
-    for (int i = 0; i + blk <= n; i += blk / 4 * 4)
+    for (int i = 0; i + blk <= n; i += blk / 4)
     {
         double s = 0.0;
         for (int k = 0; k < blk; ++k)
@@ -134,8 +134,9 @@ static void analyseTrack (TrackData& t)
     }
 }
 
-static TrackPtr loadTrack (const juce::String& path, double sr)
+static TrackPtr loadTrack (const juce::String& path, double sr, const std::atomic<bool>& cancel, double cachedBpm = 0.0, double cachedFirst = 0.0, float cachedLufs = 0.0f)
 {
+    if (cancel.load()) return nullptr;
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (juce::File (path)));
@@ -154,7 +155,9 @@ static TrackPtr loadTrack (const juce::String& path, double sr)
         if (std::abs (ratio - 1.0) < 1e-9) t->buf.copyFrom (c, 0, in, c, 0, len);
         else { juce::LagrangeInterpolator li; li.process (ratio, in.getReadPointer (c), t->buf.getWritePointer (c), outN, len, 0); }
     }
-    analyseTrack (*t);
+    if (cancel.load()) return nullptr;
+    if (cachedBpm > 0.0) { t->bpm = cachedBpm; t->firstBeat = cachedFirst; t->lufs = cachedLufs; }   // already analysed
+    else analyseTrack (*t);
     return t;
 }
 
@@ -163,8 +166,15 @@ class DeckModule : public Module, private juce::Timer
 {
 public:
     enum { XFADE, FILTA, FILTB, LOWA, LOWB, ROLL, GATE, LEVEL, PLAYA, PLAYB, MIDA, HIGHA, MIDB, HIGHB, QUANT, KEYLOCK, CUEA, CUEB, TARGET, RES };
-    DeckModule() : pool (1) { startTimerHz (10); }
-    ~DeckModule() override { *aliveFlag = false; stopTimer(); pool.removeAllJobs (true, 10000); }
+    DeckModule() : pool (1), loadPool (1) { startTimerHz (10); }
+    ~DeckModule() override
+    {
+        *aliveFlag = false;
+        cancel = true;              // loaders stop at their next check
+        stopTimer();
+        loadPool.removeAllJobs (true, 3000);
+        pool.removeAllJobs (true, 3000);
+    }
     std::string id() const override { return "DECK"; }
     bool instrument() const override { return true; }
     std::vector<std::string> extraOutputs() const override { return { "CUE" }; }
@@ -212,8 +222,7 @@ public:
 
     struct Deck
     {
-        TrackPtr track;               // audio-thread copy
-        std::shared_ptr<const TrackData> pending;
+        const TrackData* track = nullptr;   // owned by `owned` (message side); never freed on the audio thread
         bool playing = false, armed = false, stopArmed = false, synced = false, rolling = false;
         double startPpq = 0.0, cueBeat = 0.0, fedPos = 0.0, rollStart = 0.0, lastBeat = 0.0;
         int jumpCue = -1;
@@ -248,7 +257,7 @@ public:
         for (int k = 0; k < 2; ++k)
         {
             auto& d = decks[(size_t) k];
-            if (auto p = std::atomic_exchange (&d.pending, std::shared_ptr<const TrackData> {})) { d.track = p; d.playing = false; d.armed = false; d.synced = false; }
+            if (auto* p = pending[k].exchange (nullptr)) { d.track = p; current[k] = p; d.playing = false; d.armed = false; d.synced = false; d.jumpCue = -1; }
             const bool want = c.b (k == 0 ? PLAYA : PLAYB);
             if (want && ! d.playing && ! d.armed && d.track != nullptr) { d.armed = true; d.stopArmed = false; }
             if (! want) { d.armed = false; if (d.playing) d.stopArmed = true; }
@@ -264,15 +273,17 @@ public:
                 const int at = c.nextGrid (quant);
                 if (at >= 0) { d.armed = false; d.playing = true; d.startPpq = c.ppqAt (at); d.cueBeat = hotCue (k, 0); d.synced = false; d.fade = 0.0f; d.logPending = true; }
             }
+            if (! d.playing) d.jumpCue = -1;      // hot cues only act on a playing deck
             if (d.playing && d.jumpCue >= 0)
             {
+                // Lands on the next beat line: the cue point is exactly on the beat; the few ms
+                // before it in this block play the audio just ahead of the cue, faded in.
                 const int at = c.nextGrid (1.0);
-                if (at >= 0) { d.startPpq = c.ppqAt (at); d.cueBeat = hotCue (k, d.jumpCue); d.jumpCue = -1; d.synced = false; }
+                if (at >= 0) { d.startPpq = c.ppqAt (at); d.cueBeat = hotCue (k, d.jumpCue); d.jumpCue = -1; d.synced = false; d.fade = 0.0f; }
             }
             if (! d.playing) continue;
-            const double beat = d.cueBeat + (c.ppq - d.startPpq);
+            const double beat = d.cueBeat + (c.ppq - d.startPpq);   // may be slightly negative at a start: reads silence until the grid
             d.lastBeat = beat;
-            if (beat < 0.0) continue;    // waiting for the start inside this block: next block begins it cleanly
             const double desired = t.firstBeat + beat * trackSpb;
             if (desired >= t.buf.getNumSamples()) { d.playing = false; continue; }
             auto* dl = d.deck.getWritePointer (0); auto* dr = d.deck.getWritePointer (1);
@@ -496,14 +507,14 @@ private:
         list[(size_t) idx].analysing = true;
         const juce::String path = list[(size_t) idx].path;
         const double rate = sr;
-        juce::Component::SafePointer<juce::Component> none;
         auto alive = aliveFlag;
         pool.addJob ([this, path, rate, alive]
         {
-            auto t = loadTrack (path, rate);
+            auto t = loadTrack (path, rate, cancel);
+            if (! alive->load()) return;
             juce::MessageManager::callAsync ([this, path, t, alive]
             {
-                if (! *alive) return;
+                if (! alive->load()) return;
                 for (auto& e : list)
                     if (e.path == path) { e.analysing = false; e.missing = t == nullptr; if (t) { e.bpm = t->bpm; e.firstBeat = t->firstBeat; e.lufs = t->lufs; } }
             });
@@ -513,18 +524,32 @@ private:
     {
         deckPath[k] = path;
         deckName[k] = juce::File (path).getFileNameWithoutExtension();
-        for (auto& e : list) if (e.path == path) deckCues[(size_t) k] = e.cues;
+        double bpm = 0.0, first = 0.0; float lufs = 0.0f;
+        for (auto& e : list) if (e.path == path) { deckCues[(size_t) k] = e.cues; if (! e.analysing && e.bpm > 0.0) { bpm = e.bpm; first = e.firstBeat; lufs = e.lufs; } }
         const double rate = sr;
         auto alive = aliveFlag;
-        pool.addJob ([this, k, path, rate, alive]
+        // Own queue, so loading a deck never waits behind list analysis.
+        loadPool.addJob ([this, k, path, rate, alive, bpm, first, lufs]
         {
-            auto t = loadTrack (path, rate);
-            if (! *alive || t == nullptr) return;
-            std::atomic_store (&decks[(size_t) k].pending, std::shared_ptr<const TrackData> (t));
+            auto t = loadTrack (path, rate, cancel, bpm, first, lufs);
+            if (! alive->load() || t == nullptr) return;
+            const juce::ScopedLock sl (ownLock);
+            owned.push_back ({ t, 0 });
+            pending[k].store (t.get());
         });
     }
     void timerCallback() override
     {
+        {
+            const juce::ScopedLock sl (ownLock);
+            for (auto it = owned.begin(); it != owned.end();)
+            {
+                const auto* p = it->first.get();
+                const bool used = p == current[0].load() || p == current[1].load() || p == pending[0].load() || p == pending[1].load();
+                it->second = used ? 0 : it->second + 1;
+                if (it->second >= 3) it = owned.erase (it); else ++it;   // freed here, on the message thread
+            }
+        }
         // Track log: one line per deck start, in Documents/SF Live Suite/tracklog.txt.
         for (int k = 0; k < 2; ++k)
             if (decks[(size_t) k].logPending.exchange (false))
@@ -537,8 +562,12 @@ private:
     }
 
     double sr = 48000.0;
-    juce::ThreadPool pool;
-    std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
+    juce::ThreadPool pool, loadPool;
+    std::shared_ptr<std::atomic<bool>> aliveFlag = std::make_shared<std::atomic<bool>> (true);
+    std::atomic<bool> cancel { false };
+    juce::CriticalSection ownLock;
+    std::vector<std::pair<TrackPtr, int>> owned;
+    std::atomic<const TrackData*> pending[2] { nullptr, nullptr }, current[2] { nullptr, nullptr };
     std::array<Deck, 2> decks;
     std::vector<Entry> list;
     juce::String deckPath[2], deckName[2];

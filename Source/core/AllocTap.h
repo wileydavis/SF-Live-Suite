@@ -20,7 +20,11 @@ public:
     }
     ~AllocTap() { Bus::get().releaseSource (slot, owner); }
 
-    void setIdentity (int r, const char* n) { role = r; std::strncpy (name, n, 23); }
+    void setIdentity (int r, const char* n)
+    {
+        role = r; std::strncpy (name, n, 23);
+        if (slot >= 0 && Bus::get().d().src[slot].owner.load() == owner) Bus::packName (Bus::get().d().src[slot].name, name);
+    }
 
     void prepare (double rate)
     {

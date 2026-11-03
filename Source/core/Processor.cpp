@@ -43,9 +43,11 @@ SFProcessor::SFProcessor (ModulePtr m)
     }
     cur.resize (specs.size());
     prev.resize (specs.size());
+    base.resize (specs.size());
+    macroOff.assign (specs.size(), 0.0f);
     ovr.assign (specs.size(), NAN);
     ovrAge.assign (specs.size(), 0);
-    for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = specs[i].def;
+    for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
 
     module->setParam = [this] (int i, float v)
@@ -57,6 +59,8 @@ SFProcessor::SFProcessor (ModulePtr m)
         p->endChangeGesture();
     };
     module->getParam = [this] (int i) { return i >= 0 && i < (int) raw.size() ? raw[(size_t) i]->load() : 0.0f; };
+    glideFrom.assign (specs.size(), 0.0f); glideTo.assign (specs.size(), NAN); glideElapsed.assign (specs.size(), 0.0);
+    sf::Bus::get();     // map the shared bus here, not on the audio thread
     startTimerHz (30);
 }
 
@@ -78,7 +82,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SFProcessor::makeLayout()
                 auto toText = [unit] (float v, int)
                 {
                     if (unit == "%")   return juce::String (juce::roundToInt (v * 100.0f)) + " %";
-                    if (unit == "SLOT") return std::abs (v - 0.5f) < 0.04f ? juce::String ("AUTO") : (v < 0.5f ? "< " : "> ") + juce::String (juce::roundToInt (v * 100.0f)) + " %";
+                    if (unit == "SLOT") return std::abs (v - 0.5f) < 0.04f ? juce::String ("AUTO")
+                                             : v < 0.5f ? "SHARE " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 1.0f, (0.46f - v) / 0.46f) * 100.0f)) + " %"
+                                                        : "HAND " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 1.0f, (v - 0.54f) / 0.46f) * 100.0f)) + " %";
                     if (unit == "BIP") return std::abs (v - 0.5f) < 0.02f ? juce::String ("OFF") : (v < 0.5f ? "LP " : "HP ") + juce::String (juce::roundToInt (std::abs (v - 0.5f) * 200.0f));
                     if (unit == "Hz")  return v >= 1000.0f ? juce::String (v / 1000.0f, 2) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz";
                     if (unit == "ms")  return v >= 1000.0f ? juce::String (v / 1000.0f, 2) + " s" : juce::String (v, v < 10.0f ? 1 : 0) + " ms";
@@ -189,10 +195,19 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         }
     if (! havePos)
     {
-        using namespace std::chrono;
-        const double secs = duration<double> (steady_clock::now().time_since_epoch()).count();
-        c.ppq = std::fmod (secs, 86400.0) * c.bpm / 60.0;
+        // Stopped: continue from where Live stopped (or, at first use, from a wall-clock
+        // anchor shared by every SF plugin) and advance by whole blocks: never jumps.
+        if (! clockAnchored)
+        {
+            using namespace std::chrono;
+            const double secs = duration<double> (steady_clock::now().time_since_epoch()).count();
+            internalPpq = std::fmod (secs, 3600.0) * c.bpm / 60.0;
+            clockAnchored = true;
+        }
+        c.ppq = internalPpq;
     }
+    internalPpq = c.ppq + n * c.beatsPerSample();
+    clockAnchored = true;
 
     // Song recall + store requests from SF CONTROL (or this plugin's STORE button).
     auto& d = bus.d();
@@ -231,6 +246,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const float mAmt = raw[(size_t) (numModParams + SYS_MACRO_AMT)]->load();
     const float macro = mSrc > 0 ? d.macro[mSrc - 1].load() : 0.0f;
     const float smooth = std::exp (-(float) n / (float) (0.03 * sr));
+    const double blockBeats = n * c.beatsPerSample();
     for (size_t i = 0; i < specs.size(); ++i)
     {
         const auto& s = specs[i];
@@ -244,16 +260,33 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         }
         if (s.type != PType::Float) { cur[i] = t; continue; }
         const float range = s.max - s.min;
-        if (s.macroDir != 0 && (int) i < numModParams) t = juce::jlimit (s.min, s.max, t + macro * mAmt * (float) s.macroDir * range);
-        if (firstBlock) { cur[i] = t; continue; }
-        if (gBars > 0.0 && s.glide && (int) i < numModParams)
+        // SLOW: performance-row knobs travel to a new setting over exactly N bars, however far.
+        if (gBars > 0.0 && s.glide && s.primary && (int) i < numModParams && ! firstBlock)
         {
-            const double beats = gBars * c.beatsPerBar;
-            const float maxStep = (float) (range * n / (beats * c.samplesPerBeat()));
-            cur[i] += juce::jlimit (-maxStep, maxStep, t - cur[i]);
+            if (std::isnan (glideTo[i]) || std::abs (t - glideTo[i]) > 1e-5f * (1.0f + std::abs (range)))
+            {
+                glideFrom[i] = base[i];
+                glideTo[i] = t;
+                glideElapsed[i] = 0.0;
+            }
+            glideElapsed[i] += blockBeats;
+            const double total = gBars * c.beatsPerBar;
+            const float k = (float) std::min (1.0, glideElapsed[i] / total);
+            base[i] = glideFrom[i] + (glideTo[i] - glideFrom[i]) * k;
         }
         else
-            cur[i] = t + smooth * (cur[i] - t);
+        {
+            glideTo[i] = NAN;
+            base[i] = firstBlock ? t : t + smooth * (base[i] - t);
+        }
+        // MACRO is added after the glide, so macro moves stay immediate.
+        float v = base[i];
+        if (s.macroDir != 0 && (int) i < numModParams)
+        {
+            macroOff[i] = (macro * mAmt * (float) s.macroDir * range) + smooth * (macroOff[i] - macro * mAmt * (float) s.macroDir * range);
+            v = juce::jlimit (s.min, s.max, v + macroOff[i]);
+        }
+        cur[i] = v;
     }
     firstBlock = false;
     c.p = cur.data();
@@ -283,6 +316,15 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
 
     module->process (c, mainOut, side, extra, midi);
 
+    if (extra != nullptr)
+    {
+        // Same safety stage as the main output.
+        for (int ch = 0; ch < extraScratch.getNumChannels(); ++ch)
+        {
+            auto* x = extraScratch.getWritePointer (ch);
+            for (int i = 0; i < n; ++i) x[i] = std::isfinite (x[i]) ? juce::jlimit (-4.0f, 4.0f, x[i]) : 0.0f;
+        }
+    }
     if (extra != nullptr)
         for (int e = 0; e < numExtra; ++e)
             if (getBusCount (false) > e + 1 && getBus (false, e + 1)->isEnabled())

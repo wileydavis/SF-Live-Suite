@@ -115,6 +115,11 @@ public:
     virtual void paint (juce::Graphics&, juce::Rectangle<float>) {}
     virtual void displayMouse (juce::Point<float>, juce::Rectangle<float>, bool down) { juce::ignoreUnused (down); }
 
+    // Program list (only SF CONTROL uses it: songs).
+    virtual int numPrograms() const                 { return 1; }
+    virtual int currentProgram() const              { return 0; }
+    virtual void setProgram (int)                   {}
+
     // Message-thread service from the host processor: set a parameter and tell Live.
     std::function<void (int index, float value)> setParam;
     std::function<float (int index)> getParam;

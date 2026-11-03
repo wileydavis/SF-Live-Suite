@@ -25,19 +25,19 @@ Boring, practical, uppercase. Plugins appear in Live as `SF <ROLE>`. Parameters 
 - Every knob is smoothed (30 ms) so 7-bit CC never steps audibly; ranges and curves are tuned so the whole travel is usable.
 - Standard trio wherever it applies: DENSITY (how many events), GATE (how long each lasts), FILTER (bipolar DJ filter: left low-pass, centre open, right high-pass).
 - System controls on every plugin (appended, never in the first 8):
-  - SLOW: OFF / 1-64 BAR. When on, every performance knob glides to where it is set over that many bars (a quarter turn becomes a 32-bar rise). The knob shows "GLIDE now>target" in green while travelling.
+  - SLOW: OFF / 1-64 BAR. When on, every performance-row knob travels to where it is set over exactly that many bars, however far it moved (with SLOW at 32 BAR a quarter turn becomes a 32-bar rise). Song recalls glide the same way. MACRO moves stay immediate. The knob shows "GLIDE now>target" in green while travelling. [decided Nov 2: fixed time, performance row only]
   - MACRO SRC (OFF, MACRO 1-6) and MACRO AMT (-100..+100 %): the plugin follows one of SF CONTROL's six macros. Each module decides which knobs respond and in which direction.
 - Nothing can hurt the PA: resonance is level-compensated, feedback above 100 % saturates instead of exploding, every output is clamped at +12 dBFS and NaN/Inf are replaced with silence (the module resets).
 
 ## Live / controller workflow (decided Nov 2)
 - E16 is mapped with Live's MIDI Map (Cmd-M) with Remote on for its output, so knob rings follow song and value changes. The plugins report every recalled value back to Live.
-- Song change: Program Change on MIDI channel 16 into SF CONTROL (channel selectable). Recall lands on the next bar line while Live plays, at once when stopped.
+- Song change: Program Change on MIDI channel 16 into SF CONTROL (channel selectable). Recall lands on the next bar line while Live plays, at once when stopped. VST3 has no Program Change event: SF CONTROL exposes 16 programs (SONG 01-16) and Live's program change selects the song; the AU also reads Program Change from MIDI. [decided Nov 2, needs Live test]
 - Stems from Live's own stem separation go on their own tracks; SF TAP on each puts them into Pocket and ALLOC.
 
 # Shared architecture
 
 ## SF BUS
-One block of POSIX shared memory (`/sf_live_suite_bus_v1`) mapped by every SF plugin, across plugin binaries and processes. Lock-free atomics only. Carries: macros, song select / store requests, kick reports, ALLOC source energies and cuts, conflict-slot bindings. If shared memory is unavailable the bus falls back to process-local (plugins in one process still talk); SF CONTROL shows BUS SHARED / LOCAL ONLY.
+One block of POSIX shared memory (`/sf_live_suite_bus_v1`) mapped by every SF plugin, across plugin binaries and processes. Lock-free atomics only. A segment of the wrong size or version (another build) is never mapped; that plugin falls back to a local bus. Verified Nov 2: two separately built plugin binaries (SF KICK, SF DUCK) loaded in a VST3 host share the bus and Pocket works between them. Carries: macros, song select / store requests, kick reports, ALLOC source energies and cuts, conflict-slot bindings. If shared memory is unavailable the bus falls back to process-local (plugins in one process still talk); SF CONTROL shows BUS SHARED / LOCAL ONLY.
 
 ## Clock
 Live's transport when playing. When stopped, a wall clock at the last tempo stands in, so tempo-synced motion keeps running and every SF plugin agrees on the beat.
@@ -59,12 +59,14 @@ Ten fixed bands (20-60, 60-100, 100-150, 150-220, 220-320, 320-480, 480-750, 750
 - Automatic where there is no overlap: nothing is cut.
 - A conflict is two or more sources active (above the SENSITIVITY floor and within 15 dB of the loudest) in the same band for HOLD (1/2/4 beats). Contiguous bands with the same sources form one conflict (so bass vs chords at 180-350 Hz is one conflict, not three).
 - Automatic resolution: role priority KICK > BASS > VOICE > LEAD > PERC > RUMBLE > PAD > DECK > OTHER. Lower sources are cut by up to DEPTH, only while the owner is actually playing in that band.
-- Three conflict SLOT knobs (decided Nov 2: fewest knobs). The worst conflicts bind to free slots. Centre = automatic. Turning sweeps ownership through the sources in priority order (two sources: left hands the band to A, right to B; three or more: A, B, C ... with blending between neighbours).
-- Stable on stage: a slot never rebinds while touched or for 3 s after; conflicts need HOLD to appear and 2x HOLD of absence to go; choices are remembered per pair of sources and restored when that conflict returns, and saved with the set. When a slot binds a remembered conflict, its value is sent to Live (E16 rings move).
+- Three conflict SLOT knobs (decided Nov 2: fewest knobs). The worst conflicts bind to free slots. Centre = AUTO (priority owner). Right half (HAND): ownership moves continuously along the priority order to the last source (two sources: fully right hands the band to the lower-priority one; three or more: A, B, C ... with blending between neighbours). Left half (SHARE): the cuts fade out until nobody is cut. Continuous everywhere: no jump leaving AUTO. [decided Nov 2]
+- Stable on stage: a slot never rebinds while touched or for 3 s after; conflicts need HOLD to appear and 2x HOLD of absence to go; choices are remembered per set of source names (e.g. BASS + PAD) and restored when that conflict returns, and saved with the set. When a slot binds a remembered conflict, its value is sent to Live (E16 rings move).
 
 # Modules
 
 ## Instruments (MIDI tracks)
+Mono models (BASS, ACID, MONO, MS20, HOOVER, SYNC): DENSITY echoes never interrupt a note that is still held; they fill the gaps between notes.
+
 Every instrument has a MODEL menu (header), a SAMPLE model (drop a file or LOAD; embedded in the set as FLAC), DENSITY echoes, GATE, bipolar FILTER, ALLOC participation (ALLOC toggle), and a LEVEL.
 
 DENSITY (instruments): fills a sparse pattern with ghost notes. 0-50 %: one echo one ECHO SPACE later fades in (1/8 hats become 1/16 hats with ECHO SPACE 1/16). 50-100 %: two more ghosts at half spacing (1/32 rolls). Each generation is quieter, darker and shorter. ECHO SWING, ECHO PROB where useful.
@@ -96,8 +98,9 @@ Spoken-word / vocal phrases. A loaded phrase is sliced (SLICE MODE: AUTO onsets 
 ### SF DECK
 Two decks inside the set. Tracklist (drop files; persisted by path), background analysis on add/load: tempo + beat grid (onset regression, sample-accurate), integrated LUFS (BS.1770). Row: XFADE, FILTER A, FILTER B, LOW A, LOW B, ROLL, GATE (1/16 trance gate), LEVEL. Also PLAY A/B (start on the next QUANT boundary: 1 BEAT / 1 BAR / 4 / 8 / 16 BAR), MID/HIGH A/B (isolator: 0 = kill, 75 % = 0 dB, 100 % = +6 dB), KEY LOCK (Signalsmith Stretch, MIT licence; off = varispeed), CUE A/B (to the CUE output, pre-crossfader, for headphones), TRIM TARGET (every track normalised to this LUFS), FILTER RES.
 - Decks always follow Live's tempo. A plugin cannot change Live's tempo; use Live's tempo automation for tempo transitions. [decided Nov 2]
-- Hot cues from MIDI: C1-D#1 deck A cues 1-4, C2-D#2 deck B (jump on the next beat). Default cues at beats 0 / 32 / 64 / 96.
-- ROLL: slip loop roll (the track keeps running underneath; releasing returns to where it would have been).
+- Hot cues from MIDI: C1-D#1 deck A cues 1-4, C2-D#2 deck B (jump on the next beat, short fade in; ignored while the deck is stopped). Default cues at beats 0 / 32 / 64 / 96.
+- ROLL: slip loop roll (the track keeps running underneath; releasing returns to where it would have been). The rolled audio is read at tempo ratio, so with a large tempo difference it is slightly pitched (124 vs 128 BPM = about half a semitone).
+- Loading a deck uses its own queue (never waits for list analysis) and reuses the list's analysis. Tracks are freed on the message thread, never on the audio thread.
 - Track log: every deck start is appended to Documents/SF Live Suite/tracklog.txt.
 - Stems: use Live's stem separation, stems on their own tracks with SF TAP. [decided Nov 2]
 

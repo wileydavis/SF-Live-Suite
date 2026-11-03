@@ -268,6 +268,20 @@ static void testAlloc()
     }
     std::printf ("   slot1 -> 100%%: cut BASS %.1f dB, cut PAD %.1f dB\n", cutA, cutB);
     CHECK (cutA > 3.0f && cutB < 0.5f, "SLOT knob did not hand the band to the other source");
+    alloc.set ("slot1", 0.0f);
+    for (int k = 0; k < (int) (kSr / kBlock); ++k)
+    {
+        head.ppq = ppq;
+        auto sine = [&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
+        { for (int i = 0; i < kBlock; ++i) for (int c = 0; c < 2; ++c) buf.setSample (c, i, 0.3f * std::sin (6.2831853f * 180.0f * (float) ((k * kBlock + i) / kSr))); };
+        a.run (sine, k); b.run (sine, k);
+        alloc.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k);
+        ppq += kBlock * head.bpm / 60.0 / kSr;
+    }
+    float maxCut = 0.0f;
+    for (int s = 0; s < kSources; ++s) if (Bus::get().sourceAlive (s)) maxCut = std::max (maxCut, d.src[s].cut[3].load());
+    std::printf ("   slot1 -> 0%% (SHARE): largest cut %.1f dB\n", maxCut);
+    CHECK (maxCut < 0.5f, "SHARE still cuts (%.1f dB)", maxCut);
 }
 
 static void testSongs()
@@ -500,6 +514,62 @@ static void testDensity()
     }
 }
 
+// Regressions from review: held mono bass survives DENSITY echoes; SLOW is fixed-time; ALLOC SHARE;
+// CONTROL program change selects the song.
+static void testRegressions()
+{
+    std::printf ("-- regressions\n");
+    {
+        resetBus();
+        FakeHead head;
+        Rig r ("BASS", head);
+        r.set ("density", 0.3f); r.set ("pocket_depth", 0.0f);
+        double ppq = 0.0;
+        float early = 0, late = 0; int ne = 0, nl = 0;
+        const int blocks = (int) (3.0 * 60.0 / head.bpm * kSr / kBlock);
+        for (int b = 0; b < blocks; ++b)
+        {
+            head.ppq = ppq;
+            r.run ([&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int)
+            {
+                if (b == 0) m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 100), 0);
+                const double next = ppq + kBlock * head.bpm / 60.0 / kSr;
+                if (ppq < 2.0 && next >= 2.0) m.addEvent (juce::MidiMessage::noteOff (1, 36), 0);
+            }, b);
+            const float rms = r.buf.getRMSLevel (0, 0, kBlock);
+            if (ppq > 0.3 && ppq < 0.6) { early += rms; ++ne; }
+            if (ppq > 1.2 && ppq < 1.9) { late += rms; ++nl; }
+            ppq += kBlock * head.bpm / 60.0 / kSr;
+        }
+        early /= std::max (1, ne); late /= std::max (1, nl);
+        std::printf ("   held BASS note with DENSITY: level %.3f early, %.3f late\n", early, late);
+        CHECK (late > early * 0.3f, "held mono note was cut by its own echoes");
+    }
+    {
+        resetBus();
+        FakeHead head;
+        Rig f ("FILTER", head);
+        double ppq = 0.0;
+        auto step = [&] (int blocks) { for (int k = 0; k < blocks; ++k) { head.ppq = ppq; f.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k); ppq += kBlock * head.bpm / 60.0 / kSr; } };
+        f.set ("filter", 0.5f); step (20);
+        f.set ("slow", 1.0f); f.set ("filter", 0.75f);
+        const int barBlocks = (int) (4.0 * 60.0 / head.bpm * kSr / kBlock);
+        step (barBlocks / 2);
+        const float half = f.p->currentValue (0);
+        std::printf ("   SLOW 1 BAR, quarter turn: %.3f after half a bar (expect 0.625)\n", half);
+        CHECK (std::abs (half - 0.625f) < 0.02f, "SLOW is not fixed-time (%.3f)", half);
+    }
+    {
+        resetBus();
+        FakeHead head;
+        Rig ctl ("CONTROL", head);
+        ctl.p->setCurrentProgram (5);
+        std::printf ("   CONTROL program 6 -> bus song %d\n", (int) Bus::get().d().song.load() + 1);
+        CHECK (Bus::get().d().song.load() == 5, "program change did not select the song");
+        CHECK (ctl.p->getNumPrograms() == 16, "CONTROL should expose 16 programs");
+    }
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -507,8 +577,8 @@ int main (int argc, char** argv)
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testModels(); testDeck(); }
-    else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testModels(); testDeck(); }
+    else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);

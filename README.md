@@ -44,7 +44,7 @@ cmake --build build-test --target SFTests SFSnapshot
 
 | Milestone | State |
 |---|---|
-| 0 Toolchain | Written. Plugin targets build on Linux (VST3); **awaiting first Mac build** |
+| 0 Toolchain | Written. Plugin targets build on Linux (VST3) and load in a VST3 host; **awaiting first Mac build** |
 | 1 Core: bus, songs, slow mode, macros, editor | Written and passing offline tests. **Awaiting test in Live** |
 | 2 Pocket (kick-aware ducking) | Written and passing offline tests. **Awaiting timing check in Live** |
 | 3 ALLOC (mix assigner) + TAP | Written and passing offline tests. **Awaiting test in Live** |
@@ -57,8 +57,8 @@ cmake --build build-test --target SFTests SFSnapshot
 
 1. **The bus.** SF CONTROL's display should say **BUS SHARED**. Put SF KICK on a track and play it: CONTROL should show **KICK REPORTING**.
 2. **Pocket timing.** SF KICK + SF BASS (POCKET DEPTH up, SHAPE right for an audible pump). The pump should land exactly on the kick. Live's buffer size must be 512 or less.
-3. **ALLOC.** Put SF ALLOC on the master. Play BASS and PAD in the same range: a SLOT should bind (amber), and turning it should hand the band from one to the other.
-4. **Songs.** Store two songs and switch with Program Change from the OXI. The E16 rings should follow.
+3. **ALLOC.** Put SF ALLOC on the master. Play BASS and PAD in the same range: a SLOT should bind (amber). Turning it right hands the band from one to the other; turning it left shares (no cuts).
+4. **Songs.** Store two songs and switch with Program Change from the OXI. The E16 rings should follow. With the VST3, Live delivers Program Change as a program change (SF CONTROL lists SONG 01-16); if it doesn't arrive, try the AU.
 5. **DECK.** Load a track, PLAY A: it should start on the bar, locked to Live's tempo.
 
 ## Licences

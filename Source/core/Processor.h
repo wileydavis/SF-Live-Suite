@@ -38,10 +38,11 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return module->tailSeconds(); }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    // Programs: SF CONTROL exposes 16 (VST3 delivers Program Change only as a program change).
+    int getNumPrograms() override { return std::max (1, module->numPrograms()); }
+    int getCurrentProgram() override { return module->currentProgram(); }
+    void setCurrentProgram (int i) override { module->setProgram (i); }
+    const juce::String getProgramName (int i) override { return module->numPrograms() > 1 ? juce::String ("SONG ") + juce::String (i + 1).paddedLeft ('0', 2) : juce::String(); }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock&) override;
@@ -72,7 +73,10 @@ private:
 
     std::vector<juce::RangedAudioParameter*> params;
     std::vector<std::atomic<float>*> raw;
-    std::vector<float> cur, prev, ovr;    // ovr: recalled value in force until Live reports it back (NaN = none)
+    std::vector<float> cur, prev, ovr, base, macroOff, glideFrom, glideTo;
+    std::vector<double> glideElapsed;
+    double internalPpq = 0.0;
+    bool clockAnchored = false;    // ovr: recalled value in force until Live reports it back (NaN = none)
     std::vector<int> ovrAge;
     bool firstBlock = true;
     double sr = 48000.0;
