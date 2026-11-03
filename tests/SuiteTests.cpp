@@ -9,6 +9,7 @@
 //  6. CPU: real-time factor per module.
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "core/Bus.h"
+#include "core/Dsp.h"
 #include "core/Processor.h"
 #include "core/Registry.h"
 #include <chrono>
@@ -599,6 +600,49 @@ static void dumpSpecs()
     std::printf ("}\n");
 }
 
+// FILTER crossing the centre (LP <-> open <-> HP) must not click: sweep a sustained chord slowly
+// through the centre and compare the worst high-frequency burst with a steady reference.
+static void testFilterCrossing()
+{
+    std::printf ("-- filter: centre crossing\n");
+    resetBus();
+    FakeHead head;
+    Rig r ("FILTER", head);
+    r.set ("res", 0.5f);
+    double ppq = 0.0;
+    Svf hp; hp.set (9000.0f, 0.7f, kSr);
+    float steady = 0.0f, crossing = 0.0f;
+    const int blocks = (int) (kSr * 4.0 / kBlock);
+    double ph = 0.0;
+    for (int b = 0; b < blocks; ++b)
+    {
+        head.ppq = ppq;
+        // Hold at 0.40 for 1 s, then sweep 0.40 -> 0.60 -> 0.40 over 3 s.
+        const double t = b * (double) kBlock / kSr;
+        float k = 0.40f;
+        if (t > 1.0) { const double u = (t - 1.0) / 3.0; k = 0.40f + 0.20f * (float) (u < 0.5 ? u * 2.0 : 2.0 - u * 2.0); }
+        r.set ("filter", k);
+        r.run ([&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
+        {
+            for (int i = 0; i < kBlock; ++i)
+            {
+                ph += 1.0 / kSr;
+                const float v = 0.25f * (float) (std::sin (6.2831853 * 110.0 * ph) + std::sin (6.2831853 * 164.8 * ph) + std::sin (6.2831853 * 220.0 * ph));
+                buf.setSample (0, i, v); buf.setSample (1, i, v);
+            }
+        }, b);
+        for (int i = 0; i < kBlock; ++i)
+        {
+            const float h = std::fabs (hp.tickHP (r.buf.getSample (0, i)));
+            if (t > 0.3 && t < 1.0) steady = std::max (steady, h);
+            if (t > 1.0) crossing = std::max (crossing, h);
+        }
+        ppq += kBlock * head.bpm / 60.0 / kSr;
+    }
+    std::printf ("   high-frequency peak: steady %.5f, while crossing %.5f\n", steady, crossing);
+    CHECK (crossing < std::max (0.001f, steady * 3.0f), "FILTER clicks crossing the centre (%.5f vs %.5f)", crossing, steady);
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -607,10 +651,11 @@ int main (int argc, char** argv)
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testModels(); testDeck(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testModels(); testDeck(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
+    else if (std::string (argv[1]) == "--filter") { testFilterCrossing(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

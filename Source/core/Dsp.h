@@ -177,47 +177,64 @@ struct Crossover
 };
 
 // Bipolar performance filter: knob 0..1, 0.5 = open. Left = low-pass, right = high-pass.
-// 24 dB/oct, resonance level-compensated so a full-resonance sweep stays safe.
+// 24 dB/oct. Both chains run all the time and the output crossfades low-pass <-> dry <-> high-pass
+// around the centre, with resonance and its level compensation fading in as the knob leaves the
+// centre, so crossing the middle is seamless (no switch, no click).
 struct DJFilter
 {
-    Svf s[2][2];
-    float knobZ = 0.5f;
+    Svf lp[2][2], hp[2][2];
+    float wLp = 0.0f, wHp = 0.0f, kz = 0.5f;
     int counter = 0;
     double sr = 48000.0;
-    void prepare (double rate) { sr = rate; reset(); }
-    void reset() { for (auto& c : s) for (auto& f : c) f.reset(); }
-    static float lpHz (float k) { return expMap (k / 0.48f, 60.0f, 22000.0f); }        // k in [0, .48]
-    static float hpHz (float k) { return expMap ((k - 0.52f) / 0.48f, 18.0f, 12000.0f); } // k in [.52, 1]
-    // Equivalent corner frequencies (for kick reports): lowpass corner / highpass corner.
-    static void corners (float k, float& hp, float& lp)
+    float wCoef = 0.999f;
+    void prepare (double rate)
     {
-        hp = k > 0.52f ? hpHz (k) : 0.0f;
-        lp = k < 0.48f ? lpHz (k) : 22000.0f;
+        sr = rate;
+        wCoef = std::exp (-1.0f / (float) (0.004 * rate));
+        reset();
+    }
+    void reset() { for (auto& c : lp) for (auto& f : c) f.reset(); for (auto& c : hp) for (auto& f : c) f.reset(); }
+    static float lpHz (float k) { return expMap (k / 0.5f, 60.0f, 22000.0f); }           // k in [0, .5]
+    static float hpHz (float k) { return expMap ((k - 0.5f) / 0.5f, 18.0f, 12000.0f); }  // k in [.5, 1]
+    static float lpWeight (float k) { return smoothstep (0.5f, 0.465f, k); }
+    static float hpWeight (float k) { return smoothstep (0.5f, 0.535f, k); }
+    // Equivalent corner frequencies (for kick reports): highpass corner / lowpass corner.
+    static void corners (float k, float& hpc, float& lpc)
+    {
+        hpc = k > 0.52f ? hpHz (k) : 0.0f;
+        lpc = k < 0.48f ? lpHz (k) : 22000.0f;
     }
     void process (float* const* ch, int numCh, int n, float k0, float k1, float res)
     {
-        const float q = 0.7071f + res * 4.5f;
-        const float comp = 1.0f / (1.0f + res * 0.9f);
+        res = clamp01 (res);
         for (int i = 0; i < n; ++i)
         {
-            if ((counter++ & 15) == 0)
+            const float k = k0 + (k1 - k0) * (float) i / (float) std::max (1, n);
+            // Weights glide (4 ms) so block-wise knob values never step the mix.
+            wLp = lpWeight (k) + wCoef * (wLp - lpWeight (k));
+            wHp = hpWeight (k) + wCoef * (wHp - hpWeight (k));
+            if ((counter++ & 7) == 0)
             {
-                const float k = k0 + (k1 - k0) * (float) i / (float) std::max (1, n);
-                knobZ = k;
-                const bool lpMode = k < 0.5f;
-                const float hz = lpMode ? (k >= 0.48f ? 22000.0f : lpHz (k)) : (k <= 0.52f ? 18.0f : hpHz (k));
-                for (int c = 0; c < 2; ++c) { s[c][0].set (hz, 0.5412f, sr); s[c][1].set (hz, q, sr); }
+                kz = k;
+                const float lpf = lpHz (std::min (k, 0.5f)), hpf = hpHz (std::max (k, 0.5f));
+                const float qL = 0.7071f + res * 4.5f * wLp, qH = 0.7071f + res * 4.5f * wHp;
+                for (int c = 0; c < 2; ++c)
+                {
+                    lp[c][0].set (lpf, 0.5412f, sr); lp[c][1].set (lpf, qL, sr);
+                    hp[c][0].set (hpf, 0.5412f, sr); hp[c][1].set (hpf, qH, sr);
+                }
             }
-            const bool lpMode = knobZ < 0.5f;
-            const bool open = knobZ >= 0.48f && knobZ <= 0.52f;
+            const float gL = 1.0f / (1.0f + res * 0.9f * wLp), gH = 1.0f / (1.0f + res * 0.9f * wHp);
+            const float wDry = std::max (0.0f, 1.0f - wLp - wHp);
             for (int c = 0; c < std::min (numCh, 2); ++c)
             {
-                float x = ch[c][i];
-                if (open) { s[c][0].tick (x); s[c][1].tick (x); continue; }
-                float y;
-                if (lpMode) y = s[c][1].tickLP (s[c][0].tickLP (x));
-                else        y = s[c][1].tickHP (s[c][0].tickHP (x));
-                ch[c][i] = fastTanh (y * comp * 0.9f) / 0.9f;
+                const float x = ch[c][i];
+                const float yl = lp[c][1].tickLP (lp[c][0].tickLP (x)) * gL;
+                const float yh = hp[c][1].tickHP (hp[c][0].tickHP (x)) * gH;
+                // Transparent below 0.9; a soft knee above catches resonant peaks.
+                const float y = x * wDry + yl * wLp + yh * wHp;
+                const float a = std::fabs (y);
+                ch[c][i] = a <= 0.9f ? y : std::copysign (0.9f + 0.1f * fastTanh ((a - 0.9f) * 10.0f), y);
             }
         }
     }
