@@ -3,6 +3,21 @@
 
 namespace sf
 {
+// DECAY as a gate on samples: 0 = 10 ms, 90 %+ = the whole sample, exponential in between;
+// echo generations shorter. The cut is an 8 ms fade, never a click.
+static float sampleGateSeconds (float decayKnob, float sampleSeconds, int gen)
+{
+    const float full = std::max (0.01f, sampleSeconds);
+    if (decayKnob >= 0.9f && gen == 0) return 1.0e9f;
+    const float t = 0.01f * std::pow (full / 0.01f, clamp01 (decayKnob / 0.9f));
+    return t * std::pow (0.65f, (float) gen);
+}
+static float sampleGateGain (float t, float gateSeconds)
+{
+    if (t <= gateSeconds) return 1.0f;
+    return std::max (0.0f, 1.0f - (t - gateSeconds) / 0.008f);
+}
+
 // =====================================================================================  KICK
 struct KickModel { const char* name; float f1, ratio, tau, decay, click, clickHz, drive, shape, lp, fm, gain; };
 static const KickModel kKickModels[] = {
@@ -68,7 +83,7 @@ public:
         float fade = 1.0f, fadeStep = 0.0f;
         float lpZ = 0, nHp = 0;
         Svf res;
-        size_t spos = 0; float srate = 1.0f;
+        size_t spos = 0; float srate = 1.0f, gate = 1.0e9f;
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.01f, decay)) : 0.0f; }
     };
 
@@ -95,13 +110,15 @@ public:
         v.shape = m.shape; v.fm = m.fm;
         v.lp = m.lp * std::pow (0.6f, (float) gen);
         v.srate = semis (tune);
+        if (model == kNumKickModels - 1)
+            if (auto s = sample.get()) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.srate, gen);
         if (publish)
         {
             float hp, lp;
             DJFilter::corners (c.v (FILT), hp, lp);
             float f1r = v.f1, f0r = v.f0, decr = v.decay;
             if (model == kNumKickModels - 1)
-                if (auto s = sample.get()) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.05f, s->decaySec * 0.4f * decScale); }
+                if (auto s = sample.get()) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate)); }
             c.bus->publishKick ({ c.ppqAt (offset), v.vel, f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
         }
     }
@@ -115,7 +132,9 @@ public:
             if (s == nullptr || v.spos + 1 >= (size_t) s->length()) { v.active = false; return 0.0f; }
             const size_t i0 = v.spos;
             y = 0.5f * (s->buf.getSample (0, (int) i0) + s->buf.getSample (1, (int) i0)) * v.vel;
-            y *= std::exp (-t / std::max (0.05f, v.decay * 2.0f));
+            const float g = sampleGateGain (t, v.gate);
+            if (g <= 0.0f) { v.active = false; return 0.0f; }
+            y *= g;
             v.t += 1.0 / sr;
             v.phase += v.srate;
             v.spos = (size_t) v.phase;
@@ -281,6 +300,7 @@ public:
         Svf bp, hp, res[6];
         float fmPh = 0, fmMod = 0;
         double spos = 0;
+        float gate = 1.0e9f;
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.005f, decay)) : 0.0f; }
     };
 
@@ -322,7 +342,9 @@ public:
                     v.res[k].set (std::min (v.freqs[k], 0.45f * (float) sr), 60.0f + v.decay * 400.0f, sr);
                 }
                 break;
-            case P_SAMPLE: break;
+            case P_SAMPLE:
+                if (auto s = sample.get()) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.tune, ev.gen);
+                break;
         }
     }
 
@@ -384,7 +406,9 @@ public:
                 const float fr = (float) (v.spos - i0);
                 const float a = 0.5f * (s->buf.getSample (0, i0) + s->buf.getSample (1, i0));
                 const float b = 0.5f * (s->buf.getSample (0, i0 + 1) + s->buf.getSample (1, i0 + 1));
-                y = (a + fr * (b - a)) * std::exp (-t / std::max (0.01f, v.decay * 2.0f));
+                const float g = sampleGateGain (t, v.gate);
+                if (g <= 0.0f) { v.active = false; return 0.0f; }
+                y = (a + fr * (b - a)) * g;
                 v.spos += v.tune;
                 break;
             }

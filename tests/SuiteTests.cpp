@@ -643,6 +643,46 @@ static void testFilterCrossing()
     CHECK (crossing < std::max (0.001f, steady * 3.0f), "FILTER clicks crossing the centre (%.5f vs %.5f)", crossing, steady);
 }
 
+// DECAY gates samples on KICK and PERC: a 1 s sustained sample, one hit, DECAY 0 vs 100 %.
+static void testSampleGate()
+{
+    std::printf ("-- sample gate (DECAY)\n");
+    juce::AudioBuffer<float> smp (2, 48000);
+    for (int i = 0; i < 48000; ++i) { const float v = 0.5f * std::sin (6.2831853f * 220.0f * (float) i / 48000.0f); smp.setSample (0, i, v); smp.setSample (1, i, v); }
+    juce::File wav = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_test_sustain.wav");
+    {
+        wav.deleteFile();
+        juce::WavAudioFormat fmt;
+        std::unique_ptr<juce::AudioFormatWriter> w (fmt.createWriterFor (new juce::FileOutputStream (wav), 48000.0, 2, 24, {}, 0));
+        w->writeFromAudioSampleBuffer (smp, 0, smp.getNumSamples());
+    }
+    for (auto id : { "KICK", "PERC" })
+    {
+        float tail[2] {};
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            resetBus();
+            FakeHead head;
+            Rig r (id, head);
+            r.p->mod().loadFiles (juce::StringArray (wav.getFullPathName()));
+            r.set ("model", (float) (std::string (id) == "KICK" ? 6 : 12));
+            r.set ("decay", pass == 0 ? 0.0f : 1.0f);
+            double ppq = 0.0;
+            const int blocks = (int) (kSr * 0.6 / kBlock);
+            for (int b = 0; b < blocks; ++b)
+            {
+                head.ppq = ppq;
+                r.run ([&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (b == 4) m.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 120), 0); }, b);
+                const double t = (b - 4) * (double) kBlock / kSr;
+                if (t > 0.3) tail[pass] = std::max (tail[pass], r.buf.getMagnitude (0, 0, kBlock));
+                ppq += kBlock * head.bpm / 60.0 / kSr;
+            }
+        }
+        std::printf ("   %s SAMPLE: level 300 ms after the hit: DECAY 0 %% %.4f, DECAY 100 %% %.4f\n", id, tail[0], tail[1]);
+        CHECK (tail[0] < 0.001f && tail[1] > 0.05f, "%s DECAY does not gate the sample", id);
+    }
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -651,11 +691,12 @@ int main (int argc, char** argv)
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testModels(); testDeck(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testModels(); testDeck(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
     else if (std::string (argv[1]) == "--filter") { testFilterCrossing(); }
+    else if (std::string (argv[1]) == "--gate") { testSampleGate(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

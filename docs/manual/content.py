@@ -59,7 +59,7 @@ MODULES["KICK"] = dict(
     ],
     desc={
         "tune": "Kick pitch in semitones around the model's fundamental (about 44-55 Hz).",
-        "decay": "Body length, x0.25 to x4 of the model's decay. This is the kick's GATE.",
+        "decay": "Body length, x0.25 to x4 of the model's decay. This is the kick's GATE. On SAMPLE it gates the sample: 0 = 10 ms, 90 % and up = the whole sample.",
         "punch": "Depth of the pitch sweep. More = harder transient, less = rounder.",
         "click": "Level of the noise/impulse click on the attack.",
         "drive": "Saturation on the kick, added to the model's own.",
@@ -98,7 +98,7 @@ MODULES["PERC"] = dict(
     ],
     desc={
         "tune": "Pitch in semitones (-24 to +24).",
-        "decay": "Length of each hit, x0.25 to x4. Closed to open.",
+        "decay": "Length of each hit, x0.25 to x4. Closed to open. On SAMPLE it gates the sample: 0 = 10 ms, 90 % and up = the whole sample.",
         "tone": "Model-specific brightness: band-pass position on hats, oscillator spread on FM, resonator ratios on MODAL.",
         "accent": "How much velocity matters. 0 = all hits equal.",
         "drive": "Saturation on each hit.",
