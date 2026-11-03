@@ -49,6 +49,8 @@ struct AdaaTanh
         return y;
     }
     void reset() { x1 = 0.0; f1 = F (0.0); }
+    // Start from input x (after a bypass): the next tick then has no stale history to jump from.
+    void prime (float x) { x1 = x; f1 = F (x); }
 };
 inline float hardClip (float x, float c = 1.0f) { return std::max (-c, std::min (c, x)); }
 
@@ -401,14 +403,23 @@ struct Fdn
     static constexpr int N = 8;
     DelayLine line[N];
     Allpass diff[2][4];
-    float len[N] {}, gLo[N] {}, gHi[N] {}, z[N] {}, lfo = 0.0f, lpA = 0.3f;
+    // Lengths, loop gains, absorption and modulation depth never step: set() gives new targets
+    // once per chunk, the targets ramp linearly across the chunk and the values follow them
+    // through a 30 ms one-pole. No read-head jumps, no gain zipper, no kinks in the read-head
+    // speed when SIZE, DECAY, DARK or MOD are turned, automated or modulated.
+    float len[N] {}, lenT[N] {}, lenD[N] {}, gLo[N] {}, gLoT[N] {}, gLoD[N] {}, gHi[N] {}, gHiT[N] {}, gHiD[N] {}, z[N] {}, lfo = 0.0f;
+    float lpA = 0.3f, lpAT = 0.3f, lpAD = 0.0f, lenA = 0.001f;
+    float modDepthD = 0.0f;
+    int rampLeft = 0;
     OnePole lowCut[2];
     double sr = 48000.0;
-    float modDepth = 0.0f;
-    bool frozen = false;
+    float modDepth = 0.0f, modDepthT = 0.0f;
+    bool frozen = false, lenInit = false;
     void prepare (double rate)
     {
         sr = rate;
+        lenA = 1.0f - std::exp (-1.0f / (0.03f * (float) rate));       // 30 ms
+        lenInit = false;
         for (auto& l : line) l.prepare ((int) (rate * 0.6));
         static const float dl[4] = { 0.00473f, 0.00359f, 0.01271f, 0.00930f };
         for (int c = 0; c < 2; ++c)
@@ -429,32 +440,73 @@ struct Fdn
         for (auto& v : z) v = 0.0f;
         for (auto& c : lowCut) c.reset();
     }
-    // size 0..1, decay = RT60 seconds (lows/mids), dark 0..1 (highs decay faster), freeze -> infinite
-    void set (float size, float decaySeconds, float dark, float mod, bool freeze)
+    // size 0..1, decay = RT60 seconds (lows/mids), dark 0..1 (highs decay faster), freeze -> infinite.
+    // rampSamples: the number of tick() calls until the next set() (the chunk length).
+    void set (float size, float decaySeconds, float dark, float mod, bool freeze, int rampSamples = 0)
     {
+        float nLen[N], nLo[N], nHi[N];
         static const float base[N] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0533f, 0.0617f, 0.0683f, 0.0751f };
         const float scale = 0.35f + size * 2.4f;
         const float rtLow = std::max (0.1f, decaySeconds);
         const float rtHigh = rtLow * lerp (0.85f, 0.1f, clamp01 (dark));
         const float fc = expMap (1.0f - clamp01 (dark), 1500.0f, 5000.0f);     // where the highs start to go
-        lpA = 1.0f - std::exp (-kTwoPi * fc / (float) sr);
+        const float nLpA = 1.0f - std::exp (-kTwoPi * fc / (float) sr);
         frozen = freeze;
         for (int i = 0; i < N; ++i)
         {
-            len[i] = base[i] * scale * (float) sr;
-            if (freeze) { gLo[i] = gHi[i] = 1.0f; continue; }
-            const float secs = len[i] / (float) sr;
-            gLo[i] = std::min (0.9995f, std::pow (10.0f, -3.0f * secs / rtLow));
-            gHi[i] = std::min (gLo[i], std::pow (10.0f, -3.0f * secs / rtHigh));
+            nLen[i] = base[i] * scale * (float) sr;
+            if (freeze) { nLo[i] = nHi[i] = 1.0f; }
+            else
+            {
+                const float secs = nLen[i] / (float) sr;
+                nLo[i] = std::min (0.9995f, std::pow (10.0f, -3.0f * secs / rtLow));
+                nHi[i] = std::min (nLo[i], std::pow (10.0f, -3.0f * secs / rtHigh));
+            }
         }
-        modDepth = mod * 0.0025f * (float) sr;
+        const float nMod = mod * 0.0025f * (float) sr;
+        if (! lenInit)
+        {
+            for (int i = 0; i < N; ++i) { len[i] = lenT[i] = nLen[i]; gLo[i] = gLoT[i] = nLo[i]; gHi[i] = gHiT[i] = nHi[i]; lenD[i] = gLoD[i] = gHiD[i] = 0.0f; }
+            lpA = lpAT = nLpA; modDepth = modDepthT = nMod; lpAD = modDepthD = 0.0f;
+            rampLeft = 0;
+            lenInit = true;
+            return;
+        }
+        // Finish any ramp still running, then ramp from there to the new targets.
+        if (rampLeft > 0)
+        {
+            const float k = (float) rampLeft;
+            for (int i = 0; i < N; ++i) { lenT[i] += lenD[i] * k; gLoT[i] += gLoD[i] * k; gHiT[i] += gHiD[i] * k; }
+            lpAT += lpAD * k; modDepthT += modDepthD * k;
+        }
+        if (rampSamples <= 0)
+        {
+            for (int i = 0; i < N; ++i) { lenT[i] = nLen[i]; gLoT[i] = nLo[i]; gHiT[i] = nHi[i]; }
+            lpAT = nLpA; modDepthT = nMod; rampLeft = 0;
+            return;
+        }
+        const float inv = 1.0f / (float) rampSamples;
+        for (int i = 0; i < N; ++i) { lenD[i] = (nLen[i] - lenT[i]) * inv; gLoD[i] = (nLo[i] - gLoT[i]) * inv; gHiD[i] = (nHi[i] - gHiT[i]) * inv; }
+        lpAD = (nLpA - lpAT) * inv; modDepthD = (nMod - modDepthT) * inv;
+        rampLeft = rampSamples;
     }
     void tick (float inL, float inR, float& outL, float& outR, bool freeze)
     {
         float x[N];
         lfo += 0.7f / (float) sr; if (lfo > 1.0f) lfo -= 1.0f;
+        if (rampLeft > 0)
+        {
+            --rampLeft;
+            for (int i = 0; i < N; ++i) { lenT[i] += lenD[i]; gLoT[i] += gLoD[i]; gHiT[i] += gHiD[i]; }
+            lpAT += lpAD; modDepthT += modDepthD;
+        }
+        lpA += lenA * (lpAT - lpA);
+        modDepth += lenA * (modDepthT - modDepth);
         for (int i = 0; i < N; ++i)
         {
+            len[i] += lenA * (lenT[i] - len[i]);
+            gLo[i] += lenA * (gLoT[i] - gLo[i]);
+            gHi[i] += lenA * (gHiT[i] - gHi[i]);
             const float m = modDepth * std::sin (kTwoPi * (lfo + (float) i * 0.125f));
             const float y = line[i].read (len[i] + m);
             z[i] += lpA * (y - z[i]);                     // absorption: per-line RT60, two bands

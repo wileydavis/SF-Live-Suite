@@ -4,6 +4,7 @@
 #include <juce_data_structures/juce_data_structures.h>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace sf
@@ -36,12 +37,15 @@ class SampleSlot
 {
 public:
     const SampleData* audio() const noexcept { return live.load (std::memory_order_acquire); }   // audio thread
-    const SamplePtr& get() const { return owned; }                                                // message thread
+    // Everything below may be called from the message thread, the host's prepare / state threads
+    // or a loader: guarded by a mutex the audio thread never touches.
+    SamplePtr get() const { const std::lock_guard<std::mutex> g (lock); return owned; }
     void set (SamplePtr p);
     void save (juce::ValueTree& t, const juce::Identifier& key) const;
     void load (const juce::ValueTree& t, const juce::Identifier& key, double sr);
 private:
     std::atomic<const SampleData*> live { nullptr };
+    mutable std::mutex lock;
     SamplePtr owned;
     struct Retired { SamplePtr p; juce::uint32 at; };
     std::vector<Retired> retired;

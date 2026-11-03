@@ -450,7 +450,7 @@
   {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIZE|DECAY|DARK|DUCK|MIX|MOD|WIDTH|LO CUT|DUCK SHAPE", "macro": 0},
   {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
-"DRIVE": {"instrument": false, "latency": 0, "params": [
+"DRIVE": {"instrument": false, "latency": 5, "params": [
   {"id": "drive", "name": "DRIVE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "20 %", "choices": "", "macro": 1},
   {"id": "character", "name": "CHARACTER", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
   {"id": "tone", "name": "TONE", "type": "knob", "primary": true, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
@@ -653,7 +653,7 @@
   {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MONO FREQ|SUB CLIP|RUMBLE CUT|WIDTH|LOW TRIM|LEVEL", "macro": 0},
   {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
-"LIMIT": {"instrument": false, "latency": 111, "params": [
+"LIMIT": {"instrument": false, "latency": 176, "params": [
   {"id": "target", "name": "TARGET", "type": "knob", "primary": true, "min": "-16.0 LUFS", "max": "-5.0 LUFS", "def": "-9.0 LUFS", "choices": "", "macro": 0},
   {"id": "ceiling", "name": "CEILING", "type": "knob", "primary": true, "min": "-3.0 dB", "max": "-0.1 dB", "def": "-1.0 dB", "choices": "", "macro": 0},
   {"id": "clip", "name": "CLIP", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},

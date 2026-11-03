@@ -195,12 +195,13 @@ private:
 
 namespace sf
 {
-// Linear-phase FIR halfband (Kaiser-windowed sinc), for the master chain where phase must not
-// move: 2x stage 79 taps (flat to 20 kHz, >= 100 dB stopband at 44.1/48 kHz), 4x stage 23 taps.
+// Linear-phase FIR halfband (Kaiser-windowed sinc, beta 10: ~100 dB), for the master chain where
+// phase must not move. FirOversampler4x sizes them from the sample rate so the whole path is flat
+// to 20 kHz: 2x stage 151 taps below 46 kHz (79 above), 4x stage 31 taps.
 class FirHalfband
 {
 public:
-    static constexpr int kMaxTaps = 127;
+    static constexpr int kMaxTaps = 159;
     void design (int numTaps, double transition)
     {
         // numTaps = 4k + 3; transition = width as a fraction of the oversampled rate.
@@ -312,9 +313,12 @@ public:
     void prepare (double baseRate)
     {
         const double pass = std::min (20000.0, 0.45 * baseRate);
+        // Kaiser transition (beta 10) = 92 / (2.285 (N - 1)) rad: 151 taps keep 20 kHz in the
+        // passband of the 2x stage at 44.1 kHz (79 do from 46 kHz up); 31 taps at the 4x stage.
+        const int n1 = baseRate < 46000.0 ? 151 : 79;
         for (int c = 0; c < 2; ++c)
         {
-            u1[c].design (79, 0.0); u2[c].design (23, 0.0); d2[c].design (23, 0.0);
+            u1[c].design (n1, 0.0); u2[c].design (31, 0.0); d2[c].design (31, 0.0);
             d1[c].design (pass, 0.5 * baseRate, 2.0 * baseRate);
         }
         // Latency: impulse centroid of the whole up/down path.

@@ -20,6 +20,7 @@ class SFProcessor : public juce::AudioProcessor, private juce::Timer
     std::vector<int> motionTargets;         // module parameter index for MOTION TARGET choice k+1
     std::vector<sf::ParamSpec> specs;
     int numModParams = 0;
+    int numExtraOut = 0;                    // extra stereo outputs (DECK CUE); read once, never on the audio thread
 
 public:
     static constexpr int kChunk = 64;

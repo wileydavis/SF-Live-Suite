@@ -51,6 +51,7 @@ private:
     juce::Rectangle<int> displayArea() const;
     int systemTop() const;
     void showPresetMenu();
+    void presetChosen (int result);
     void updatePresetLabel();
 
     SFProcessor& proc;

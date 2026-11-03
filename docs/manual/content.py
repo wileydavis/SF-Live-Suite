@@ -66,7 +66,7 @@ MODULES["KICK"] = dict(
         "click": "Level of the noise/impulse click on the attack.",
         "drive": "Saturation on the kick, added to the model's own.",
         "layer_model": "Second model hit with every note (e.g. 909 click on an 808 body).",
-        "layer": "Level of the LAYER MODEL. Total level is compensated.",
+        "layer": "Level of the LAYER MODEL. Main and layer always add up to the level of one kick.",
         "pitch_time": "How fast the pitch sweep falls. Short = snappy, long = laser.",
         "vel_sens": "How much velocity changes the level. 0 = every hit equal.",
         "key_track": "On: the note number sets the pitch (C1 = TUNE). Off: every note plays the same kick.",
@@ -248,7 +248,7 @@ MODULES["STRIKE"] = dict(
         "distance": "Stand-off. Further = quieter, longer, darker blast that excites fewer high modes.",
         "size": "Object size, which sets the pitch: the fundamental goes from about 1.4 kHz (small) to 45 Hz (large).",
         "material": "Wood (0) to glass (100 %): how long the high modes ring compared with the low ones.",
-        "decay": "Ring time, 0.15 to 9 s, times the object's own (a gong rings longer than a bar).",
+        "decay": "Ring time, 0.15 to 9 s, times the object's own (a gong rings longer than a bar). Four strikes ring at once; a fifth fades the quietest out over 5 ms.",
         "position": "Strike point. Striking near a node mutes the modes that have one there, so it changes the colour.",
         "spread": "Spreads the modes across the stereo field.",
         "tension": "How sharp a hard hit sounds before it settles (the pitch glides down after the blast).",
@@ -314,7 +314,7 @@ MODULES["CONTROL"] = dict(
         "pc_channel": "MIDI channel that Program Change is read from (default 16).",
         "pc_enable": "Turns Program Change song select on or off.",
         "pocket_offset": "Timing calibration for Pocket and RUMBLE, -20 to +20 ms (+ = later). Set once, by ear, if the pump lands early or late in your Live setup; leave at 0 otherwise.",
-        "key": "Key of the song: OFF, C ... B. Parts written in C play in this key on every SF instrument with KEY FOLLOW on (nearest transposition, -6 to +5 semitones). Stored per song.",
+        "key": "Key of the song: OFF, C ... B. Parts written in C play in this key on every SF instrument with KEY FOLLOW on (nearest transposition, -6 to +5 semitones). Stored per song. Only while SF CONTROL runs: remove it and every instrument is back in C.",
         "panic": "Hold: every SF plugin fades out over 5 ms and clears every voice, tail and delay line. Nothing restarts until new notes or audio arrive.",
     },
 )
@@ -325,7 +325,7 @@ MODULES["FILTER"] = dict(group="EFFECTS", summary="Bipolar performance filter wi
     models=[], desc={
         "filter": "Bipolar 24 dB/oct filter. Centre open, left low-pass, right high-pass.",
         "res": "Resonance, level-compensated.",
-        "drive": "Saturation before the filter.",
+        "drive": "Saturation before the filter, 2x oversampled. Fades in from exactly clean, so the first notch never jumps the level.",
         "env_amt": "Envelope follow: the input's level pushes the cutoff up (+) or down (-).",
         "env_speed": "Speed of the envelope follower.",
         "throw": "Hold: the filter travels to the extreme over THROW TIME. Release: back in a quarter of that.",
@@ -363,7 +363,7 @@ MODULES["DELAY"] = dict(group="EFFECTS", summary="Tape-style dub delay. Changing
         "tone": "Bipolar filter inside the feedback loop: left darker, right thinner. Each repeat goes further than the last.",
         "drive": "Saturation inside the feedback loop (2x oversampled): each repeat dirtier than the last.",
         "throw": "Hold to send into the delay (louder send in INPUT ALWAYS, the only send in THROW ONLY).",
-        "freeze": "Loops the current repeats forever; input muted.",
+        "freeze": "Loops the current repeats forever, losslessly (10 ms crossfade in and out); input muted.",
         "mix": "Wet level.",
         "width": "Stereo width of the repeats.",
         "slew": "How long a TIME change takes (the length of the pitch bend).",
@@ -421,8 +421,8 @@ MODULES["ENERGY"] = dict(group="EFFECTS", summary="Group energy. Replaces the DJ
     models=[("PROFILE", "DRUMS (high-pass side thins the kick moderately), BASS (strong low-pass side, gentle high-pass), MUSIC (both sides full), VOICE, MASTER (gentle both ways).")],
     desc={
         "energy": "Bipolar. Centre = neutral. Left = down, right = up.", "profile": "How far each side travels for this kind of group.",
-        "res": "Resonant edge (stronger on the up side).", "drive_amt": "Drive added on the up side.",
-        "space_amt": "Reverb added on the down side.", "echo_amt": "1/16 echo added on the up side.",
+        "res": "Resonant edge (stronger on the up side).", "drive_amt": "Drive added on the up side (2x oversampled, from clean at centre).",
+        "space_amt": "Reverb added on the down side. It rings out when the knob comes back past centre.", "echo_amt": "1/16 echo added on the up side.",
         "gate_amt": "1/16 chop added on the up side.",
     })
 
@@ -453,7 +453,7 @@ MODULES["LIMIT"] = dict(group="MASTER AND MIX", summary="Clipper and true-peak l
          "AUTO moves the input by at most 1 dB per second, so a whole set sits at TARGET without anyone riding the master.",
          "CLIP takes the first few dB off the peaks transparently (kick transients) so the limiter works less.",
          "Recording a set: RESET at the start; INTEGRATED then reads the loudness of the whole set.",
-         "Latency 174 samples at 48 kHz, compensated by Live."],
+         "Latency 176 samples at 48 kHz, compensated by Live."],
     models=[], desc={
         "target": "Loudness AUTO aims for (LUFS short-term).", "ceiling": "True-peak ceiling (dBTP). The output never exceeds it, including between samples.", "clip": "Soft clip before the limiter, 4x oversampled, linear phase. The knee starts up to 6 dB below CEILING.",
         "input": "Input gain.", "release": "Limiter release. Under sustained limiting a slower envelope holds the gain, so dense passages don't pump.", "auto": "Automatic input trim toward TARGET (+/-12 dB).",
@@ -502,9 +502,9 @@ MODULES["STRIP"] = dict(group="EFFECTS", summary="The suite's performance row fo
     desc={
         "density": "Ghost echoes of each hit: 0-50 % one echo one ECHO SPACE later, 50-100 % two more at half spacing. Each darker and quieter.",
         "gate": "GATE MODE HITS: how long each detected hit stays open, from 1/64 beat at 0 % to 2 beats; 97 % and up = never closes. PATTERN: how long each pattern step stays open.",
-        "drive": "Saturation, 0 to +30 dB into the shaper (CHARACTER sets tape to fuzz).",
+        "drive": "Saturation, 0 to +30 dB into the shaper (CHARACTER sets tape to fuzz), 4x oversampled, fading in from clean.",
         "pocket": "Pocket depth: ducks the track around SF KICK.",
-        "space": "Send into the strip's own SPACE (dub echo or reverb).",
+        "space": "Send into the strip's own SPACE (dub echo or reverb). The reverb rings out when the send closes.",
         "throw": "Hold: full send into SPACE.",
         "role": "Priority in ALLOC and the name shown (STRIP BASS, STRIP PERC ...).",
         "echo_prob": "Chance each hit gets its echoes.",

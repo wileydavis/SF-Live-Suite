@@ -84,6 +84,7 @@ public:
         for (auto& v : voices) v.active = false;
         out.reset();
         os.reset();
+        fractureSm = 0.0f;
     }
 
     struct Mode { float re = 0, im = 0, a = 0, b = 0, r = 0, theta = 0, g = 0, panL = 0.7f, panR = 0.7f; };
@@ -94,7 +95,7 @@ public:
         Mode m[16];
         double t = 0.0;
         float vel = 1.0f, blastT = 0.001f, blastAmp = 0.0f, blastLp = 0.0f, lpA = 0.0f, debris = 0.0f, debrisZ = 0.0f;
-        float tension = 0.0f, tensionTau = 0.05f, fracture = 0.0f, level = 0.0f, fade = 1.0f, fadeStep = 0.0f;
+        float tension = 0.0f, tensionTau = 0.05f, fracture = 0.0f, level = 0.0f, peak = 1.0e-9f, fade = 1.0f, fadeStep = 0.0f;
         int ticks = 0;
         float lvl() const { return active ? level : 0.0f; }
     };
@@ -104,7 +105,6 @@ public:
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), c.v (ESWING), 1.0f, false);
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         size_t e = 0;
-        float maxFracture = 0.0f;
         for (int i = 0; i < c.n; ++i)
         {
             while (e < events.size() && events[e].offset <= i)
@@ -116,18 +116,34 @@ public:
             for (auto& v : voices) if (v.active) render (v, l, r);
             L[i] = l; R[i] = r;
         }
-        for (auto& v : voices) if (v.active) maxFracture = std::max (maxFracture, v.fracture);
-        // FRACTURE: the object distorts (2x oversampled), only while a fractured voice sounds.
-        if (maxFracture > 0.001f || fractureTail > 0)
+        // FRACTURE: the object distorts (2x oversampled). The amount follows the fractured voices'
+        // own envelopes (full at the blast, gone by the time they die), smoothed (2 ms up, 50 ms
+        // down) and ramped across the chunk, and it is blended in from exactly clean at 0: no level
+        // steps for anything else still ringing. Always through the oversampler, so the delay never
+        // changes.
+        float target = 0.0f;
+        for (auto& v : voices)
+            if (v.active && v.fracture > 0.0f)
+                target = std::max (target, v.fracture * std::min (1.0f, v.level / v.peak) * (v.fadeStep > 0.0f ? v.fade : 1.0f));
+        const float f0 = fractureSm;
+        const float coef = std::exp (-(float) c.n / ((target > fractureSm ? 0.002f : 0.05f) * (float) sr));
+        fractureSm = target + coef * (fractureSm - target);
+        if (fractureSm < 1.0e-5f) fractureSm = 0.0f;
+        const float f1 = fractureSm, span = 1.0f / (float) (2 * c.n);
+        for (int ch = 0; ch < 2; ++ch)
         {
-            fractureTail = maxFracture > 0.001f ? (int) (0.5 * sr) : std::max (0, fractureTail - c.n);
-            const float drv = 1.0f + maxFracture * 4.0f, nrm = 1.0f / std::sqrt (drv);
-            os.process (0, L, c.n, [drv, nrm] (float x) { return fastTanh (x * drv) * nrm; });
-            os.process (1, R, c.n, [drv, nrm] (float x) { return fastTanh (x * drv) * nrm; });
+            int k = 0;
+            os.process (ch, io.getWritePointer (ch), c.n, [&] (float x)
+            {
+                const float f = f0 + (f1 - f0) * (float) (k++) * span;
+                if (f <= 0.0f) return x;
+                const float drv = 1.0f + 4.0f * f;
+                return x + f * (fastTanh (x * drv) / std::sqrt (drv) - x);
+            });
         }
         out.process (c, io, FILT, RES, 0.0f, 0.0f, c.b (ALLOCON), LEVEL);
         dispPower = c.v (POWER); dispDistance = c.v (DISTANCE); dispObject = c.ci (MODEL);
-        int act = 0; for (auto& v : voices) act += v.active ? 1 : 0;
+        int act = 0; for (auto& v : voices) act += v.active && v.fadeStep == 0.0f ? 1 : 0;
         activeVoices = act;
     }
 
@@ -195,14 +211,31 @@ private:
     {
         const int objIdx = juce::jlimit (0, kNumObjects - 1, c.ci (MODEL));
         const auto& o = kObjects[objIdx];
-        // Voice: free one, else the quietest.
-        int idx = 0; float best = 1e9f;
-        for (int k = 0; k < 4; ++k)
+        // At most kSounding voices ring: the quietest of them fades out over 5 ms (never cut).
+        // The new voice takes a free slot, else the most faded one.
+        int sounding = 0, quietest = -1;
+        for (int k = 0; k < kSlots; ++k)
         {
-            if (! voices[(size_t) k].active) { idx = k; best = -1.0f; break; }
-            if (voices[(size_t) k].level < best) { best = voices[(size_t) k].level; idx = k; }
+            const auto& w = voices[(size_t) k];
+            if (! w.active || w.fadeStep > 0.0f) continue;
+            ++sounding;
+            if (quietest < 0 || w.level < voices[(size_t) quietest].level) quietest = k;
         }
-        auto& v = voices[(size_t) idx];          // (a stolen voice is the quietest one)
+        if (sounding >= kSounding && quietest >= 0) voices[(size_t) quietest].fadeStep = 1.0f / (0.005f * (float) sr);
+        int idx = -1;
+        for (int k = 0; k < kSlots && idx < 0; ++k) if (! voices[(size_t) k].active) idx = k;
+        if (idx < 0)
+        {
+            // (Only with several strikes inside 5 ms: chords on a busy object.) The quietest fader.
+            float lowest = 1.0e9f;
+            for (int k = 0; k < kSlots; ++k)
+            {
+                const auto& w = voices[(size_t) k];
+                if (w.fadeStep > 0.0f && w.fade * w.level < lowest) { lowest = w.fade * w.level; idx = k; }
+            }
+        }
+        if (idx < 0) idx = quietest >= 0 ? quietest : 0;
+        auto& v = voices[(size_t) idx];
         v = Voice();
         v.active = true; v.object = objIdx;
         const float velK = ev.gen == 0 ? lerp (1.0f, ev.vel, c.v (VELSENS)) : ev.vel;
@@ -250,6 +283,7 @@ private:
         v.numModes = nm;
         v.debris = v.fracture;
         v.level = v.blastAmp;
+        v.peak = std::max (1.0e-9f, v.blastAmp);
     }
 
     void render (Voice& v, float& outL, float& outR)
@@ -295,19 +329,21 @@ private:
         outL += (l * 0.25f + crack) * gain;
         outR += (r * 0.25f + crack) * gain;
         v.level = std::max (e, std::fabs (pw));
+        v.peak = std::max (v.peak, v.level);
         v.t += 1.0 / sr;
         if (t > 0.05f && v.level < 1.0e-5f) v.active = false;
     }
 
     static constexpr float kGain = 1.0f;
     double sr = 48000.0;
-    std::array<Voice, 4> voices;
+    static constexpr int kSlots = 8, kSounding = 4;
+    std::array<Voice, kSlots> voices;
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
     RoleOutput out;
     Oversampler os;
     Noise rng;
-    int fractureTail = 0;
+    float fractureSm = 0.0f;
     std::atomic<float> dispPower { 0.4f }, dispDistance { 0.3f };
     std::atomic<int> dispObject { 0 }, activeVoices { 0 };
 };

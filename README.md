@@ -55,7 +55,7 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 | | |
 |---|---|
 | Oversampling (IIR halfbands, all nonlinear stages) | 118 dB rejection at 44.1 kHz, 112 dB at 48 kHz, 123 dB at 96 kHz; flat to 20 kHz within 0.0001 dB |
-| Oversampling (linear-phase FIR, LIMIT clipper) | 99.5 dB rejection, 0.000 dB passband ripple |
+| Oversampling (linear-phase FIR, LIMIT clipper) | 99.5 dB rejection; whole 4x path flat to 20 kHz within 0.01 dB at 44.1, 48 and 96 kHz |
 | Synth alias floor (worst case, 3-octave sweep) | ACID 94 dB, FM 97 dB, STRING MACHINE 105 dB, SUB OSC 94 dB, MS20 77 dB, SYNC 79 dB |
 | LIMIT output true peak (8x, independent check) | never above CEILING: dense programme +12 dB into -1.0 gives -1.12 dBTP; noise +12 dB gives -1.02 dBTP |
 | Loudness meter (BS.1770-4 / EBU R128) | -20.00 LUFS on the 1 kHz reference |
@@ -64,6 +64,8 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 | Sample rates | all 30 clean at 44.1, 48 and 96 kHz |
 | Gain staging | every model of every instrument at its role's target within 0.1 dB (VOICE phrase models within 0.6 dB): KICK -15, PERC -22, RUMBLE -20, BASS -18, LEAD -20, PAD -22, VOICE -20, STRIKE -20 LUFS |
 | PANIC | feedback delay, 20 s reverb and a held pad silenced to -140 dB |
+| Song recall | on the bar line at every buffer size and song position tested (20 of 20; was 9 of 20) |
+| LIMIT AUTO | settles on TARGET with no overshoot (was +0.7 dB and a long settle) |
 
 ## CPU
 
@@ -71,16 +73,16 @@ Offline, one instance at default settings, 48 kHz, buffer 256, measured on the 2
 
 | Plugin | % of one core | Plugin | % of one core | Plugin | % of one core |
 |---|---:|---|---:|---|---:|
-| KICK | 0.9 | FILTER | 0.6 | ISOLATOR | 0.6 |
-| PERC | 1.2 | GATE | 0.4 | BUILD | 1.4 |
-| RUMBLE | 2.3 | DENSITY | 0.3 | GLUE | 0.4 |
-| BASS | 4.0 | DELAY | 1.1 | TONE | 0.7 |
-| LEAD | 2.6 | REVERB | 1.6 | LOWEND | 0.8 |
-| PAD | 9.9 | DRIVE | 0.9 | LIMIT | 4.3 |
-| VOICE | 1.3 | RADIO | 0.4 | ROOM EQ | 0.2 |
-| STRIKE | 1.4 | REPEAT | 0.3 | ALLOC | 1.0 |
-| DECK | 0.3 | DUCK | 0.5 | TAP | 0.5 |
-| CONTROL | 0.1 | ENERGY | 0.6 | STRIP | 0.9 |
+| KICK | 1.0 | FILTER | 0.6 | ISOLATOR | 0.6 |
+| PERC | 1.2 | GATE | 0.3 | BUILD | 2.2 |
+| RUMBLE | 2.2 | DENSITY | 0.4 | GLUE | 0.4 |
+| BASS | 4.9 | DELAY | 1.2 | TONE | 0.5 |
+| LEAD | 2.0 | REVERB | 2.0 | LOWEND | 0.6 |
+| PAD | 11.1 | DRIVE | 1.0 | LIMIT | 4.3 |
+| VOICE | 1.3 | RADIO | 0.5 | ROOM EQ | 0.2 |
+| STRIKE | 1.5 | REPEAT | 0.3 | ALLOC | 0.9 |
+| DECK | 0.3 | DUCK | 0.4 | TAP | 0.5 |
+| CONTROL | 0.1 | ENERGY | 0.7 | STRIP | 1.4 |
 
 A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DECK, 4 ENERGY, DELAY, REVERB, DENSITY and the whole master chain) adds up to about half of one core here.
 
@@ -112,7 +114,10 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 
 - **Rebuild and install everything.** The SF BUS moved to v3; old and new builds don't talk to each other.
 - **Levels changed.** Models are now calibrated to role targets. At the same LEVEL, KICK is about 3-6 dB quieter, some PERC and PAD models change by several dB, and the VOICE vocoder models are much quieter than before. Re-balance faders once.
-- **SF LIMIT latency** is now 174 samples at 48 kHz (was 72); Live compensates it. **SF DRIVE** now uses the suite's own 4x oversampler (112 dB instead of about 70 dB alias rejection); its latency is 5 samples.
+- **KICK LAYER works now.** It used to cut the main voice after 3 ms, so a layered kick was only the layer. Main and layer now sum to the level of one kick.
+- **DRIVE knobs start clean.** FILTER, ENERGY and STRIP drive (and synth DRIVE at its low end) fade in from exactly clean instead of jumping +3-4 dB at the first notch.
+- **KEY needs SF CONTROL running.** Without it (deleted, or another set), instruments ignore any key left over.
+- **SF LIMIT latency** is now 176 samples at 48 kHz (was 72); Live compensates it. **SF DRIVE** now uses the suite's own 4x oversampler (112 dB instead of about 70 dB alias rejection); its latency is 5 samples.
 - **Editors are taller:** a MOTION row and a SYSTEM row sit under each plugin's controls.
 - New: PRESET menus, KEY and PANIC on SF CONTROL, KEY FOLLOW on instruments, SF STRIKE, SF TONE, FAULT indicator in every header.
 

@@ -254,7 +254,7 @@ public:
     // so the voice sounds the same at any host buffer size.
     struct VoiceCtl
     {
-        float res = 0, driveG = 1, driveNorm = 1, color = 0.5f, det = 0.5f, cutT = 0.5f, gainAll = 0, subMul = 1, pw2 = 0.5f, osc2Amt = 0, subLvl = 0, sideK = 1;
+        float res = 0, driveG = 1, driveNorm = 1, driveW = 1, color = 0.5f, det = 0.5f, cutT = 0.5f, gainAll = 0, subMul = 1, pw2 = 0.5f, osc2Amt = 0, subLvl = 0, sideK = 1;
         float detCents = 0, uniR[8] {}, pw[8] {}, r2[8] {};
         int uni = 1, shape1 = 0, oct1[8] {}, oct2[8] {}, octSub = 0;
         bool doSub = false;
@@ -271,6 +271,7 @@ public:
         Adsr amp, fenv;
         SyncSaw sync;
         AdaaTanh driveSat, ms20Sat;
+        bool driveOn = false;
         VoiceCtl ctl;
         bool ctlStale = true;
         Ladder ladder;
@@ -462,6 +463,9 @@ private:
         const float drive = clamp01 (c.v (DRIVE) + m.drive);
         k.driveG = drive > 0.001f ? 1.0f + drive * 6.0f : 0.0f;
         k.driveNorm = 1.2f / std::sqrt (std::max (1.0f, k.driveG));
+        // Over the first 10 % the drive fades in from exactly clean, so leaving 0 never steps
+        // the level (the shaper alone is +1.6 dB at its gentlest).
+        k.driveW = std::min (1.0f, drive / 0.1f);
         k.color = c.v (COLOR); k.det = c.v (DETUNE);
         const float fe = v.fenv.v;
         const float keyTrack = std::log2 (std::max (20.0f, v.freq) / 130.0f) * 0.3f;
@@ -514,7 +518,7 @@ private:
         if (onGrid || v.ctlStale) { updateControls (c, v, kSub * v.os); v.ctlStale = false; }
         const auto& k = v.ctl;
         const float res = k.res; juce::ignoreUnused (res);
-        const float driveG = k.driveG, driveNorm = k.driveNorm, color = k.color, det = k.det, gainAll = k.gainAll, subMul = k.subMul;
+        const float driveG = k.driveG, driveNorm = k.driveNorm, driveW = k.driveW, color = k.color, det = k.det, gainAll = k.gainAll, subMul = k.subMul;
         const int uni = k.uni, shape1 = k.shape1, octSub = k.octSub;
         const float* uniR = k.uniR; const float* pw = k.pw; const float* r2 = k.r2;
         const int* oct1 = k.oct1; const int* oct2 = k.oct2;
@@ -668,7 +672,13 @@ private:
             // Filter (mono filters run on the mid; stereo engines get mid/side filtered as one).
             auto filt = [&] (float in) -> float
             {
-                if (drive > 0.0f) in = v.driveSat.tick (in * driveG) * driveNorm;
+                if (drive > 0.0f)
+                {
+                    const float xin = in * driveG;
+                    if (! v.driveOn) { v.driveSat.prime (xin); v.driveOn = true; }     // no stale ADAA history
+                    in += driveW * (v.driveSat.tick (xin) * driveNorm - in);
+                }
+                else v.driveOn = false;
                 switch (m.filt)
                 {
                     case F_LADDER: return v.ladder.tick (in);

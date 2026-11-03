@@ -45,6 +45,7 @@ static void resetBus()
     d.kickWrite = 0; d.kickSeenMs = 0; d.allocSeenMs = 0; d.controlSeenMs = 0; d.song = -1;
     for (auto& s : d.src) { s.owner = 0; s.seenMs = 0; }
     for (auto& m : d.macro) m = 0.0f;
+    d.keyRoot = -1;
 }
 
 struct Rig
@@ -594,6 +595,7 @@ static void dumpSpecs()
     for (size_t m = 0; m < ids.size(); ++m)
     {
         SFProcessor p (makeModule (ids[m]));
+        p.prepareToPlay (48000.0, 512);                 // latency depends on the rate (reported at 48 kHz)
         std::printf ("\"%s\": {\"instrument\": %s, \"latency\": %d, \"params\": [\n", ids[m].c_str(), p.mod().instrument() ? "true" : "false", p.mod().latency());
         const auto& sp = p.allSpecs();
         for (size_t k = 0; k < sp.size(); ++k)
@@ -810,7 +812,7 @@ int main (int argc, char** argv)
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
-                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
+                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -828,6 +830,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--panic") { testPanic(); }
     else if (std::string (argv[1]) == "--rates") { testRates(); }
     else if (std::string (argv[1]) == "--cpu") { testCpu(); }
+    else if (std::string (argv[1]) == "--review") { testReviewFixes(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

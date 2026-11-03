@@ -396,7 +396,17 @@ void SFEditor::showPresetMenu()
     menu.addSeparator();
     menu.addItem (2000, "SAVE USER PRESET...");
     menu.addItem (2001, "SHOW PRESET FOLDER");
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (presetButton), [this] (int r)
+    // The host can close the editor while the menu is open: the callback must not touch it then.
+    juce::Component::SafePointer<SFEditor> self (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (presetButton), [self] (int r)
+    {
+        if (self == nullptr) return;
+        self->presetChosen (r);
+    });
+}
+
+void SFEditor::presetChosen (int r)
+{
     {
         const auto& f = proc.factoryPresets();
         if (r >= 1 && r <= (int) f.size()) proc.applyPreset (f[(size_t) r - 1]);
@@ -420,7 +430,7 @@ void SFEditor::showPresetMenu()
             folder.revealToUser();
         }
         updatePresetLabel();
-    });
+    }
 }
 
 void SFEditor::updatePresetLabel()

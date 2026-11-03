@@ -155,11 +155,11 @@ public:
                 x = choirSynth() * choirCal;
             dry[i] = x * phraseCal;
         }
-        // DRIVE, 2x oversampled.
-        if (drive > 0.001f)
+        // DRIVE, 2x oversampled. Always through the oversampler (no delay switching in or out);
+        // below 2 % the drive fades in from exactly clean.
         {
-            const float g = 1.0f + drive * 8.0f, nrm = 1.0f / std::sqrt (g);
-            os.process (0, dry, nn, [g, nrm] (float x) { return fastTanh (x * g) * nrm; });
+            const float g = 1.0f + drive * 8.0f, nrm = 1.0f / std::sqrt (g), w = std::min (1.0f, drive / 0.02f);
+            os.process (0, dry, nn, [g, nrm, w] (float x) { return x + w * (fastTanh (x * g) * nrm - x); });
         }
         // Pass 2: dub echo send.
         for (int i = 0; i < nn; ++i)

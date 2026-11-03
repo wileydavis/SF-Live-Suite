@@ -143,6 +143,7 @@ SamplePtr loadSampleFlac (const juce::MemoryBlock& mb, const juce::String& name,
 
 void SampleSlot::set (SamplePtr p)
 {
+    const std::lock_guard<std::mutex> g (lock);
     const auto now = juce::Time::getMillisecondCounter();
     if (owned != nullptr) retired.push_back ({ owned, now });
     owned = std::move (p);

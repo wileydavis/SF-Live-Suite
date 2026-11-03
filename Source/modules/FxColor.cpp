@@ -300,7 +300,7 @@ public:
         filt.reset(); fdn.clear(); os.reset();
         for (auto& d : echo) d.clear();
         for (auto& f : echoLp) f.reset();
-        echoFb[0] = echoFb[1] = 0.0f; chopZ = 1.0f; fdnActive = false;
+        echoFb[0] = echoFb[1] = 0.0f; chopZ = 1.0f; fdnTail = 0;
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
@@ -315,12 +315,14 @@ public:
         const float e = c.v (ENERGY) - 0.5f;
         const float dn = clamp01 (-e * 2.0f), up = clamp01 (e * 2.0f);
         const int n = c.n;
-        // Drive (up side) before the filter.
+        // Drive (up side) before the filter, 2x oversampled. Always through the oversampler (its
+        // delay never switches in or out as the knob passes centre), and blended in from exactly
+        // clean at 0, so the level rises smoothly with the drive instead of stepping.
         const float drv = up * c.v (DRIVEAMT);
-        if (drv > 0.001f)
         {
             const float gIn = 1.0f + drv * 6.0f, comp = 1.4f / (1.0f + drv * 2.0f);
-            for (int k = 0; k < 2; ++k) os.process (k, io.getWritePointer (k), n, [gIn, comp] (float x) { return fastTanh (x * gIn) * comp; });
+            for (int k = 0; k < 2; ++k)
+                os.process (k, io.getWritePointer (k), n, [drv, gIn, comp] (float x) { return x + drv * (fastTanh (x * gIn) * comp - x); });
         }
         filt.process (io.getArrayOfWritePointers(), 2, n, mapKnob (c.v0 (ENERGY)), mapKnob (c.v (ENERGY)), c.v (RES) * (0.4f + 0.6f * up));
         // Space (down side) and echo (up side).
@@ -333,7 +335,7 @@ public:
         {
             const float l = io.getSample (0, i), r = io.getSample (1, i);
             float rl = 0, rr = 0;
-            if (space > 0.001f || fdnActive) fdn.tick (l * space, r * space, rl, rr, false);
+            if (space > 0.001f || fdnTail > 0) fdn.tick (l * space, r * space, rl, rr, false);
             echo[0].push (l + echoFb[0] * 0.35f); echo[1].push (r + echoFb[1] * 0.35f);
             echoFb[0] = echoLp[0].tickLP (echo[0].read (echoD)); echoFb[1] = echoLp[1].tickLP (echo[1].read (echoD));
             float g = 1.0f;
@@ -347,7 +349,8 @@ public:
             io.setSample (0, i, (l + rl + echoFb[0] * ech) * g);
             io.setSample (1, i, (r + rr + echoFb[1] * ech) * g);
         }
-        fdnActive = space > 0.001f;
+        // The space keeps ringing out after the knob leaves the down side (4 s = 2.5 s RT60 to -96 dB).
+        fdnTail = space > 0.001f ? (int) (4.0 * sr) : std::max (0, fdnTail - n);
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
         disp = c.v (ENERGY);
@@ -363,7 +366,7 @@ private:
     DJFilter filt;
     Oversampler os;
     Fdn fdn;
-    bool fdnActive = false;
+    int fdnTail = 0;
     DelayLine echo[2];
     Svf echoLp[2];
     float echoFb[2] {}, chopZ = 1.0f;

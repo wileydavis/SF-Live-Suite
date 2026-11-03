@@ -72,7 +72,7 @@ public:
         for (auto& f : echoLp) f.reset();
         filt.reset(); fdn.clear(); pocket.reset(); tap.reset(); os.reset();
         fast.z = slow.z = 0.0f;
-        gateG = 1.0f; holdLeft = 0; sinceOnset = 1 << 20; throwG = 0.0f; spaceActive = false;
+        gateG = 1.0f; holdLeft = 0; sinceOnset = 1 << 20; throwG = 0.0f; spaceTail = 0;
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
@@ -162,14 +162,14 @@ public:
             }
             L[i] = gl + wl; R[i] = gr + wr;
         }
-        // DRIVE, 4x oversampled: TAPE (soft) .. FUZZ (hard) by CHARACTER.
-        if (drive > 0.001f)
+        // DRIVE, 4x oversampled: TAPE (soft) .. FUZZ (hard) by CHARACTER. Always through the
+        // oversampler (no delay switching in or out) and blended in from exactly clean at 0.
         {
             const float comp = 1.6f / (1.0f + drive * 2.5f);
-            auto shape = [ch, pre, comp] (float x)
+            auto shape = [ch, pre, comp, drive] (float x)
             {
-                x *= pre;
-                return lerp (fastTanh (x), hardClip (x * 2.5f, 0.8f), ch) * comp;
+                const float y = lerp (fastTanh (x * pre), hardClip (x * pre * 2.5f, 0.8f), ch) * comp;
+                return x + drive * (y - x);
             };
             os.process (0, L, n, shape);
             os.process (1, R, n, shape);
@@ -183,7 +183,7 @@ public:
         const bool throwOn = c.b (THROW);
         const bool reverb = c.ci (SPACETYPE) == 0;
         const float size = c.v (SPACESIZE);
-        if (reverb) fdn.set (0.3f + size * 0.6f, 1.0f + size * 7.0f, 0.5f, 0.3f, false);
+        if (reverb) fdn.set (0.3f + size * 0.6f, 1.0f + size * 7.0f, 0.5f, 0.3f, false, n);
         const float echoD = (float) ((0.5 + size * 0.25) * c.samplesPerBeat());   // 1/8 .. 3/16
         const float echoFb = 0.35f + size * 0.5f;
         for (auto& lp : echoLp) lp.set (2800.0f, 0.7071f, sr);
@@ -193,7 +193,7 @@ public:
             const float send = std::min (1.0f, sendAmt + throwG);
             const float il = L[i] * send, ir = R[i] * send;
             float ol = 0, orr = 0;
-            if (reverb) { if (send > 0.0005f || spaceActive) fdn.tick (il, ir, ol, orr, false); }
+            if (reverb) { if (send > 0.0005f || spaceTail > 0) fdn.tick (il, ir, ol, orr, false); }
             else
             {
                 const float yl = echo[0].read (echoD), yr = echo[1].read (echoD);
@@ -203,7 +203,8 @@ public:
             }
             L[i] += ol; R[i] += orr;
         }
-        spaceActive = sendAmt > 0.0005f || throwG > 0.0005f;
+        // The reverb rings out after SPACE / THROW close (its RT60 to -96 dB), never cut.
+        spaceTail = sendAmt > 0.0005f || throwG > 0.0005f ? (int) ((1.0f + size * 7.0f) * 1.6f * (float) sr) : std::max (0, spaceTail - n);
 
         // ---- POCKET, ALLOC, LEVEL
         pocket.process (c, io.getArrayOfWritePointers(), 2, n, c.v (POCKETD), c.v (PSHAPE), nullptr, c.v (POCKETD) > 0.001f);
@@ -241,7 +242,7 @@ private:
     Noise rng;
     int holdLeft = 0, sinceOnset = 1 << 20, lastRole = -1;
     float gateG = 1.0f, pass1 = 1.0f, pass2 = 1.0f, throwG = 0.0f;
-    bool spaceActive = false;
+    int spaceTail = 0;
     std::atomic<float> dispGate { 1.0f }, dispDens { 0.0f };
 };
 ModulePtr makeSTRIP() { return std::make_unique<StripModule>(); }

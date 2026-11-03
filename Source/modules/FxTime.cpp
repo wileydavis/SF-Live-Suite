@@ -48,11 +48,12 @@ public:
         const float k0 = lastK < 0 ? k1 : lastK;
         lastK = k1;
         posDisplay = k1;
-        // Drive before the filter, 2x oversampled.
-        const float dg = 1.0f + c.v (DRIVE) * 10.0f, comp = 1.0f / (1.0f + c.v (DRIVE) * 3.0f) * 1.6f;
-        if (c.v (DRIVE) > 0.001f)
-            for (int ch = 0; ch < 2; ++ch)
-                os.process (ch, io.getWritePointer (ch), n, [dg, comp] (float x) { return fastTanh (x * dg) * comp; });
+        // Drive before the filter, 2x oversampled. Always through the oversampler (no delay
+        // switching in or out) and blended in from exactly clean at 0 (no level step).
+        const float dAmt = c.v (DRIVE);
+        const float dg = 1.0f + dAmt * 10.0f, comp = 1.0f / (1.0f + dAmt * 3.0f) * 1.6f;
+        for (int ch = 0; ch < 2; ++ch)
+            os.process (ch, io.getWritePointer (ch), n, [dAmt, dg, comp] (float x) { return x + dAmt * (fastTanh (x * dg) * comp - x); });
         filt.process (io.getArrayOfWritePointers(), 2, n, k0, k1, c.v (RES));
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
@@ -344,7 +345,10 @@ public:
         if (curDelay < 0) curDelay = target;
         const float slewRate = std::abs (target - curDelay) / (float) std::max (1.0, c.v (SLEW) * 0.001 * sr);
         const bool freeze = c.b (FREEZE), throwOn = c.b (THROW), throwOnly = c.ci (INPUT) == 1;
-        const float fbk = freeze ? 1.0f : c.v (FDBK);
+        // FREEZE crossfades over ~10 ms into a lossless loop (feedback 1, no lo cut, no tone, no
+        // saturation). The loop's 2x stage keeps running either way, so the read head never moves.
+        const float fbkSet = c.v (FDBK), freezeTarget = freeze ? 1.0f : 0.0f;
+        const float freezeK = 1.0f - std::exp (-1.0f / (0.01f * (float) sr));
         const float drive = c.v (DRIVE), mix = c.v (MIX), width = c.v (WIDTH);
         const bool ping = c.ci (MODE) == 1;
         const float wow = c.v (WOW);
@@ -366,21 +370,30 @@ public:
             inGain += 0.002f * (inGainTarget - inGain);
             if (std::abs (target - curDelay) > 0.5f) curDelay += juce::jlimit (-slewRate, slewRate, target - curDelay) + 0.0f;
             wowPhase += (float) (0.6 / sr); if (wowPhase > 1.0f) wowPhase -= 1.0f;
-            const float d = curDelay * (1.0f + wow * 0.004f * std::sin (kTwoPi * wowPhase)) - (freeze ? 0.0f : osDelay);
+            freezeX += freezeK * (freezeTarget - freezeX);
+            const float fz = freezeX < 1.0e-6f ? 0.0f : (freezeX > 0.999999f ? 1.0f : freezeX);
+            const float d = curDelay * (1.0f + wow * 0.004f * std::sin (kTwoPi * wowPhase)) - osDelay;
             const float yl = line[0].read (d), yr = line[1].read (d);
+            const float fbk = fbkSet + fz * (1.0f - fbkSet);
             float fl = yl * fbk, fr = yr * fbk;
-            if (! freeze)
             {
-                fl = lo[0].hp (fl); fr = lo[1].hp (fr);
+                fl += (1.0f - fz) * (lo[0].hp (fl) - fl);
+                fr += (1.0f - fz) * (lo[1].hp (fr) - fr);
+                auto satF = [&] (float x) { return fz >= 1.0f ? x : x + (1.0f - fz) * (sat (x) - x); };
                 float a0, a1;
-                upF[0].up (fl, a0, a1); fl = dnF[0].down (sat (a0), sat (a1));
-                upF[1].up (fr, a0, a1); fr = dnF[1].down (sat (a0), sat (a1));
+                upF[0].up (fl, a0, a1); fl = dnF[0].down (satF (a0), satF (a1));
+                upF[1].up (fr, a0, a1); fr = dnF[1].down (satF (a0), satF (a1));
             }
             const float il = L[i] * inGain, ir = R[i] * inGain;
             float w0, w1;
             if (ping) { w0 = 0.5f * (il + ir) + fr; w1 = fl; }
             else      { w0 = il + fl; w1 = ir + fr; }
-            if (! freeze) loopFilt.step (k0 + (k1 - k0) * (float) i / (float) n, 0.0f, w0, w1, false);
+            if (fz < 1.0f)
+            {
+                float t0 = w0, t1 = w1;
+                loopFilt.step (k0 + (k1 - k0) * (float) i / (float) n, 0.0f, t0, t1, false);
+                w0 += (1.0f - fz) * (t0 - w0); w1 += (1.0f - fz) * (t1 - w1);
+            }
             line[0].push (w0); line[1].push (w1);
             const float mid = 0.5f * (yl + yr), side = 0.5f * (yl - yr) * width * 2.0f;
             wl[i] = mid + side; wr[i] = mid - side;
@@ -424,7 +437,7 @@ private:
     Halfband upF[2], dnF[2];
     Pocket pocket;
     juce::AudioBuffer<float> wet;
-    float curDelay = -1, inGain = 1.0f, wowPhase = 0, osDelay = 0.0f;
+    float curDelay = -1, inGain = 1.0f, wowPhase = 0, osDelay = 0.0f, freezeX = 0.0f;
     std::atomic<float> disp { 0 };
 };
 ModulePtr makeDELAY() { return std::make_unique<DelayModule>(); }
@@ -481,7 +494,7 @@ public:
         const int n = c.n;
         wet.setSize (2, n, false, false, true);
         const bool freeze = c.b (FREEZE), throwOn = c.b (THROW);
-        fdn.set (c.v (SIZE), c.v (DECAY), c.v (DARK), c.v (MOD), freeze);
+        fdn.set (c.v (SIZE), c.v (DECAY), c.v (DARK), c.v (MOD), freeze, c.n);
         static const double preB[] = { 0.0, 1.0 / 16, 0.125, 0.25, 0.5, 1.0 };
         const float preS = (float) (preB[juce::jlimit (0, 5, c.ci (PREDELAY))] * c.samplesPerBeat());
         for (auto& f : lo) f.setHz (c.v (LOCUT), sr);

@@ -64,6 +64,7 @@ SFProcessor::SFProcessor (ModulePtr m)
       motionTargets (motionTargetsFor (module->params())),
       specs (withSystem (module->params(), module->instrument(), motionTargets)),
       numModParams ((int) module->params().size()),
+      numExtraOut ((int) module->extraOutputs().size()),
       apvts (*this, nullptr, "PARAMS", makeLayout())
 {
     jassert (specs.size() <= (size_t) kMaxParams);
@@ -96,7 +97,7 @@ SFProcessor::SFProcessor (ModulePtr m)
     std::random_device rd;
     motionSeed = (uint32_t) rd() | 1u;
     factory = sf::factoryPresets (module->id());
-    chunkMidi.ensureSize (8192);
+    chunkMidi.ensureSize (65536);
     sf::Bus::get();     // map the shared bus here, not on the audio thread
     startTimerHz (30);
 }
@@ -176,8 +177,8 @@ void SFProcessor::prepareToPlay (double sampleRate, int)
     sr = sampleRate;
     module->prepare (sampleRate, kChunk);
     setLatencySamples (module->latency());
-    extraScratch.setSize (2 * std::max<int> (1, (int) module->extraOutputs().size()), kChunk);
-    chunkMidi.ensureSize (8192);
+    extraScratch.setSize (2 * std::max<int> (1, numExtraOut), kChunk);
+    chunkMidi.ensureSize (65536);
     for (int k = 0; k < kMotions; ++k) motion[(size_t) k].prepare (sr, motionSeed + 0x9E3779B9u * (uint32_t) k);
     overSamples = 0;
     panicLeft = 0;
@@ -264,8 +265,10 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const double bps = c.beatsPerSample();
     internalPpq = ppq0 + total * bps;
     clockAnchored = true;
+    // KEY only while SF CONTROL is running: the shared bus outlives sets and Live sessions, so a
+    // key left there by a deleted CONTROL (or the last set) must not transpose anything.
     const int key = d.keyRoot.load();
-    c.keyRoot = key >= 0 && key < 12 ? key : -1;
+    c.keyRoot = key >= 0 && key < 12 && bus.controlAlive() ? key : -1;
 
     // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
     if (! seqInit)
@@ -314,10 +317,16 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
             if (! c.playing) { applySong (ps); pendingSong = -1; }
             else
             {
+                // Positions in samples relative to the bar line, with a 1e-3 sample tolerance for
+                // the rounding of ppq (which grows with the song position): a bar line that falls
+                // within the tolerance of a sample boundary is taken to be on it, so the recall can
+                // never slip to the following bar.
                 const double spb = c.samplesPerBeat();
                 const double inBar = posMod (c.ppq - barPhase, c.beatsPerBar);
-                if (inBar * spb < 1.0 - 1e-6) { applySong (ps); pendingSong = -1; }
-                else n = std::max (1, std::min (n, (int) std::ceil ((c.beatsPerBar - inBar) * spb - 1e-9)));
+                const double sinceBar = inBar * spb, toBar = (c.beatsPerBar - inBar) * spb;
+                constexpr double tol = 1e-3;
+                if (sinceBar < 1.0 + tol || toBar < tol) { applySong (ps); pendingSong = -1; }
+                else n = std::max (1, std::min (n, (int) std::ceil (toBar - tol)));
             }
         }
         c.n = n;
@@ -331,7 +340,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     outMeter.push (mainOut.getArrayOfReadPointers(), mainOut.getNumChannels(), total);
     if (outMeter.peak > 0.999f) clipped = true;
     // Clear any remaining output channels (unused buses).
-    if (module->extraOutputs().empty())
+    if (numExtraOut == 0)
         for (int ch = mainOut.getNumChannels(); ch < getTotalNumOutputChannels(); ++ch)
             buffer.clear (ch, 0, total);
 }
@@ -430,7 +439,7 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
         sideView.setDataToReferTo (sp, ns, n);
         side = &sideView;
     }
-    const int numExtra = (int) module->extraOutputs().size();
+    const int numExtra = numExtraOut;
     juce::AudioBuffer<float>* extra = nullptr;
     if (numExtra > 0)
     {
@@ -504,7 +513,7 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
     else
     {
         // PANIC: a 5 ms fade (however the chunks fall), then every voice, tail and delay line is cleared.
-        if (panicNow) panicLeft = panicLen;
+        if (panicNow && panicLeft == 0) panicLeft = panicLen;     // a second PANIC mid-fade doesn't restart it
         if (panicLeft > 0)
         {
             auto fade = [&] (juce::AudioBuffer<float>& b)

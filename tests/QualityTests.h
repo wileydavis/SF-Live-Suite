@@ -123,6 +123,33 @@ static void testOversampling()
         CHECK (reject >= 85.0, "FIR halfband rejection only %.1f dB", reject);
         CHECK (ripple < 0.05, "FIR halfband ripple %.3f dB", ripple);
     }
+    // The whole LIMIT path (4x up, identity, 4x down): flat to 20 kHz at every rate.
+    for (double sr : { 44100.0, 48000.0, 96000.0 })
+    {
+        FirOversampler4x os; os.prepare (sr);
+        double worst = 0.0;
+        for (double f : { 100.0, 1000.0, 10000.0, 16000.0, 18000.0, 19000.0, 20000.0 })
+        {
+            os.reset();
+            // Amplitude by Hann-windowed quadrature correlation (a sampled peak under-reads near
+            // fs/3, fs/4 ...; a rectangular window leaks at a non-integer number of cycles).
+            const int lat = (int) std::lround (os.latency()), from = lat + 2000, total = (int) sr / 2, len = total - from;
+            double si = 0.0, co = 0.0, wsum = 0.0;
+            for (int i = 0; i < total; ++i)
+            {
+                const float y = os.process (0, (float) std::sin (6.283185307 * f * i / sr), [] (float x) { return x; });
+                if (i >= from)
+                {
+                    const double win = 0.5 - 0.5 * std::cos (6.283185307 * (i - from) / (len - 1)), w = 6.283185307 * f * i / sr;
+                    si += win * y * std::sin (w); co += win * y * std::cos (w); wsum += win;
+                }
+            }
+            const double amp = 2.0 * std::sqrt (si * si + co * co) / wsum;
+            worst = std::max (worst, std::abs (20.0 * std::log10 (amp)));
+        }
+        std::printf ("   FIR 4x path (LIMIT) @ %5.1f kHz: worst deviation 0-20 kHz %.3f dB, latency %.1f samples\n", sr / 1000.0, worst, os.latency());
+        CHECK (worst < 0.015, "LIMIT oversampling not flat to 20 kHz at %.0f Hz (%.3f dB)", sr, worst);
+    }
 
     std::printf ("-- oversampling: synth alias floor (sustained note, filter open)\n");
     struct Case { const char* id; int model; const char* name; int note; float color; float detune = 0.0f; };
@@ -599,6 +626,262 @@ static void testRates()
         CHECK (worst < -90.0, "%s depends on the block size (%.1f dB)", id, worst);
     }
     std::printf ("   block sizes 1, 3, 7, 17, 64, 333, 1000, 2048: %d of %d modules bit-identical\n", identical, checked);
+}
+
+// ------------------------------------------------------------------------------------------
+// Regressions for the Nov 3 review: each test fails on the code before its fix.
+static void testReviewFixes()
+{
+    std::printf ("-- review regressions\n");
+    auto& d = Bus::get().d();
+
+    // 1. Song recall lands on the bar line at any block size and song position (it used to slip a
+    //    whole bar when ppq rounding put the chunk cut one sample past the bar).
+    {
+        int late = 0, runs = 0;
+        double worstErr = 0.0;
+        for (int blk : { 333, 17, 64, 1000, 2048 })
+            for (double startPpq : { 0.37, 500.37, 7777.13, 30001.9 })
+            {
+                resetBus();
+                Rig2 r ("FILTER", kSr, blk);
+                r.head.bpm = 128.0;
+                r.ppq = startPpq;
+                d.song = 1;
+                auto dc = [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n) { for (int c = 0; c < 2; ++c) for (int i = 0; i < n; ++i) b.setSample (c, i, 0.5f); };
+                r.set ("level", -6.0f);
+                r.step (blk, dc);
+                r.p->storeSong();
+                r.step (blk, dc);
+                r.set ("level", 0.0f);
+                for (int k = 0; k < (int) (0.3 * kSr) / blk + 2; ++k) r.step (blk, dc);       // settle
+                // Request the recall mid-bar, then find the first sample that moves.
+                const double reqPpq = r.ppq;
+                d.songSeq.fetch_add (1);
+                const double barPpq = std::ceil (reqPpq / 4.0) * 4.0;
+                const double expect = (barPpq - reqPpq) / r.bps();      // samples from the request
+                double found = -1.0;
+                int64_t pos = 0;
+                for (int k = 0; k < (int) (kSr * 12.0) / blk && found < 0.0; ++k)
+                {
+                    r.step (blk, dc);
+                    for (int i = 0; i < blk; ++i, ++pos)
+                        if (found < 0.0 && r.buf.getSample (0, i) < 0.5f * (1.0f - 1e-4f)) found = (double) pos;
+                }
+                ++runs;
+                const double err = found - std::ceil (expect - 1e-3);
+                worstErr = std::max (worstErr, std::abs (err));
+                if (found < 0.0 || std::abs (err) > 1.0) ++late;
+            }
+        std::printf ("   song recall on the bar: %d of %d runs late (worst %.0f samples)\n", late, runs, worstErr);
+        CHECK (late == 0, "song recall missed the bar line in %d runs (worst %.0f samples)", late, worstErr);
+    }
+
+    // 2. KEY is ignored when SF CONTROL is not running (the shared bus keeps the last key forever).
+    {
+        auto render = [&] (int key, bool alive)
+        {
+            resetBus();
+            d.keyRoot = key;
+            Rig2 r ("BASS");
+            r.set ("model", 5.0f);          // SINE SUB
+            std::vector<float> out;
+            for (int b = 0; b < 40; ++b)
+            {
+                if (alive) d.controlSeenMs = Bus::nowMs();
+                r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { gridNotes (m, r.ppq, r.bps(), n, 1.0, 0.75, 36, 100); });
+                for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+            }
+            d.keyRoot = -1;
+            return out;
+        };
+        const auto ref = render (-1, false), dead = render (5, false), alive = render (5, true);
+        double eD = 0, eA = 0, s = 0;
+        for (size_t i = 0; i < ref.size(); ++i) { eD += (dead[i] - ref[i]) * (dead[i] - ref[i]); eA += (alive[i] - ref[i]) * (alive[i] - ref[i]); s += ref[i] * ref[i]; }
+        std::printf ("   KEY F, CONTROL gone: difference %.1f dB (want none); CONTROL running: %.1f dB (want transposed)\n",
+                     10.0 * std::log10 (eD / s + 1e-30), 10.0 * std::log10 (eA / s + 1e-30));
+        CHECK (eD == 0.0, "a stale KEY on the bus transposed BASS without SF CONTROL");
+        CHECK (eA > 0.1 * s, "KEY did not transpose BASS with SF CONTROL running");
+    }
+
+    // 3. KICK LAYER: the main voice keeps playing (909 layered with itself = the same kick).
+    {
+        auto bodyRms = [&] (float layer)
+        {
+            resetBus();
+            Rig2 r ("KICK");
+            r.set ("model", 0.0f); r.set ("layer_model", 0.0f); r.set ("layer", layer); r.set ("click", 0.0f);
+            double e = 0.0; int cnt = 0;
+            for (int b = 0; b < (int) (kSr * 0.4) / kBlock; ++b)
+            {
+                r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (b == 0) m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 127), 0); });
+                for (int i = 0; i < kBlock; ++i) { const int t = b * kBlock + i; if (t > (int) (0.01 * kSr)) { e += r.buf.getSample (0, i) * r.buf.getSample (0, i); ++cnt; } }
+            }
+            return 10.0 * std::log10 (e / cnt + 1e-30);
+        };
+        const double single = bodyRms (0.0), layered = bodyRms (1.0);
+        std::printf ("   KICK 909 layered with 909: body %.2f dB vs single %.2f dB\n", layered, single);
+        CHECK (std::abs (layered - single) < 0.5, "KICK LAYER loses the main voice (%.1f dB vs %.1f dB)", layered, single);
+    }
+
+    // 4. Drive stages: no delay or level step when the drive leaves 0 (ENERGY crossing centre,
+    //    FILTER / STRIP drive turned up from 0). A 1 kHz sine; the third difference of the output
+    //    stays near that of a clean sine.
+    for (const char* id : { "ENERGY", "FILTER", "STRIP" })
+    {
+        resetBus();
+        Rig2 r (id);
+        if (std::string (id) == "ENERGY") { r.set ("drive_amt", 1.0f); r.set ("energy", 0.47f); }
+        else r.set ("drive", 0.0f);
+        float worst = 0.0f, ref = 0.0f;
+        float y1 = 0, y2 = 0, y3 = 0;
+        int64_t t = 0;
+        for (int b = 0; b < (int) (kSr * 1.5) / 64; ++b)
+        {
+            if (b == (int) (kSr * 0.5) / 64)
+            {
+                if (std::string (id) == "ENERGY") r.set ("energy", 0.53f);
+                else r.set ("drive", 0.15f);
+            }
+            r.step (64, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i) { const float v = 0.25f * (float) std::sin (6.283185307 * 1000.0 * (double) (t + i) / kSr); bb.setSample (0, i, v); bb.setSample (1, i, v); }
+            });
+            for (int i = 0; i < 64; ++i, ++t)
+            {
+                const float y = r.buf.getSample (0, i), d3 = std::fabs (y - 3.0f * y1 + 3.0f * y2 - y3);
+                y3 = y2; y2 = y1; y1 = y;
+                if (t < (int) (kSr * 0.45) && t > (int) (kSr * 0.1)) ref = std::max (ref, d3);
+                if (t > (int) (kSr * 0.45)) worst = std::max (worst, d3);
+            }
+        }
+        std::printf ("   %-7s drive leaving 0: worst 3rd difference %.4f (clean sine %.4f)\n", id, worst, ref);
+        CHECK (worst < 6.0f * ref + 0.002f, "%s steps when its drive leaves 0 (%.4f vs %.4f)", id, worst, ref);
+    }
+
+    // 5. REVERB SIZE under MOTION: no zipper. A 200 Hz sine into a 100 % wet reverb; SIZE swept
+    //    by a 1-bar sine at 50 % (the read heads move up to ~0.3 samples per sample: Doppler, but
+    //    nothing above a few hundred Hz). HF content (4th difference: > 5 kHz) stays near the
+    //    unmodulated case; per-chunk length steps would put broadband clicks there.
+    {
+        auto hfRatio = [&] (float depth)
+        {
+            resetBus();
+            Rig2 r ("REVERB");
+            r.set ("mix", 1.0f); r.set ("mod", 0.0f);
+            r.set ("m1_src", 1.0f); r.set ("m1_rate", 4.0f); r.set ("m1_depth", depth);
+            int sizeIdx = 0;
+            {
+                auto* prm = r.p->apvts.getParameter ("m1_target");
+                const auto& names = prm->getAllValueStrings();
+                for (int k = 0; k < names.size(); ++k) if (names[k] == "SIZE") sizeIdx = k;
+                r.set ("m1_target", (float) sizeIdx);
+            }
+            double e2 = 0, e = 0;
+            float y1 = 0, y2 = 0, y3 = 0, y4 = 0;
+            int64_t t = 0;
+            for (int b = 0; b < (int) (kSr * 6.0) / kBlock; ++b)
+            {
+                r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int n)
+                {
+                    for (int i = 0; i < n; ++i) { const float v = 0.2f * (float) std::sin (6.283185307 * 200.0 * (double) (t + i) / kSr); bb.setSample (0, i, v); bb.setSample (1, i, v); }
+                });
+                for (int i = 0; i < kBlock; ++i, ++t)
+                {
+                    const float y = r.buf.getSample (0, i), d4 = y - 4.0f * y1 + 6.0f * y2 - 4.0f * y3 + y4;
+                    y4 = y3; y3 = y2; y2 = y1; y1 = y;
+                    if (t > (int) kSr) { e2 += d4 * d4; e += y * y; }
+                }
+            }
+            return 10.0 * std::log10 (e2 / (e + 1e-30) + 1e-30);
+        };
+        const double still = hfRatio (0.0), moving = hfRatio (0.5);
+        std::printf ("   REVERB SIZE modulated: HF %.1f dB (unmodulated %.1f dB)\n", moving, still);
+        // Per-chunk length steps measured -73.6 dB here; ramped + glided lengths and gains -95 dB
+        // (what is left is the Doppler of the moving lines, far below audibility).
+        CHECK (moving < -88.0, "REVERB SIZE modulation zippers (HF %.1f dB vs %.1f dB)", moving, still);
+    }
+
+    // 6. LIMIT AUTO settles on TARGET without overshoot (no feedback loop around the 3 s meter).
+    {
+        resetBus();
+        Rig2 r ("LIMIT");
+        r.set ("target", -14.0f); r.set ("ceiling", -0.1f); r.set ("clip", 0.0f); r.set ("auto", 1.0f); r.set ("input", 0.0f);
+        LoudnessMeter m; m.prepare (kSr);
+        float peakST = -100.0f, at20 = 0.0f;
+        int64_t t = 0;
+        for (int b = 0; b < (int) (kSr * 40.0) / kBlock; ++b)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i) { const float v = 0.1f * (float) std::sin (6.283185307 * 997.0 * (double) (t + i) / kSr); bb.setSample (0, i, v); bb.setSample (1, i, v); }
+            });
+            for (int i = 0; i < kBlock; ++i) m.push (r.buf.getSample (0, i), r.buf.getSample (1, i));
+            t += kBlock;
+            if (t > (int) (kSr * 4.0)) peakST = std::max (peakST, m.shortTerm);
+            if (t <= (int) (kSr * 20.0)) at20 = m.shortTerm;
+        }
+        std::printf ("   LIMIT AUTO, -20 LUFS in, TARGET -14: highest short-term %.2f LUFS, at 20 s %.2f, at 40 s %.2f\n", peakST, at20, m.shortTerm);
+        CHECK (peakST < -14.0f + 0.3f, "LIMIT AUTO overshoots TARGET (%.2f LUFS)", peakST);
+        CHECK (std::abs (at20 + 14.0f) < 0.3f, "LIMIT AUTO has not settled after 20 s (%.2f LUFS)", at20);
+    }
+
+    // 7. STRIKE: stolen voices fade (no click). BELL, long decay, quarter notes; DISTANCE far so
+    //    the blast itself is smooth. Third difference at steal hits vs the first four hits.
+    {
+        resetBus();
+        Rig2 r ("STRIKE");
+        r.set ("model", 0.0f); r.set ("decay", 0.85f); r.set ("distance", 0.95f); r.set ("power", 0.4f);
+        float early = 0.0f, steal = 0.0f, y1 = 0, y2 = 0, y3 = 0;
+        int hits = 0;
+        int64_t t = 0, lastHit = -100000;
+        const int every = (int) std::round (kSr * 60.0 / r.head.bpm);
+        for (int b = 0; b < (int) (kSr * 5.0) / 64; ++b)
+        {
+            r.step (64, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n)
+            {
+                for (int i = 0; i < n; ++i) if ((t + i) % every == 0) { m.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), i); ++hits; lastHit = t + i; }
+            });
+            for (int i = 0; i < 64; ++i, ++t)
+            {
+                const float y = r.buf.getSample (0, i), d3 = std::fabs (y - 3.0f * y1 + 3.0f * y2 - y3);
+                y3 = y2; y2 = y1; y1 = y;
+                if (t - lastHit < (int) (0.003 * kSr)) (hits <= 4 ? early : steal) = std::max (hits <= 4 ? early : steal, d3);
+            }
+        }
+        std::printf ("   STRIKE steals: worst 3rd difference at a steal %.5f, at a free voice %.5f\n", steal, early);
+        CHECK (steal < 3.0f * early + 1e-4f, "STRIKE voice steal clicks (%.5f vs %.5f)", steal, early);
+    }
+
+    // 8. A second PANIC during the fade doesn't bring the sound back. The same held pad rendered
+    //    with and without PANIC: after the first PANIC the ratio between them only ever falls.
+    {
+        auto render = [&] (bool withPanic)
+        {
+            resetBus();
+            Rig2 r ("PAD", kSr, 64);
+            std::vector<float> out;
+            for (int b = 0; b < 640; ++b)
+            {
+                if (withPanic && (b == 600 || b == 601)) r.p->panic();
+                r.step (64, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (b == 0) m.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0); });
+                for (int i = 0; i < 64; ++i) out.push_back (r.buf.getSample (0, i));
+            }
+            return out;
+        };
+        const auto a = render (false), b = render (true);
+        float prevG = 1.0f, worstRise = 0.0f;
+        for (size_t i = 600 * 64; i < a.size(); ++i)
+        {
+            if (std::fabs (a[i]) < 1e-3f) continue;
+            const float g = b[i] / a[i];
+            worstRise = std::max (worstRise, g - prevG);
+            prevG = std::min (prevG, g);
+        }
+        std::printf ("   PANIC twice in 2 ms: largest rise in gain during the fade %.4f (want 0)\n", worstRise);
+        CHECK (worstRise < 0.01f, "a second PANIC restarted the fade (gain rose by %.3f)", worstRise);
+    }
+    resetBus();
 }
 
 // ------------------------------------------------------------------------------------------

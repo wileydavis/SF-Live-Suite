@@ -272,19 +272,18 @@ public:
                 eq[ch][4].lowShelf (900.0f, 0.5f, -v[4], osr);
                 eq[ch][5].highShelf (900.0f, 0.5f, v[4], osr);
             }
-            active = false;
-            for (int k = 0; k < 5; ++k) active = active || std::abs (v[k]) > 0.01f;
         }
-        if (active || os.factor() > 0)
-            for (int ch = 0; ch < 2; ++ch)
+        // Always through the oversampler, flat or not: switching the 2x path in and out would
+        // move the phase of the highs (and click). It is flat to 20 kHz within 0.0001 dB.
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto& e = eq[ch];
+            os.process (ch, io.getWritePointer (ch), c.n, [&e] (float x)
             {
-                auto& e = eq[ch];
-                os.process (ch, io.getWritePointer (ch), c.n, [&e] (float x)
-                {
-                    for (auto& b : e) x = b.tick (x);
-                    return x;
-                });
-            }
+                for (auto& b : e) x = b.tick (x);
+                return x;
+            });
+        }
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
         for (int k = 0; k < 5; ++k) disp[k] = v[k];
@@ -331,7 +330,7 @@ private:
     Oversampler os;
     Biquad eq[2][6];
     float last[5] {};
-    bool designed = false, active = false;
+    bool designed = false;
     std::atomic<float> disp[5] {};
 };
 ModulePtr makeTONE() { return std::make_unique<ToneModule>(); }
@@ -428,7 +427,7 @@ public:
     void prepare (double rate, int) override
     {
         sr = rate;
-        look = std::max (16, (int) std::lround (0.002 * rate));
+        look = juce::jlimit (16, kMaxLook - 8, (int) std::lround (0.002 * rate));
         os.prepare (rate);
         for (auto& d : dl) d.prepare (TruePeak::kDelay + look + 8);
         outMeter.prepare (rate);
@@ -465,12 +464,15 @@ public:
         const float relFast = std::exp (-1.0f / (relT * (float) sr));
         const float relSlow = std::exp (-1.0f / (relT * 4.0f * (float) sr));
         const float attSlow = std::exp (-1.0f / (0.08f * (float) sr));
-        // Auto input: toward TARGET at <= 1 dB/s while there is programme (> -40 LUFS).
-        if (c.b (AUTO) && preMeter.shortTerm > -40.0f)
+        // Auto input. preMeter measures the raw input (before INPUT and AUTO), so the gain AUTO
+        // needs is known directly: TARGET - (input loudness + INPUT). The trim follows it at
+        // <= 1 dB/s (proportional over the last dB, so it settles without overshoot; there is no
+        // loop around the 3 s meter that could ring). Only while there is programme (> -40 LUFS).
+        const float inLufs = preMeter.shortTerm + c.v (INPUT);
+        if (c.b (AUTO) && inLufs > -40.0f)
         {
-            const float err = c.v (TARGET) - preMeter.shortTerm;
-            autoGainDb += juce::jlimit (-1.0f, 1.0f, err) * (float) c.n / (float) sr;
-            autoGainDb = juce::jlimit (-12.0f, 12.0f, autoGainDb);
+            const float want = juce::jlimit (-12.0f, 12.0f, c.v (TARGET) - inLufs);
+            autoGainDb += juce::jlimit (-1.0f, 1.0f, want - autoGainDb) * (float) c.n / (float) sr;
         }
         const float g0 = gIn, g1 = dbToGain (c.v (INPUT) + (c.b (AUTO) ? autoGainDb : 0.0f));
         gIn = g1;
@@ -480,9 +482,9 @@ public:
         for (int i = 0; i < c.n; ++i)
         {
             const float ig = g0 + (g1 - g0) * (float) i / (float) c.n;
+            preMeter.push (L[i], R[i]);
             const float cl = os.process (0, L[i] * ig, clipper);
             const float cr = os.process (1, R[i] * ig, clipper);
-            preMeter.push (cl, cr);
             // Gain needed for the true peak of the clipped signal (TruePeak::kDelay samples ago),
             // aimed 0.13 dB under CEILING for the detector's residual error.
             const float tp = tpIn.push (cl, cr);

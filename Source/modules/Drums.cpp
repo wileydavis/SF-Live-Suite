@@ -95,7 +95,7 @@ public:
         int model = 0;
         double t = 0.0, phase = 0.0;
         float vel = 1, f0 = 200, f1 = 50, tau = 0.01f, decay = 0.3f, click = 0, clickHz = 3000, drive = 0, shape = 0, lp = 8000, fm = 0;
-        float fade = 1.0f, fadeStep = 0.0f, cal = 1.0f;
+        float fade = 1.0f, fadeStep = 0.0f, cal = 1.0f, mix = 1.0f;
         float lpZ = 0;
         unsigned tick = 0;
         Svf res;
@@ -103,12 +103,25 @@ public:
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.01f, decay)) : 0.0f; }
     };
 
+    // Fade every ringing voice over 3 ms (called once per hit, before the main and the layer voice start).
+    void fadeRinging()
+    {
+        for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.003f * (float) osr);
+    }
+
     void trigger (Ctx& c, int model, float vel, int gen, int note, float layerGain, bool publish, int offset, const SampleData* smp)
     {
-        // Fade any ringing voice over 3 ms.
-        for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.003f * (float) osr);
-        int idx = 0;
+        // A free voice; else the most faded one (never a voice that is not fading, e.g. the main
+        // voice of this same hit when the layer starts).
+        int idx = -1;
         for (int i = 0; i < 4; ++i) if (! voices[(size_t) i].active) { idx = i; break; }
+        if (idx < 0)
+        {
+            float lowest = 2.0f;
+            for (int i = 0; i < 4; ++i)
+                if (voices[(size_t) i].fadeStep > 0.0f && voices[(size_t) i].fade < lowest) { lowest = voices[(size_t) i].fade; idx = i; }
+        }
+        if (idx < 0) idx = 0;
         auto& v = voices[(size_t) idx];
         const auto& m = kKickModels[model];
         float tune = c.v (TUNE) + (c.b (KEYTRACK) ? (float) (note - 36) : 0.0f);
@@ -121,7 +134,8 @@ public:
         const float decScale = std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.6f, (float) gen);
         v = Voice();
         v.active = true; v.model = model;
-        v.vel = vel * layerGain * m.gain;
+        v.vel = vel * m.gain;               // drives the voice's saturation
+        v.mix = layerGain;                  // main / layer balance, applied after it
         v.cal = cal::at (cal::kick, model);
         v.f1 = m.f1 * semis (tune);
         v.f0 = v.f1 * (1.0f + (m.ratio - 1.0f) * std::pow (2.0f, (c.v (PUNCH) - 0.5f) * 2.0f));
@@ -142,7 +156,8 @@ public:
             float f1r = v.f1, f0r = v.f0, decr = v.decay;
             if (model == kNumKickModels - 1)
                 if (auto s = smp) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate)); }
-            c.bus->publishKick ({ c.ppqAt (offset), v.vel, f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
+            // The hit's velocity (not the voice's mix gain): layering must not make pockets shallower.
+            c.bus->publishKick ({ c.ppqAt (offset), std::min (1.0f, vel), f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
         }
     }
 
@@ -193,7 +208,7 @@ public:
             if (t > v.decay * 9.0f + 0.05f) v.active = false;
         }
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return 0.0f; } y *= v.fade; }
-        return y * v.cal;
+        return y * v.cal * v.mix;
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
@@ -212,8 +227,11 @@ public:
                 const auto& ev = events[e++];
                 if (! ev.on) continue;
                 const float vel = ev.gen == 0 ? lerp (1.0f, ev.vel, velSens) : ev.vel;
-                trigger (c, model, vel, ev.gen, ev.note, 1.0f / (1.0f + layer * 0.5f), true, i, smp);
-                if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, layer / (1.0f + layer * 0.5f), false, i, smp);
+                fadeRinging();      // not inside trigger(): the layer voice must not fade the main voice
+                // Main and layer start together and are largely in phase: gains sum to 1, so the
+                // layered kick never peaks above the single one.
+                trigger (c, model, vel, ev.gen, ev.note, 1.0f / (1.0f + layer), true, i, smp);
+                if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, layer / (1.0f + layer), false, i, smp);
                 lastHit = 1.0f;
             }
             float y0 = 0.0f, y1 = 0.0f;
@@ -239,7 +257,7 @@ public:
             if (i == 0) p.startNewSubPath (x, in.getBottom() - v * in.getHeight()); else p.lineTo (x, in.getBottom() - v * in.getHeight());
         }
         g.setColour (ui::kText); g.strokePath (p, juce::PathStrokeType (1.0f));
-        auto& s = sample.get();
+        auto s = sample.get();
         ui::label (g, s ? "SAMPLE " + s->name.toUpperCase() : "NO SAMPLE", r.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
     }
 private:
@@ -581,7 +599,7 @@ public:
             for (const auto meta : midi)
                 if (meta.getMessage().isNoteOn() && midiDelay.size() < 250)
                     midiDelay.push_back ({ c.ppqAt (meta.samplePosition), meta.getMessage().getFloatVelocity() });
-        fdn.set (c.v (SIZE), 0.6f + c.v (SIZE) * 5.0f, c.v (DARK), 0.15f, false);
+        fdn.set (c.v (SIZE), 0.6f + c.v (SIZE) * 5.0f, c.v (DARK), 0.15f, false, c.n);
         const float dlyTime = (float) (0.75 * c.samplesPerBeat());
         static const double preB[] = { 0.0, 0.125, 0.25, 0.5 };
         const float preS = (float) (preB[juce::jlimit (0, 3, c.ci (PREDELAY))] * c.samplesPerBeat());
@@ -674,12 +692,12 @@ public:
             gateZ = gt + 0.998f * (gateZ - gt);
             gates[i] = gateZ;
         }
-        // GRIT, 2x oversampled.
-        if (grit > 0.001f)
+        // GRIT, 2x oversampled. Always through the oversampler (no delay switching in or out);
+        // below 2 % the grit fades in from exactly clean.
         {
-            const float g = 1.0f + grit * 8.0f, nrm = 1.0f / std::sqrt (g);
-            os.process (0, L, n, [g, nrm] (float x) { return fastTanh (x * g) * nrm; });
-            os.process (1, R, n, [g, nrm] (float x) { return fastTanh (x * g) * nrm; });
+            const float g = 1.0f + grit * 8.0f, nrm = 1.0f / std::sqrt (g), w = std::min (1.0f, grit / 0.02f);
+            os.process (0, L, n, [g, nrm, w] (float x) { return x + w * (fastTanh (x * g) * nrm - x); });
+            os.process (1, R, n, [g, nrm, w] (float x) { return x + w * (fastTanh (x * g) * nrm - x); });
         }
         for (int i = 0; i < n; ++i)
         {
