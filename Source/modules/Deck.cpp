@@ -207,6 +207,8 @@ public:
     {
         const bool srChanged = std::abs (rate - sr) > 1.0;
         sr = rate;
+        allocTap.setIdentity (ROLE_DECK, "DECK");
+        allocTap.prepare (rate);
         for (auto& d : decks)
         {
             d.stretch.presetDefault (2, (float) rate);
@@ -390,6 +392,7 @@ public:
             }
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
+        allocTap.process (io.getArrayOfWritePointers(), 2, n, true, &c);
         for (int k = 0; k < 2; ++k)
         {
             auto& d = decks[(size_t) k];
@@ -588,6 +591,7 @@ private:
     juce::Rectangle<float> rowsArea;
     int scroll = 0;
     float gateZ = 1.0f;
+    AllocTap allocTap;
     double expectedPpq = -1e9;
     struct Disp { std::atomic<bool> playing { false }, armed { false }; std::atomic<double> beat { 0 }, bpm { 0 }; } disp[2];
     std::atomic<double> dispHostBpm { 120 };

@@ -202,6 +202,7 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     for (int i = 0; i < (int) specs.size(); ++i)
     {
         if (specs[(size_t) i].id == "model") { modelIdx = i; continue; }
+        if (specs[(size_t) i].hidden) continue;
         auto cell = std::make_unique<SFCell> (p, i, specs[(size_t) i].primary);
         addAndMakeVisible (*cell);
         (specs[(size_t) i].primary ? primary : secondary).push_back (std::move (cell));
@@ -305,6 +306,8 @@ void SFEditor::mouseDown (const juce::MouseEvent& e)
         proc.mod().displayMouse (e.position, d.toFloat(), true);
     if (e.y < kHeader && e.x > getWidth() - 160) proc.clipped = false;
 }
+
+void SFEditor::mouseUp (const juce::MouseEvent&) { proc.mod().displayMouseUp(); }
 
 void SFEditor::mouseDrag (const juce::MouseEvent& e)
 {

@@ -67,7 +67,7 @@ struct RoleOutput
         auto ch = b.getArrayOfWritePointers();
         filter.process (ch, 2, c.n, c.v0 (filtIdx), c.v (filtIdx), resIdx >= 0 ? c.v (resIdx) : 0.15f);
         if (usePocket) pocket.process (c, ch, 2, c.n, pocketDepth, pocketShape, nullptr, pocketDepth > 0.001f, false, delayAudio);
-        tap.process (ch, 2, c.n, allocOn);
+        tap.process (ch, 2, c.n, allocOn, &c);
         float g0; const float g1 = levelDb (c, levelIdx, g0);
         applyGain (b, g0, g1);
     }

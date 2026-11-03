@@ -222,68 +222,60 @@ static void testPocket()
 
 static void testAlloc()
 {
-    std::printf ("-- alloc: two sources at 180 Hz\n");
+    std::printf ("-- alloc: priority curve, BASS above PAD in the list, band 4 (150-220 Hz)\n");
     resetBus();
     FakeHead head;
     Rig a ("TAP", head), b ("TAP", head), alloc ("ALLOC", head);
     a.set ("role", (float) ROLE_BASS); b.set ("role", (float) ROLE_PAD);
     double ppq = 0.0;
-    const int blocks = (int) (kSr * 4.0 / kBlock);
-    for (int k = 0; k < blocks; ++k)
-    {
-        head.ppq = ppq;
-        auto sine = [&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
-        {
-            for (int i = 0; i < kBlock; ++i) for (int c = 0; c < 2; ++c) buf.setSample (c, i, 0.3f * std::sin (6.2831853f * 180.0f * (float) ((k * kBlock + i) / kSr)));
-        };
-        a.run (sine, k); b.run (sine, k);
-        alloc.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k);
-        ppq += kBlock * head.bpm / 60.0 / kSr;
-    }
     auto& d = Bus::get().d();
-    float cutA = 0, cutB = 0;
-    for (int s = 0; s < kSources; ++s)
+    auto run = [&] (float secs, bool bassPlays)
     {
-        if (! Bus::get().sourceAlive (s)) continue;
-        const float c3 = d.src[s].cut[3].load();
-        if (d.src[s].role.load() == ROLE_BASS) cutA = c3; else cutB = c3;
-    }
-    std::printf ("   slot1 active %d, cut BASS %.1f dB, cut PAD %.1f dB\n", (int) d.conflicts[0].active.load(), cutA, cutB);
-    CHECK (d.conflicts[0].active.load() != 0, "ALLOC did not bind the conflict to SLOT 1");
-    CHECK (cutB > 3.0f && cutA < 0.5f, "ALLOC priority wrong (BASS %.1f, PAD %.1f)", cutA, cutB);
-    // Turn SLOT 1 fully right: ownership moves to the PAD.
-    alloc.set ("slot1", 1.0f);
-    for (int k = 0; k < (int) (kSr / kBlock); ++k)
+        for (int k = 0; k < (int) (kSr * secs / kBlock); ++k)
+        {
+            head.ppq = ppq;
+            auto sine = [&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
+            { for (int i = 0; i < kBlock; ++i) for (int c = 0; c < 2; ++c) buf.setSample (c, i, 0.3f * std::sin (6.2831853f * 180.0f * (float) ((k * kBlock + i) / kSr))); };
+            if (bassPlays) a.run (sine, k); else a.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k);
+            b.run (sine, k);
+            alloc.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k);
+            ppq += kBlock * head.bpm / 60.0 / kSr;
+        }
+    };
+    auto cuts = [&] (float& cb, float& cp)
     {
-        head.ppq = ppq;
-        auto sine = [&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
-        { for (int i = 0; i < kBlock; ++i) for (int c = 0; c < 2; ++c) buf.setSample (c, i, 0.3f * std::sin (6.2831853f * 180.0f * (float) ((k * kBlock + i) / kSr))); };
-        a.run (sine, k); b.run (sine, k);
-        alloc.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k);
-        ppq += kBlock * head.bpm / 60.0 / kSr;
-    }
-    for (int s = 0; s < kSources; ++s)
-    {
-        if (! Bus::get().sourceAlive (s)) continue;
-        const float c3 = d.src[s].cut[3].load();
-        if (d.src[s].role.load() == ROLE_BASS) cutA = c3; else cutB = c3;
-    }
-    std::printf ("   slot1 -> 100%%: cut BASS %.1f dB, cut PAD %.1f dB\n", cutA, cutB);
-    CHECK (cutA > 3.0f && cutB < 0.5f, "SLOT knob did not hand the band to the other source");
-    alloc.set ("slot1", 0.0f);
-    for (int k = 0; k < (int) (kSr / kBlock); ++k)
-    {
-        head.ppq = ppq;
-        auto sine = [&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
-        { for (int i = 0; i < kBlock; ++i) for (int c = 0; c < 2; ++c) buf.setSample (c, i, 0.3f * std::sin (6.2831853f * 180.0f * (float) ((k * kBlock + i) / kSr))); };
-        a.run (sine, k); b.run (sine, k);
-        alloc.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, k);
-        ppq += kBlock * head.bpm / 60.0 / kSr;
-    }
-    float maxCut = 0.0f;
-    for (int s = 0; s < kSources; ++s) if (Bus::get().sourceAlive (s)) maxCut = std::max (maxCut, d.src[s].cut[3].load());
-    std::printf ("   slot1 -> 0%% (SHARE): largest cut %.1f dB\n", maxCut);
-    CHECK (maxCut < 0.5f, "SHARE still cuts (%.1f dB)", maxCut);
+        cb = cp = 0.0f;
+        for (int s = 0; s < kSources; ++s)
+        {
+            if (! Bus::get().sourceAlive (s)) continue;
+            if (d.src[s].role.load() == ROLE_BASS) cb = d.src[s].cut[3].load(); else cp = d.src[s].cut[3].load();
+        }
+    };
+    float cb, cp;
+    run (1.0f, true); cuts (cb, cp);
+    std::printf ("   DEPTH 0: cut BASS %.1f, PAD %.1f dB\n", cb, cp);
+    CHECK (cb < 0.1f && cp < 0.1f, "DEPTH 0 should cut nothing");
+    alloc.set ("depth4", 1.0f); alloc.set ("q4", 1.0f); alloc.set ("pri4", 0.0f);
+    run (1.0f, true); cuts (cb, cp);
+    std::printf ("   PRIORITY top: cut BASS %.1f, PAD %.1f dB\n", cb, cp);
+    CHECK (cb < 0.5f && cp > 9.0f, "PRIORITY at the top should protect BASS");
+    alloc.set ("pri4", 1.0f);
+    run (1.0f, true); cuts (cb, cp);
+    std::printf ("   PRIORITY bottom: cut BASS %.1f, PAD %.1f dB\n", cb, cp);
+    CHECK (cb > 9.0f && cp < 0.5f, "PRIORITY at the bottom should protect PAD");
+    alloc.set ("pri4", 0.0f); alloc.set ("q4", 0.0f);
+    run (1.0f, true); cuts (cb, cp);
+    std::printf ("   Q 0 (wide): cut BASS %.1f, PAD %.1f dB\n", cb, cp);
+    CHECK (cp < 3.0f, "wide Q should share the band");
+    alloc.set ("q4", 1.0f);
+    run (1.5f, false); cuts (cb, cp);
+    for (int s = 0; s < kSources; ++s) if (Bus::get().sourceAlive (s) && d.src[s].role.load() == ROLE_BASS) std::printf ("   (BASS band-4 energy now %.1f dB)\n", d.src[s].energy[3].load());
+    std::printf ("   DYNAMIC, BASS silent: cut PAD %.1f dB\n", cp);
+    CHECK (cp < 0.5f, "DYNAMIC should not cut when the favoured source is silent");
+    alloc.set ("mode", 1.0f);
+    run (1.0f, false); cuts (cb, cp);
+    std::printf ("   STATIC, BASS silent: cut PAD %.1f dB\n", cp);
+    CHECK (cp > 9.0f, "STATIC should always cut");
 }
 
 static void testSongs()
@@ -802,6 +794,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--filter") { testFilterCrossing(); }
     else if (std::string (argv[1]) == "--gate") { testSampleGate(); }
     else if (std::string (argv[1]) == "--strip") { testStrip(); }
+    else if (std::string (argv[1]) == "--alloc") { testAlloc(); }
     else if (std::string (argv[1]) == "--jumps") { testTransportJumps(); testDeck(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

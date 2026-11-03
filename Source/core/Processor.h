@@ -45,6 +45,7 @@ public:
     const juce::String getProgramName (int i) override { return module->numPrograms() > 1 ? juce::String ("SONG ") + juce::String (i + 1).paddedLeft ('0', 2) : juce::String(); }
     void changeProgramName (int, const juce::String&) override {}
 
+    void updateTrackProperties (const TrackProperties&) override;
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
@@ -76,6 +77,8 @@ private:
     std::vector<float> cur, prev, ovr, base, macroOff, glideFrom, glideTo;
     std::vector<double> glideElapsed;
     double internalPpq = 0.0;
+    char trackName[24] {};
+    std::atomic<uint32_t> trackNameSeq { 0 };
     bool clockAnchored = false;    // ovr: recalled value in force until Live reports it back (NaN = none)
     std::vector<int> ovrAge;
     bool firstBlock = true;

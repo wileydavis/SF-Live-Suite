@@ -134,277 +134,293 @@ private:
 ModulePtr makeCONTROL() { return std::make_unique<ControlModule>(); }
 
 // =====================================================================================  ALLOC
-// Mix assigner. Automatic where sources don't overlap. Where two or more sources sit in the same
-// band(s), the conflict gets one of three SLOT knobs: centre = automatic (role priority),
-// turning sweeps ownership through the sources. Pass-through audio: put it anywhere (master).
+// Mix assigner. You put the sources in order (drag in the list, top = most important). Each of
+// the 10 bands has a priority curve over that list:
+//   PRIORITY - where the curve's peak sits (top .. bottom of the list)
+//   DEPTH    - how hard sources away from the peak are cut (0 = nothing cut)
+//   Q        - width of the peak (wide = neighbours share, narrow = one source owns the band)
+// MODE DYNAMIC cuts a source only while a more favoured source is playing in that band;
+// STATIC cuts all the time (a fixed EQ). Pass-through audio: put it on the master.
 class AllocModule : public Module, private juce::Timer
 {
 public:
-    enum { SLOT1, SLOT2, SLOT3, DEPTH, SENS, HOLD, ENABLE };
-    AllocModule() { startTimerHz (20); }
+    enum { ENABLE, MODE, MAXCUT, SENS, PRI0 = 4, DEPTH0 = PRI0 + kBands, Q0 = DEPTH0 + kBands };
+    AllocModule() { for (auto& r : rank) r = -1; startTimerHz (20); }
     ~AllocModule() override { stopTimer(); }
     std::string id() const override { return "ALLOC"; }
     std::vector<ParamSpec> params() const override
     {
-        auto s1 = pct ("slot1", "SLOT 1", 0.5f); s1.unit = "SLOT"; s1.primary = true; s1.glide = false; s1.song = false;
-        auto s2 = s1; s2.id = "slot2"; s2.name = "SLOT 2";
-        auto s3 = s1; s3.id = "slot3"; s3.name = "SLOT 3";
-        return { s1, s2, s3,
-                 knob ("depth", "DEPTH", 0.0f, 18.0f, 9.0f, "dB").prim(),
-                 pct ("sensitivity", "SENSITIVITY", 0.5f).prim(),
-                 choice ("hold", "HOLD", { "1 BEAT", "2 BEAT", "4 BEAT" }, 0).prim(),
-                 toggle ("enable", "ENABLE", true).prim() };
+        std::vector<ParamSpec> p {
+            toggle ("enable", "ENABLE", true).prim(),
+            choice ("mode", "MODE", { "DYNAMIC", "STATIC" }, 0).prim(),
+            knob ("max_cut", "MAX CUT", 0.0f, 24.0f, 12.0f, "dB").prim(),
+            pct ("sensitivity", "SENSITIVITY", 0.5f).prim() };
+        for (int b = 0; b < kBands; ++b) { auto k = pct (("pri" + std::to_string (b + 1)).c_str(), ("PRIORITY " + std::to_string (b + 1)).c_str(), 0.0f); k.glide = true; p.push_back (k.hide()); }
+        for (int b = 0; b < kBands; ++b) p.push_back (pct (("depth" + std::to_string (b + 1)).c_str(), ("DEPTH " + std::to_string (b + 1)).c_str(), 0.0f).hide());
+        for (int b = 0; b < kBands; ++b) p.push_back (pct (("q" + std::to_string (b + 1)).c_str(), ("Q " + std::to_string (b + 1)).c_str(), 0.5f).hide());
+        return p;
     }
     void prepare (double rate, int) override { sr = rate; }
 
-    struct Conflict { uint32_t mask = 0; int lo = 0, hi = 0; float severity = 0; };
+    // Peak position in list rows and width (rows) for a band.
+    static void curve (float pri, float q, int n, float& peak, float& sigma)
+    {
+        peak = pri * (float) std::max (0, n - 1);
+        sigma = lerp (3.0f, 0.3f, q);
+    }
+    static float weight (int i, float peak, float sigma) { const float d = ((float) i - peak) / sigma; return std::exp (-0.5f * d * d); }
 
     void process (Ctx& c, juce::AudioBuffer<float>&, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
-        auto& bus = *c.bus;
-        auto& d = bus.d();
+        auto& d = c.bus->d();
         d.allocSeenMs = Bus::nowMs();
-        const bool en = c.b (ENABLE);
+        const bool en = c.b (ENABLE), dynamic = c.ci (MODE) == 0;
+        const float maxCut = c.v (MAXCUT);
         const float floorDb = -58.0f + (1.0f - c.v (SENS)) * 22.0f;
-        static const double holdB[] = { 1.0, 2.0, 4.0 };
-        const double holdSec = holdB[juce::jlimit (0, 2, c.ci (HOLD))] * 60.0 / c.bpm;
-        const double dt = c.n / sr;
-        clock += dt;
-
-        // Gather sources.
-        float E[kSources][kBands];
-        bool alive[kSources];
-        int role[kSources];
-        float bandMax[kBands];
-        for (int b = 0; b < kBands; ++b) bandMax[b] = -120.0f;
+        // Sources in list order (ranks come from the message thread).
+        int order[kSources]; int n = 0;
+        for (int r = 0; r < kSources; ++r) slotAt[r] = -1;
         for (int s = 0; s < kSources; ++s)
         {
-            alive[s] = bus.sourceAlive (s) && d.src[s].enabled.load() != 0;
-            role[s] = d.src[s].role.load();
-            for (int b = 0; b < kBands; ++b)
-            {
-                E[s][b] = alive[s] ? d.src[s].energy[b].load() : -120.0f;
-                bandMax[b] = std::max (bandMax[b], E[s][b]);
-            }
+            const int rk = rank[s].load();
+            if (rk >= 0 && rk < kSources && Bus::get().sourceAlive (s) && d.src[s].enabled.load() != 0) slotAt[rk] = s;
         }
-        // Active sets per band, stabilised: a band's set must hold for HOLD before it counts,
-        // and a counted set survives 2x HOLD of absence (no flicker).
-        uint32_t mask[kBands];
+        for (int r = 0; r < kSources; ++r) if (slotAt[r] >= 0) order[n++] = slotAt[r];
+        // Sources the list hasn't placed yet (just appeared): after the list, in role order.
+        for (int role = 0; role < kNumRoles; ++role)
+            for (int s = 0; s < kSources; ++s)
+                if (rank[s].load() < 0 && Bus::get().sourceAlive (s) && d.src[s].enabled.load() != 0 && d.src[s].role.load() == role && n < kSources)
+                    order[n++] = s;
+        for (int s = 0; s < kSources; ++s) for (int b = 0; b < kBands; ++b) cutOut[s][b] = 0.0f;
         for (int b = 0; b < kBands; ++b)
         {
-            uint32_t m = 0;
-            for (int s = 0; s < kSources; ++s)
-                if (alive[s] && E[s][b] > floorDb && E[s][b] > bandMax[b] - 15.0f) m |= 1u << s;
-            if (m != rawMask[b]) { rawMask[b] = m; rawSince[b] = clock; }
-            if (clock - rawSince[b] >= holdSec) { stableMask[b] = rawMask[b]; lastStable[b] = clock; }
-            else if (clock - lastStable[b] > 2.0 * holdSec) stableMask[b] = rawMask[b] & stableMask[b];
-            mask[b] = __builtin_popcount (stableMask[b]) >= 2 ? stableMask[b] : 0u;
-        }
-        // Group contiguous bands with the same source set.
-        Conflict found[kBands];
-        int nf = 0;
-        for (int b = 0; b < kBands;)
-        {
-            if (mask[b] == 0) { ++b; continue; }
-            Conflict cf; cf.mask = mask[b]; cf.lo = b;
-            int e = b;
-            while (e + 1 < kBands && mask[e + 1] == mask[b]) ++e;
-            cf.hi = e;
-            for (int k = cf.lo; k <= cf.hi; ++k)
+            float peak, sigma;
+            curve (c.v (PRI0 + b), c.v (Q0 + b), n, peak, sigma);
+            const float depth = c.v (DEPTH0 + b);
+            float w[kSources], e[kSources];
+            for (int i = 0; i < n; ++i) { w[i] = weight (i, peak, sigma); e[i] = d.src[order[i]].energy[b].load(); }
+            for (int i = 0; i < n; ++i)
             {
-                float a = -120, bb = -120;
-                for (int s = 0; s < kSources; ++s) if (cf.mask & (1u << s)) { if (E[s][k] > a) { bb = a; a = E[s][k]; } else if (E[s][k] > bb) bb = E[s][k]; }
-                cf.severity += bb - floorDb;
-            }
-            found[nf++] = cf;
-            b = e + 1;
-        }
-        std::sort (found, found + nf, [] (const Conflict& a, const Conflict& b) { return a.severity > b.severity; });
-
-        // Slot binding. A slot keeps its conflict while touched in the last 3 s or while the
-        // conflict exists; free / stale slots take the worst unbound conflicts.
-        const int64_t now = Bus::nowMs();
-        for (int k = 0; k < kConflictSlots; ++k)
-        {
-            const float v = getParam ? getParam (SLOT1 + k) : c.v (SLOT1 + k);
-            if (std::abs (v - lastSlotVal[k].load()) > 0.002f) { lastSlotVal[k] = v; touchedMs[k] = now; }
-            slotNow[k] = v;
-        }
-        for (int k = 0; k < kConflictSlots; ++k)
-        {
-            if (bound[k].mask == 0) continue;
-            bool exists = false;
-            for (int q = 0; q < nf; ++q) if (found[q].mask == bound[k].mask) { bound[k] = found[q]; exists = true; }
-            if (! exists && now - touchedMs[k] > 3000 && clock - boundSeen[k] > 2.0 * holdSec) bound[k] = {};
-            if (exists) boundSeen[k] = clock;
-        }
-        for (int q = 0; q < nf; ++q)
-        {
-            const auto& f = found[q];
-            bool isBound = false;
-            for (auto& bnd : bound) if (bnd.mask == f.mask) isBound = true;
-            if (isBound) continue;
-            for (int k = 0; k < kConflictSlots; ++k)
-                if (bound[k].mask == 0 && now - touchedMs[k] > 3000)
+                float cut = en ? maxCut * depth * (1.0f - w[i]) : 0.0f;
+                if (cut > 0.0f && dynamic)
                 {
-                    bound[k] = f; boundSeen[k] = clock;
-                    bindSeq[k].fetch_add (1);          // the timer restores this conflict's remembered value
-                    break;
+                    // Only while someone more favoured is actually playing in this band.
+                    float winner = -120.0f;
+                    for (int j = 0; j < n; ++j) if (w[j] > w[i] + 0.05f) winner = std::max (winner, e[j]);
+                    cut *= clamp01 ((winner - floorDb) / 18.0f);
                 }
-        }
-
-        // Cuts.
-        const float depth = en ? c.v (DEPTH) : 0.0f;
-        float cut[kSources][kBands] {};
-        for (int q = 0; q < nf; ++q)
-        {
-            const auto& f = found[q];
-            int parts[kSources]; int np = 0;
-            for (int s = 0; s < kSources; ++s) if (f.mask & (1u << s)) parts[np++] = s;
-            std::sort (parts, parts + np, [&] (int a, int b) { return role[a] != role[b] ? role[a] < role[b] : a < b; });
-            float knobV = 0.5f;
-            for (int k = 0; k < kConflictSlots; ++k) if (bound[k].mask == f.mask) knobV = c.v (SLOT1 + k);
-            // Centre (AUTO): the highest-priority source owns the band. Right half: ownership
-            // moves continuously along the priority order to the last source. Left half: SHARE,
-            // cuts fade out until nobody is cut.
-            float w[kSources] {};
-            const float right = clamp01 ((knobV - 0.54f) / 0.46f), share = clamp01 ((0.46f - knobV) / 0.46f);
-            const float x = right * (float) (np - 1);
-            for (int i = 0; i < np; ++i) w[i] = lerp (std::max (0.0f, 1.0f - std::abs (x - (float) i)), 1.0f, share);
-            for (int b = f.lo; b <= f.hi; ++b)
-            {
-                float ownerE = -120.0f;
-                float wMax = 0.0f; for (int i = 0; i < np; ++i) wMax = std::max (wMax, w[i]);
-                for (int i = 0; i < np; ++i) if (w[i] >= wMax - 1e-4f) ownerE = std::max (ownerE, E[parts[i]][b]);
-                const float strength = clamp01 ((ownerE - floorDb) / 18.0f);
-                for (int i = 0; i < np; ++i) cut[parts[i]][b] = depth * (1.0f - w[i]) * strength;
+                cutOut[order[i]][b] = cut;
             }
         }
         for (int s = 0; s < kSources; ++s)
-            for (int b = 0; b < kBands; ++b) d.src[s].cut[b] = cut[s][b];
-        for (int k = 0; k < kConflictSlots; ++k)
-        {
-            d.conflicts[k].sources = bound[k].mask;
-            d.conflicts[k].bandLo = bound[k].lo;
-            d.conflicts[k].bandHi = bound[k].hi;
-            d.conflicts[k].active = bound[k].mask != 0;
-        }
-        // Display copies.
-        for (int s = 0; s < kSources; ++s) for (int b = 0; b < kBands; ++b) { dispE[s][b] = E[s][b]; dispCut[s][b] = cut[s][b]; }
-        for (int b = 0; b < kBands; ++b) dispMask[b] = mask[b];
+            for (int b = 0; b < kBands; ++b)
+            {
+                d.src[s].cut[b] = cutOut[s][b];
+                dispE[s][b] = d.src[s].energy[b].load();
+                dispCut[s][b] = cutOut[s][b];
+            }
+        for (int k = 0; k < kConflictSlots; ++k) d.conflicts[k].active = 0;
         dispFloor = floorDb;
     }
 
+    // ---- state: the list order (by name)
     void save (juce::ValueTree& t) const override
     {
-        for (auto& kv : slotValues)
-        {
-            juce::ValueTree v ("SLOTVALUE");
-            v.setProperty ("key", juce::String (kv.first), nullptr);
-            v.setProperty ("value", kv.second, nullptr);
-            t.appendChild (v, nullptr);
-        }
+        juce::String s; for (auto& nm : listOrder) s << nm << "\n";
+        t.setProperty ("order", s, nullptr);
     }
     void load (const juce::ValueTree& t) override
     {
-        slotValues.clear();
-        for (auto v : t) if (v.getType().toString() == "SLOTVALUE") slotValues[v.getProperty ("key").toString().toStdString()] = (float) v.getProperty ("value");
+        listOrder.clear();
+        for (auto& line : juce::StringArray::fromLines (t.getProperty ("order").toString())) if (line.isNotEmpty()) listOrder.push_back (line.toStdString());
     }
 
-    int displayHeight() const override { return 210; }
+    // ---- display
+    int displayHeight() const override { return 470; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
-        auto& bus = Bus::get();
-        auto& d = bus.d();
-        auto map = r.removeFromLeft (r.getWidth() * 0.62f);
-        ui::frame (g, map, "SPECTRUM ALLOCATION");
-        auto in = map.reduced (10, 18).withTrimmedBottom (14);
-        const float cw = in.getWidth() / (float) kBands;
+        area = r;
+        const auto rows = visibleRows();
+        auto list = listArea();
+        ui::frame (g, r.withWidth (list.getWidth() + 8), "SOURCES  DRAG TO ORDER");
+        const float rh = rowH();
+        for (size_t i = 0; i < rows.size(); ++i)
+        {
+            auto row = juce::Rectangle<float> (list.getX(), list.getY() + rh * (float) i, list.getWidth(), rh);
+            const bool dragging = dragRow == (int) i;
+            g.setColour (dragging ? ui::kText : ui::kLine);
+            g.drawRect (row.reduced (1.0f), 1.0f);
+            ui::label (g, juce::String (i + 1), row.removeFromLeft (18).withTrimmedLeft (4), ui::kFaint, 9.0f);
+            ui::label (g, juce::String (rows[i].label), row, dragging ? ui::kAccent : ui::kText, 10.5f);
+        }
+        if (rows.empty()) ui::label (g, "NO SOURCES", list.withHeight (20), ui::kFaint, 10.0f);
         static const char* bandNames[kBands] = { "40", "80", "120", "180", "270", "390", "600", "1K", "2.5K", "9K" };
         for (int b = 0; b < kBands; ++b)
         {
-            auto col = juce::Rectangle<float> (in.getX() + b * cw, in.getY(), cw, in.getHeight()).reduced (3, 0);
-            const bool conflict = dispMask[b].load() != 0;
-            g.setColour (ui::kGrid); g.fillRect (col);
-            // Stack per source: height = energy above floor.
-            float y = col.getBottom();
-            int shade = 0;
-            for (int s = 0; s < kSources; ++s)
+            auto col = bandArea (b);
+            ui::frame (g, col, bandNames[b]);
+            auto lanes = col.reduced (4.0f, 0.0f).withTop (list.getY()).withHeight (rh * (float) std::max<size_t> (1, rows.size()));
+            const int n = (int) rows.size();
+            float peak, sigma;
+            curve (getParam ? getParam (PRI0 + b) : 0.0f, getParam ? getParam (Q0 + b) : 0.5f, n, peak, sigma);
+            const float depth = getParam ? getParam (DEPTH0 + b) : 0.0f;
+            // Per source: what plays (white) and what ALLOC takes away (amber).
+            for (int i = 0; i < n; ++i)
             {
-                if (! bus.sourceAlive (s)) continue;
-                const float e = dispE[s][b].load() - dispCut[s][b].load();
-                const float h = clamp01 ((e - dispFloor.load()) / 50.0f) * col.getHeight() * 0.5f;
-                if (h < 0.5f) { ++shade; continue; }
-                g.setColour (juce::Colour::greyLevel (0.9f - 0.15f * (float) (shade++ % 5)));
-                g.fillRect (col.getX(), y - h, col.getWidth(), h - 1.0f);
-                y -= h;
+                const int s = rows[(size_t) i].slot;
+                auto lane = juce::Rectangle<float> (lanes.getX(), lanes.getY() + rh * (float) i, lanes.getWidth(), rh).reduced (0.0f, 4.0f);
+                g.setColour (ui::kGrid); g.fillRect (lane);
+                const float pre = clamp01 ((dispE[s][b].load() - dispFloor.load()) / 50.0f);
+                const float post = clamp01 ((dispE[s][b].load() - dispCut[s][b].load() - dispFloor.load()) / 50.0f);
+                g.setColour (ui::kAmber); g.fillRect (lane.withWidth (lane.getWidth() * pre));
+                g.setColour (ui::kText);  g.fillRect (lane.withWidth (lane.getWidth() * post));
             }
-            if (y < col.getY()) { g.setColour (ui::kRed); g.drawRect (col, 1.5f); }
-            else if (conflict) { g.setColour (ui::kAmber); g.drawRect (col, 1.0f); }
-            ui::label (g, bandNames[b], juce::Rectangle<float> (col.getX(), in.getBottom() + 1, col.getWidth(), 12), ui::kFaint, 9.0f, juce::Justification::centred);
-        }
-        r.removeFromLeft (8);
-        ui::frame (g, r, "CONFLICT SLOTS");
-        auto s = r.reduced (10, 18);
-        for (int k = 0; k < kConflictSlots; ++k)
-        {
-            auto row = s.removeFromTop (s.getHeight() / (float) (kConflictSlots - k));
-            const uint32_t m = d.conflicts[k].sources.load();
-            ui::label (g, "SLOT " + juce::String (k + 1), row.removeFromTop (14), m ? ui::kAmber : ui::kFaint, 10.0f);
-            if (m == 0) { ui::label (g, "AUTO / NO CONFLICT", row.removeFromTop (14), ui::kFaint, 10.0f); continue; }
-            juce::String names;
-            for (int i = 0; i < kSources; ++i) if (m & (1u << i)) { char nm[24]; Bus::unpackName (d.src[i].name, nm); names << nm << " / "; }
-            names = names.dropLastCharacters (3);
-            ui::label (g, names, row.removeFromTop (14), ui::kText, 10.0f);
-            ui::label (g, juce::String ((int) kBandEdges[d.conflicts[k].bandLo.load()]) + "-" + juce::String ((int) kBandEdges[d.conflicts[k].bandHi.load() + 1]) + " HZ",
-                       row.removeFromTop (14), ui::kDim, 10.0f);
+            // The priority curve: x = how protected each row is (right = fully protected).
+            if (n > 0)
+            {
+                juce::Path p;
+                const int steps = std::max (2, n * 8);
+                for (int k = 0; k <= steps; ++k)
+                {
+                    const float rowPos = (float) k / (float) steps * (float) n - 0.5f;
+                    const float d = (rowPos - peak) / sigma;
+                    const float wgt = 1.0f - depth * (1.0f - std::exp (-0.5f * d * d));
+                    const float x = lanes.getX() + lanes.getWidth() * (0.15f + 0.85f * wgt);
+                    const float y = lanes.getY() + rh * (rowPos + 0.5f);
+                    if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+                }
+                const bool touched = dragParam == PRI0 + b || dragParam == DEPTH0 + b || dragParam == Q0 + b;
+                g.setColour (touched ? ui::kAccent : depth > 0.001f ? ui::kDim : ui::kFaint);
+                g.strokePath (p, juce::PathStrokeType (touched ? 2.0f : 1.4f));
+                // Who owns this band: the source nearest the peak (only when the curve does something).
+                if (depth > 0.001f)
+                {
+                    const int owner = juce::jlimit (0, n - 1, (int) std::lround (peak));
+                    juce::String nm (rows[(size_t) owner].label);
+                    nm = nm.fromFirstOccurrenceOf ("TAP ", false, false).isNotEmpty() && nm.startsWith ("TAP ") ? nm.substring (4) : nm;
+                    ui::label (g, nm.substring (0, 9), juce::Rectangle<float> (col.getX() + 4.0f, col.getBottom() - 134.0f, col.getWidth() - 8.0f, 14.0f), ui::kText, 9.0f);
+                }
+            }
+            // Knobs.
+            for (int k = 0; k < 3; ++k)
+            {
+                const int idx = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b;
+                auto kr = knobRect (b, k);
+                const float v = getParam ? getParam (idx) : 0.0f;
+                drawKnob (g, kr, v, k == 0 ? "PRI" : k == 1 ? "DEPTH" : "Q", dragParam == idx);
+            }
         }
     }
-private:
-    static std::string keyFor (uint32_t mask)
+    void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
     {
-        auto& d = Bus::get().d();
-        std::vector<std::string> parts;
-        // Names only (bus slot numbers change between sessions), so choices survive reloading the set.
-        for (int i = 0; i < kSources; ++i) if (mask & (1u << i)) { char nm[24]; Bus::unpackName (d.src[i].name, nm); parts.push_back (nm); }
-        std::sort (parts.begin(), parts.end());
-        std::string k; for (auto& p : parts) k += p + "|";
-        return k;
+        area = r;
+        if (down)
+        {
+            dragParam = -1; dragRow = -1;
+            for (int b = 0; b < kBands; ++b)
+                for (int k = 0; k < 3; ++k)
+                    if (knobRect (b, k).contains (p)) { dragParam = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b; startVal = getParam ? getParam (dragParam) : 0.0f; startY = p.y; }
+            const auto rows = visibleRows();
+            if (listArea().contains (p))
+            {
+                const int i = (int) ((p.y - listArea().getY()) / rowH());
+                if (i >= 0 && i < (int) rows.size()) dragRow = i;
+            }
+            return;
+        }
+        if (dragParam >= 0 && setParam) setParam (dragParam, clamp01 (startVal + (startY - p.y) / 160.0f));
+        if (dragRow >= 0)
+        {
+            const auto rows = visibleRows();
+            const int target = juce::jlimit (0, std::max (0, (int) rows.size() - 1), (int) ((p.y - listArea().getY()) / rowH()));
+            if (target != dragRow)
+            {
+                // Move in the stored order: take the dragged name out, put it before/after the target's name.
+                const std::string moving = rows[(size_t) dragRow].label, anchor = rows[(size_t) target].label;
+                listOrder.erase (std::remove (listOrder.begin(), listOrder.end(), moving), listOrder.end());
+                auto it = std::find (listOrder.begin(), listOrder.end(), anchor);
+                if (target > dragRow && it != listOrder.end()) ++it;
+                listOrder.insert (it, moving);
+                dragRow = target;
+                updateRanks();
+            }
+        }
     }
-    // Message thread: remembers slot values per conflict and restores them when a conflict
-    // binds again (string keys and the map never touch the audio thread).
+    void displayMouseUp() override { dragParam = -1; dragRow = -1; }
+
+private:
+    struct Row { std::string label; int slot; };
+
+    juce::Rectangle<float> listArea() const { return { area.getX() + 6.0f, area.getY() + 20.0f, 150.0f, area.getHeight() - 140.0f }; }
+    float rowH() const { return 22.0f; }
+    juce::Rectangle<float> bandArea (int b) const
+    {
+        const float x0 = area.getX() + 164.0f, w = (area.getRight() - x0) / (float) kBands;
+        return { x0 + w * (float) b, area.getY(), w - 3.0f, area.getHeight() };
+    }
+    juce::Rectangle<float> knobRect (int b, int k) const
+    {
+        auto col = bandArea (b);
+        return { col.getX() + 4.0f, col.getBottom() - 116.0f + (float) k * 38.0f, col.getWidth() - 8.0f, 36.0f };
+    }
+    static void drawKnob (juce::Graphics& g, juce::Rectangle<float> r, float v, const char* name, bool hot)
+    {
+        auto knob = r.removeFromLeft (r.getHeight()).reduced (4.0f);
+        const float a0 = juce::degreesToRadians (225.0f), a1 = juce::degreesToRadians (495.0f);
+        juce::Path track; track.addCentredArc (knob.getCentreX(), knob.getCentreY(), knob.getWidth() * 0.45f, knob.getHeight() * 0.45f, 0.0f, a0, a1, true);
+        g.setColour (ui::kTrack); g.strokePath (track, juce::PathStrokeType (2.5f));
+        juce::Path val; val.addCentredArc (knob.getCentreX(), knob.getCentreY(), knob.getWidth() * 0.45f, knob.getHeight() * 0.45f, 0.0f, a0, a0 + v * (a1 - a0), true);
+        g.setColour (hot ? ui::kAccent : ui::kText); g.strokePath (val, juce::PathStrokeType (2.5f));
+        ui::label (g, name, r.removeFromTop (r.getHeight() * 0.5f), ui::kFaint, 8.5f);
+        ui::label (g, juce::String (juce::roundToInt (v * 100.0f)), r, hot ? ui::kAccent : ui::kText, 9.5f);
+    }
+
+    // Alive sources as list rows, in stored order (new names are appended by role priority).
+    std::vector<Row> visibleRows() const
+    {
+        std::vector<Row> rows;
+        auto& d = Bus::get().d();
+        std::vector<std::pair<std::string, int>> alive;
+        std::map<std::string, int> seen;
+        std::vector<std::pair<int, int>> byRole;
+        for (int s = 0; s < kSources; ++s) if (Bus::get().sourceAlive (s)) byRole.push_back ({ d.src[s].role.load(), s });
+        std::sort (byRole.begin(), byRole.end());
+        for (auto& rs : byRole)
+        {
+            char nm[24]; Bus::unpackName (d.src[rs.second].name, nm);
+            std::string label = nm;
+            const int k = ++seen[label];
+            if (k > 1) label += " " + std::to_string (k);       // two tracks with the same name
+            alive.push_back ({ label, rs.second });
+        }
+        for (auto& nm : listOrder) for (auto& a : alive) if (a.first == nm) rows.push_back ({ a.first, a.second });
+        for (auto& a : alive) if (std::find (listOrder.begin(), listOrder.end(), a.first) == listOrder.end()) rows.push_back ({ a.first, a.second });
+        return rows;
+    }
+    void updateRanks()
+    {
+        const auto rows = visibleRows();
+        int r[kSources]; for (auto& x : r) x = -1;
+        for (size_t i = 0; i < rows.size(); ++i) r[rows[i].slot] = (int) i;
+        for (int s = 0; s < kSources; ++s) rank[s] = r[s];
+    }
     void timerCallback() override
     {
-        auto& d = Bus::get().d();
-        const int64_t now = Bus::nowMs();
-        for (int k = 0; k < kConflictSlots; ++k)
-        {
-            const uint32_t mask = d.conflicts[k].sources.load();
-            if (mask != 0 && touchedMs[k].load() > 0 && now - touchedMs[k].load() < 3000)
-                slotValues[keyFor (mask)] = slotNow[k].load();
-            const uint32_t seq = bindSeq[k].load();
-            if (seq != seenBindSeq[k] && mask != 0)
-            {
-                seenBindSeq[k] = seq;
-                const auto it = slotValues.find (keyFor (mask));
-                const float v = it != slotValues.end() ? it->second : 0.5f;
-                lastSlotVal[k] = v;                     // not a touch
-                if (setParam) setParam (SLOT1 + k, v);
-            }
-        }
+        // Remember newcomers in the order, so the list only changes when you drag it.
+        for (auto& row : visibleRows())
+            if (std::find (listOrder.begin(), listOrder.end(), row.label) == listOrder.end()) listOrder.push_back (row.label);
+        updateRanks();
     }
-    double sr = 48000.0, clock = 0.0;
-    uint32_t rawMask[kBands] {}, stableMask[kBands] {};
-    double rawSince[kBands] {}, lastStable[kBands] {};
-    Conflict bound[kConflictSlots];
-    double boundSeen[kConflictSlots] {};
-    std::atomic<float> lastSlotVal[kConflictSlots] { 0.5f, 0.5f, 0.5f }, slotNow[kConflictSlots] { 0.5f, 0.5f, 0.5f };
-    std::atomic<int64_t> touchedMs[kConflictSlots] {};
-    std::atomic<uint32_t> bindSeq[kConflictSlots] {};
-    uint32_t seenBindSeq[kConflictSlots] {};
-    std::map<std::string, float> slotValues;
+
+    double sr = 48000.0;
+    std::vector<std::string> listOrder;
+    std::atomic<int> rank[kSources];
+    int slotAt[kSources] {};
+    float cutOut[kSources][kBands] {};
+    juce::Rectangle<float> area;
+    int dragParam = -1, dragRow = -1;
+    float startVal = 0.0f, startY = 0.0f;
     std::atomic<float> dispE[kSources][kBands] {}, dispCut[kSources][kBands] {}, dispFloor { -50.0f };
-    std::atomic<uint32_t> dispMask[kBands] {};
 };
 ModulePtr makeALLOC() { return std::make_unique<AllocModule>(); }
 
@@ -429,7 +445,7 @@ public:
         const int role = c.ci (ROLE);
         if (role != lastRole) { lastRole = role; tap.setIdentity (role, (std::string ("TAP ") + kRoleNames[role]).c_str()); }
         pocket.process (c, io.getArrayOfWritePointers(), 2, c.n, c.v (PDEPTH), c.v (PSHAPE), nullptr, c.v (PDEPTH) > 0.001f);
-        tap.process (io.getArrayOfWritePointers(), 2, c.n, c.b (ALLOCON));
+        tap.process (io.getArrayOfWritePointers(), 2, c.n, c.b (ALLOCON), &c);
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
     }

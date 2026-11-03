@@ -407,12 +407,20 @@ MODULES["ROOMEQ"] = dict(group="MASTER AND MIX", summary="Cut-only correction fo
     use=["Find the boomy and harsh frequencies at soundcheck, cut them, STORE VENUE.", "Next time at that venue, choose it from VENUE."],
     models=[], desc=dict({f"cut{i}": f"Cut at band {i} (0 to 18 dB)." for i in range(1, 7)}, **{f"freq{i}": f"Frequency of band {i}." for i in range(1, 7)},
         q="Width of all six bands.", venue="Recalls a stored venue.", store_venue="Stores the current bands into the selected venue."))
-MODULES["ALLOC"] = dict(group="MASTER AND MIX", summary="The mix assigner. Automatic where sources don't overlap; where they do, the conflict gets one of three SLOT knobs. Pass-through audio: put it on the master.",
-    use=["Every SF instrument (and SF TAP / SF DECK) takes part automatically.", "When a SLOT lights amber it has a conflict (named in the display, e.g. BASS / PAD 150-320 HZ).", "Centre = AUTO. Right (HAND) moves ownership to the other source(s). Left (SHARE) fades the cuts out."],
+MODULES["ALLOC"] = dict(group="MASTER AND MIX", summary="The mix assigner. You put the sources in order; each of the ten bands has a priority curve over that order, set with three knobs, and the display shows exactly what each source keeps and loses in that band. Pass-through audio: put it on the master.",
+    use=["Every SF instrument, SF STRIP, SF TAP and SF DECK appears in the SOURCES list by its Live track name (VST3) or its role (PERC, PERC 2 ...).",
+         "Drag the list into order, top = most important. The order is saved with the set and never changes on its own; new sources are added at the bottom.",
+         "In each band: PRIORITY moves the curve's peak up and down the list, DEPTH sets how hard everything away from the peak is cut (0 = nothing), Q sets the width (narrow: one source owns the band; wide: neighbours share).",
+         "The band's lanes show each source in that band: white = what plays, amber = what ALLOC takes away. The name at the bottom of the band is the source the peak sits on.",
+         "MODE DYNAMIC cuts a source only while a more favoured source is actually playing in that band, so when the bass stops the pad gets 180 Hz back within a fraction of a second. STATIC cuts all the time, like a fixed EQ.",
+         "Knobs are drawn in the window; the 30 band knobs are not meant for hardware, but all are automatable in Live."],
     models=[], desc={
-        "slot1": "First conflict knob. Centre AUTO, right HAND, left SHARE.", "slot2": "Second conflict knob.", "slot3": "Third conflict knob.",
-        "depth": "Largest cut ALLOC will make.", "sensitivity": "How quiet a source can be and still count as playing in a band.",
-        "hold": "How long an overlap must last before it is a conflict (1, 2 or 4 beats).", "enable": "Off = no cuts anywhere."})
+        "enable": "Off = no cuts anywhere.", "mode": "DYNAMIC (cut only while a more favoured source plays in the band) or STATIC (always).",
+        "max_cut": "The largest cut any source can get (DEPTH 100 %, far from the peak).",
+        "sensitivity": "DYNAMIC: how quiet a favoured source can be and still count as playing.",
+        **{f"pri{i}": f"Band {i}: where the priority peak sits in the list (0 = top, 100 = bottom)." for i in range(1, 11)},
+        **{f"depth{i}": f"Band {i}: how hard sources away from the peak are cut." for i in range(1, 11)},
+        **{f"q{i}": f"Band {i}: width of the peak (low = wide, sources share; high = narrow, one owns the band)." for i in range(1, 11)}})
 MODULES["TAP"] = dict(group="MASTER AND MIX", summary="Puts any track (stems, hardware, other plugins) into Pocket and ALLOC. Adds no sound of its own.",
     use=["One on each stem track from Live's stem separation, with ROLE set (stem drums = PERC, stem bass = BASS ...)."],
     models=[], desc={"role": "Priority in ALLOC (KICK highest ... OTHER lowest) and the name shown.", "alloc": "Take part in ALLOC.",

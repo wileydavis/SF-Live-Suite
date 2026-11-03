@@ -188,7 +188,7 @@ public:
 
         // ---- POCKET, ALLOC, LEVEL
         pocket.process (c, io.getArrayOfWritePointers(), 2, n, c.v (POCKETD), c.v (PSHAPE), nullptr, c.v (POCKETD) > 0.001f);
-        tap.process (io.getArrayOfWritePointers(), 2, n, c.b (ALLOCON));
+        tap.process (io.getArrayOfWritePointers(), 2, n, c.b (ALLOCON), &c);
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
         dispGate = gateG; dispDens = d;

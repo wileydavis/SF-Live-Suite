@@ -227,20 +227,21 @@ story.append(PageBreak())
 
 story.append(H1("4  ALLOC: THE MIX ASSIGNER"))
 story.append(Rule())
-story.append(P("ALLOC keeps sources from piling up in the same frequencies. It is automatic where nothing overlaps; where two or more sources fight in the same range, the fight gets a knob.", "summary"))
-story.append(H2("HOW IT DECIDES"))
-story += bullets(["The spectrum is split into ten fixed bands. Every SF instrument (and SF TAP, SF DECK) measures its energy in each band.",
-                  "A <b>conflict</b> is two or more sources playing in the same band for HOLD (1, 2 or 4 beats). Neighbouring bands with the same sources are one conflict: bass against chords at 150-320 Hz is one conflict, not three.",
-                  "Automatically, the higher-priority source owns the band and the others are cut, by up to DEPTH, only while the owner is actually playing there.",
+story.append(P("ALLOC keeps sources from piling up in the same frequencies. You decide the order of importance; each frequency band has a priority curve over that order; the display shows what every source keeps and loses. Nothing is decided behind your back.", "summary"))
+story.append(H2("THE ORDER"))
+story += bullets(["Every SF instrument, STRIP, TAP and DECK reports its energy in ten fixed bands and appears in the SOURCES list (by its Live track name with VST3, otherwise by role: PERC, PERC 2 ...).",
+                  "Drag the list into order, top = most important. It is saved with the set and only changes when you drag it. New sources are added at the bottom.",
                   "Each source applies its own cuts: audio never leaves its track."])
-roles = [["PRIORITY", "ROLE"]] + [[str(i + 1), r] for i, r in enumerate(["KICK", "BASS", "VOICE", "LEAD", "PERC", "RUMBLE", "PAD", "DECK", "OTHER (TAP default)"])]
-story.append(table(roles, [0.9 * inch, 2.4 * inch]))
-story.append(H2("THE THREE SLOT KNOBS"))
-story += bullets(["The worst conflicts bind to SLOT 1-3. The display names them: BASS / PAD 150-320 HZ.",
-                  "<b>Centre (AUTO):</b> priority decides.", "<b>Right (HAND):</b> hands the band along the priority order. Fully right with two sources, the lower-priority one owns it.",
-                  "<b>Left (SHARE):</b> the cuts fade out; fully left, nobody is cut.",
-                  "A slot never changes conflict while you're turning it, or for 3 s after.",
-                  "Your choice is remembered for that pair of sources and comes back when the conflict returns (and with the set). The E16 ring follows."])
+story.append(H2("THE CURVE (PER BAND)"))
+story += bullets(["<b>PRIORITY</b> moves the peak of the curve up and down the list. The source at the peak is protected.",
+                  "<b>DEPTH</b> sets how hard everything away from the peak is cut, up to MAX CUT. At 0 the band is untouched.",
+                  "<b>Q</b> sets the width. Narrow: one source owns the band. Wide: the sources next to the peak share it.",
+                  "Each knob always does the same thing to the same band, so once set it stays predictable."])
+story.append(H2("DYNAMIC OR STATIC"))
+story.append(P("<b>DYNAMIC</b> (default): a source is cut only while a more favoured source is actually playing in that band. When the bass stops, the pad gets 180 Hz back within a fraction of a second. <b>STATIC</b>: the cuts stay on all the time, like a fixed EQ."))
+story.append(H2("READING THE DISPLAY"))
+story += bullets(["Each band is a column; each source a lane, aligned with the list.", "<b>White</b>: what the source plays in that band after ALLOC. <b>Amber</b>: what ALLOC takes away.",
+                  "The grey line is the curve (right = protected); it turns cyan while you turn one of that band's knobs.", "The name at the bottom of the band is the source the peak sits on."])
 bands = [["BAND", "RANGE"]] + [[str(i + 1), r] for i, r in enumerate(["20-60 Hz", "60-100 Hz", "100-150 Hz", "150-220 Hz", "220-320 Hz", "320-480 Hz", "480-750 Hz", "750-1500 Hz", "1.5-4 kHz", "4-20 kHz"])]
 story.append(H2("THE BANDS"))
 story.append(table(bands, [0.9 * inch, 2.4 * inch]))
@@ -266,7 +267,7 @@ story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the p
 story.append(H2("FIRST SESSION CHECKS"))
 story += bullets(["SF CONTROL shows <b>BUS SHARED</b>. Play SF KICK: it shows <b>KICK REPORTING</b>.",
                   "SF KICK + SF BASS with POCKET DEPTH up and SHAPE right: the pump lands exactly on the kick.",
-                  "SF ALLOC on the master; BASS and PAD in the same range: a SLOT turns amber.",
+                  "SF ALLOC on the master: every SF source appears in the list; raise DEPTH on a band where two of them overlap and watch the amber.",
                   "Store two songs; switch with Program Change: the E16 rings follow.",
                   "SF DECK: load a track, PLAY A: it starts on the bar, locked to Live's tempo."])
 story.append(PageBreak())
@@ -347,7 +348,7 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. With VST3, try the AU."],
                     ["E16 rings don't follow", "Remote on for the E16 output in Live's MIDI preferences; map with Live's MIDI Map."],
-                    ["ALLOC does nothing", "ENABLE on, the instruments' ALLOC toggles on, SF ALLOC running (SF CONTROL shows it)."],
+                    ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],
                     ["A knob shows GLIDE", "SLOW is on: the knob is travelling to where you set it."]], [1.7 * inch, W - 1.7 * inch], mono_first=False))
 

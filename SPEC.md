@@ -55,13 +55,13 @@ SF KICK reports every hit to the bus: time (in beats), velocity, pitch sweep sta
 - Transport jumps [decided Nov 2]: kick reports carry a wall-clock stamp; a report is used only if the wall time since it fits the musical time since it, so reports from before a loop wrap / restart / relocate are ignored. RUMBLE re-arms on a backward jump. POCKET OFFSET on SF CONTROL (+/-20 ms) calibrates Pocket and RUMBLE timing for the host if needed.
 - Timing: Pocket runs 512 samples of lookahead (reported to Live as latency) so a kick report from the same audio cycle arrives before it is needed. Requires Live's buffer size <= 512. [decided Nov 2, needs Live test]
 
-## ALLOC (mix assigner)
-Ten fixed bands (20-60, 60-100, 100-150, 150-220, 220-320, 320-480, 480-750, 750-1500, 1.5k-4k, 4k-20k Hz). Every instrument (and SF TAP / DECK) measures its energy per band and publishes it; SF ALLOC decides cuts; each source applies its own cuts (bell EQ per band, gliding at 60 dB/s). The audio never leaves its track.
-- Automatic where there is no overlap: nothing is cut.
-- A conflict is two or more sources active (above the SENSITIVITY floor and within 15 dB of the loudest) in the same band for HOLD (1/2/4 beats). Contiguous bands with the same sources form one conflict (so bass vs chords at 180-350 Hz is one conflict, not three).
-- Automatic resolution: role priority KICK > BASS > VOICE > LEAD > PERC > RUMBLE > PAD > DECK > OTHER. Lower sources are cut by up to DEPTH, only while the owner is actually playing in that band.
-- Three conflict SLOT knobs (decided Nov 2: fewest knobs). The worst conflicts bind to free slots. Centre = AUTO (priority owner). Right half (HAND): ownership moves continuously along the priority order to the last source (two sources: fully right hands the band to the lower-priority one; three or more: A, B, C ... with blending between neighbours). Left half (SHARE): the cuts fade out until nobody is cut. Continuous everywhere: no jump leaving AUTO. [decided Nov 2]
-- Stable on stage: a slot never rebinds while touched or for 3 s after; conflicts need HOLD to appear and 2x HOLD of absence to go; choices are remembered per set of source names (e.g. BASS + PAD) and restored when that conflict returns, and saved with the set. When a slot binds a remembered conflict, its value is sent to Live (E16 rings move).
+## ALLOC (mix assigner) [redesigned Nov 3]
+Ten fixed bands (20-60, 60-100, 100-150, 150-220, 220-320, 320-480, 480-750, 750-1500, 1.5k-4k, 4k-20k Hz). Every instrument, SF STRIP, SF TAP and SF DECK measures its energy per band (40 ms attack, 80 ms release) and publishes it; SF ALLOC decides cuts; each source applies its own cuts (bell EQ per band, gliding at 60 dB/s). The audio never leaves its track.
+- One user order of sources (drag in SF ALLOC's list; top = most important), saved with the set by name, changed only by dragging. Names: Live's track name (VST3 passes it; AU does not), else the module/role name; duplicates get " 2", " 3".
+- Per band, a priority curve over the order: PRIORITY = position of the peak (0 top .. 100 % bottom), DEPTH = how hard sources away from the peak are cut (x MAX CUT; 0 = untouched), Q = width (Gaussian, sigma 3 rows at 0 .. 0.3 rows at 100 %). cut_i = MAX CUT x DEPTH x (1 - weight_i).
+- MODE DYNAMIC (default): cut_i is scaled by how loudly the most active more-favoured source is playing in that band (above the SENSITIVITY floor, full at +18 dB). STATIC: always cut.
+- Display: list left; per band a column with one lane per source (white = what plays, amber = what is cut), the curve (grey; cyan while its knob is touched), the owning source's name, and PRIORITY / DEPTH / Q knobs drawn in the column. The 30 band knobs are hidden from the generic grid but automatable.
+- Replaces the conflict-slot design (Nov 2), which was unpredictable: hidden role priority, load-order ties, and knobs that rebound to whichever conflict was worst.
 
 # Modules
 
@@ -129,7 +129,7 @@ On its own MIDI track receiving the OXI One. MACRO 1-6 (published to every SF pl
 - SF LOWEND: MONO FREQ (mono below), SUB CLIP, RUMBLE CUT (24 dB/oct), WIDTH (above), LOW TRIM, LEVEL.
 - SF LIMIT: TARGET (LUFS), CEILING (dBTP), CLIP, INPUT, RELEASE, AUTO (moves input <= 1 dB/s so short-term loudness sits at TARGET; +/-12 dB), RESET. 1.5 ms lookahead, inter-sample peak estimate. Display: short-term, integrated, true peak, GR, auto input.
 - SF ROOM EQ: six cut-only bands (CUT 1-6, FREQ 1-6, shared Q), VENUE (1-16) recalls stored venues, STORE VENUE. Not part of songs.
-- SF ALLOC: SLOT 1-3, DEPTH, SENSITIVITY, HOLD, ENABLE. Pass-through audio; put it on the master. Display: per-band source stacks (amber = conflict, red = overbooked) and slot bindings.
+- SF ALLOC: ENABLE, MODE, MAX CUT, SENSITIVITY, and PRIORITY / DEPTH / Q for each of the 10 bands (in the window). See ALLOC above.
 - SF TAP: ROLE, ALLOC, POCKET DEPTH, POCKET SHAPE, LEVEL. Makes no sound of its own; puts any track into Pocket and ALLOC.
 
 # Suggested Live layout

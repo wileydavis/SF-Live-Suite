@@ -25,12 +25,14 @@ struct ParamSpec
     bool glide = true;              // follows GLIDE (slow mode) when on
     bool song = true;               // stored in song slots
     int macroDir = 0;               // response to the plugin's MACRO: +1 / -1 / 0
+    bool hidden = false;            // not in the generic grid (the module draws its own control)
 
     ParamSpec& prim()           { primary = true; return *this; }
     ParamSpec& dir (int d)      { macroDir = d; return *this; }
     ParamSpec& noGlide()        { glide = false; return *this; }
     ParamSpec& noSong()         { song = false; return *this; }
     ParamSpec& u (const char* s){ unit = s; return *this; }
+    ParamSpec& hide()           { hidden = true; return *this; }
 };
 
 inline ParamSpec knob (const char* id, const char* name, float mn, float mx, float def, const char* unit = "", float centre = NAN)
@@ -65,6 +67,8 @@ struct Ctx
     const float* p = nullptr;     // parameter values at block end (glided, macro applied)
     const float* p0 = nullptr;    // values at block start (for per-sample ramps)
     Bus* bus = nullptr;
+    const char* trackName = "";  // Live track name (VST3 only; empty if unknown)
+    uint32_t trackNameSeq = 0;
 
     double beatsPerSample() const   { return bpm / 60.0 / sr; }
     double samplesPerBeat() const   { return sr * 60.0 / bpm; }
@@ -114,6 +118,7 @@ public:
     virtual int displayHeight() const               { return 140; }
     virtual void paint (juce::Graphics&, juce::Rectangle<float>) {}
     virtual void displayMouse (juce::Point<float>, juce::Rectangle<float>, bool down) { juce::ignoreUnused (down); }
+    virtual void displayMouseUp() {}
 
     // Program list (only SF CONTROL uses it: songs).
     virtual int numPrograms() const                 { return 1; }

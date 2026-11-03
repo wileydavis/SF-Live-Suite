@@ -4,6 +4,7 @@
 // instance is running.
 #include "Bus.h"
 #include "Dsp.h"
+#include "Module.h"
 #include <cstring>
 #include <random>
 
@@ -22,7 +23,8 @@ public:
 
     void setIdentity (int r, const char* n)
     {
-        role = r; std::strncpy (name, n, 23);
+        role = r; std::strncpy (base, n, 23);
+        std::strncpy (name, liveName[0] ? liveName : base, 23);
         if (slot >= 0 && Bus::get().d().src[slot].owner.load() == owner) Bus::packName (Bus::get().d().src[slot].name, name);
     }
 
@@ -42,9 +44,16 @@ public:
     }
 
     // Analyse and apply. Call on the module's final output.
-    void process (float* const* ch, int numCh, int n, bool enabled)
+    void process (float* const* ch, int numCh, int n, bool enabled, const Ctx* c = nullptr)
     {
         auto& bus = Bus::get();
+        // Live's track name (VST3) replaces the module name in ALLOC's list.
+        if (c != nullptr && c->trackNameSeq != seenNameSeq)
+        {
+            seenNameSeq = c->trackNameSeq;
+            std::strncpy (liveName, c->trackName, 23);
+            setIdentity (role, base);
+        }
         if (slot < 0 || ! bus.sourceAlive (slot, 6000) || bus.d().src[slot].owner.load() != owner)
             slot = bus.claimSource (owner, role, name);
         if (slot < 0) return;
@@ -63,11 +72,13 @@ public:
                 acc[b] += y * y;
             }
         }
-        const float blockCoef = std::pow (msCoef, (float) n);
+        // Fast attack (40 ms), quick release (80 ms): a band frees up soon after a source stops.
+        const float upCoef = std::pow (std::exp (-1.0f / (float) (0.04 * sr)), (float) n);
+        const float downCoef = std::pow (std::exp (-1.0f / (float) (0.08 * sr)), (float) n);
         for (int b = 0; b < kBands; ++b)
         {
             const float m = acc[b] / (float) std::max (1, n);
-            ms[b] = m + blockCoef * (ms[b] - m);
+            ms[b] = m + (m > ms[b] ? upCoef : downCoef) * (ms[b] - m);
             s.energy[b] = 10.0f * std::log10 (ms[b] + 1.0e-12f) + 3.0f;
         }
 
@@ -96,7 +107,8 @@ private:
     static float juce_clamp (float v, float lo, float hi) { return std::max (lo, std::min (hi, v)); }
     uint64_t owner = 1;
     int slot = -1, role = ROLE_OTHER;
-    char name[24] { "SOURCE" };
+    char name[24] { "SOURCE" }, base[24] { "SOURCE" }, liveName[24] {};
+    uint32_t seenNameSeq = 0;
     double sr = 48000.0;
     Svf analysis[kBands];
     Biquad eq[2][kBands];

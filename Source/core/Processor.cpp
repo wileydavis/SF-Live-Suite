@@ -1,6 +1,7 @@
 #include "Processor.h"
 #include "Editor.h"
 #include <chrono>
+#include <cstring>
 
 using namespace sf;
 
@@ -182,6 +183,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // and every SF plugin agrees on the beat.
     Ctx c;
     c.sr = sr; c.n = n; c.bus = &bus;
+    c.trackName = trackName; c.trackNameSeq = trackNameSeq.load();
     c.bpm = lastBpm;
     bool havePos = false;
     if (auto* ph = getPlayHead())
@@ -354,6 +356,15 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
 }
 
 void SFProcessor::timerCallback() { flushHostNotifications(); }
+
+void SFProcessor::updateTrackProperties (const TrackProperties& p)
+{
+    // Live (VST3) tells the plugin its track name; ALLOC lists sources by it.
+    char buf[24] {};
+    p.name.toUpperCase().copyToUTF8 (buf, 23);
+    std::memcpy (trackName, buf, sizeof (buf));
+    trackNameSeq.fetch_add (1);
+}
 
 void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
 {
