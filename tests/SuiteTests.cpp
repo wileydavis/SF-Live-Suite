@@ -10,6 +10,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "core/Bus.h"
 #include "core/Dsp.h"
+#include "core/Pocket.h"
 #include "core/Processor.h"
 #include "core/Registry.h"
 #include <chrono>
@@ -472,16 +473,17 @@ static int countHits (const std::vector<float>& x)
 static void testDensity()
 {
     std::printf ("-- density: 1/8 -> 1/16\n");
-    for (int pass = 0; pass < 2; ++pass)
+    for (int pass = 0; pass < 3; ++pass)
     {
         int counts[2] {};
         for (int dset = 0; dset < 2; ++dset)
         {
             resetBus();
             FakeHead head;
-            Rig r (pass == 0 ? "PERC" : "DENSITY", head);
+            Rig r (pass == 0 ? "PERC" : pass == 1 ? "DENSITY" : "STRIP", head);
             if (pass == 0) { r.set ("density", dset ? 0.5f : 0.0f); r.set ("decay", 0.2f); }
-            else { r.set ("density", dset ? 0.5f : 0.0f); r.set ("space", 1.0f); }
+            else if (pass == 1) { r.set ("density", dset ? 0.5f : 0.0f); r.set ("space", 1.0f); }
+            else { r.set ("density", dset ? 0.5f : 0.0f); r.set ("echo_space", 1.0f); }
             std::vector<float> out;
             double ppq = 0.0;
             const int blocks = (int) (4.0 * 60.0 / head.bpm * kSr / kBlock) * 2;   // 2 bars
@@ -496,7 +498,7 @@ static void testDensity()
                         const double q = ppq + i * bps;
                         const bool on = std::floor (q * 2.0) != std::floor ((q - bps) * 2.0);
                         if (pass == 0 && on) m.addEvent (juce::MidiMessage::noteOn (1, 42, (juce::uint8) 110), i);
-                        if (pass == 1)
+                        if (pass >= 1)
                         {
                             const double ph = q * 2.0 - std::floor (q * 2.0);
                             const float t = (float) (ph * 30.0 / head.bpm);
@@ -510,8 +512,8 @@ static void testDensity()
             }
             counts[dset] = countHits (out);
         }
-        std::printf ("   %s: %d hits at 0 %%, %d hits at 50 %%\n", pass == 0 ? "PERC   " : "DENSITY", counts[0], counts[1]);
-        CHECK (counts[1] >= counts[0] * 2 - 2 && counts[0] >= 14, "%s DENSITY did not double the hits", pass == 0 ? "PERC" : "DENSITY");
+        std::printf ("   %s: %d hits at 0 %%, %d hits at 50 %%\n", pass == 0 ? "PERC   " : pass == 1 ? "DENSITY" : "STRIP  ", counts[0], counts[1]);
+        CHECK (counts[1] >= counts[0] * 2 - 2 && counts[0] >= 14, "%s DENSITY did not double the hits", pass == 0 ? "PERC" : pass == 1 ? "DENSITY" : "STRIP");
     }
 }
 
@@ -683,6 +685,49 @@ static void testSampleGate()
     }
 }
 
+// STRIP: GATE (HITS) closes each hit; DENSITY adds hits to any audio.
+static void testStrip()
+{
+    std::printf ("-- strip\n");
+    float tail[2] {};
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        resetBus();
+        FakeHead head;
+        Rig r ("STRIP", head);
+        r.set ("gate", pass == 0 ? 1.0f : 0.1f);
+        double ppq = 0.0, ph = 0.0;
+        const int blocks = (int) (kSr * 3.0 / kBlock);
+        for (int b = 0; b < blocks; ++b)
+        {
+            head.ppq = ppq;
+            r.run ([&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
+            {
+                const double bps = head.bpm / 60.0 / kSr;
+                for (int i = 0; i < kBlock; ++i)
+                {
+                    const double q = ppq + i * bps;
+                    const double t = (q - std::floor (q)) * 60.0 / head.bpm;     // seconds since the beat
+                    ph += 1.0 / kSr;
+                    const float v = 0.5f * (float) std::sin (6.2831853 * 220.0 * ph) * (float) std::exp (-t / 0.4);   // long ringing hit each beat
+                    buf.setSample (0, i, v); buf.setSample (1, i, v);
+                }
+            }, b);
+            // level at 0.6 beat after each beat (past a short gate)
+            const double bps = head.bpm / 60.0 / kSr;
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const double q = ppq + i * bps - Pocket::kLatency * bps;   // output timeline
+                const double fr = q - std::floor (q);
+                if (q > 2.0 && fr > 0.55 && fr < 0.65) tail[pass] = std::max (tail[pass], std::fabs (r.buf.getSample (0, i)));
+            }
+            ppq += kBlock * bps;
+        }
+    }
+    std::printf ("   GATE 100 %%: tail %.3f   GATE 10 %%: tail %.4f\n", tail[0], tail[1]);
+    CHECK (tail[0] > 0.1f && tail[1] < 0.005f, "STRIP GATE does not close hits");
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -691,12 +736,13 @@ int main (int argc, char** argv)
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testModels(); testDeck(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testModels(); testDeck(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
     else if (std::string (argv[1]) == "--filter") { testFilterCrossing(); }
     else if (std::string (argv[1]) == "--gate") { testSampleGate(); }
+    else if (std::string (argv[1]) == "--strip") { testStrip(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

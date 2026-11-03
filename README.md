@@ -2,7 +2,7 @@
 
 Ableton Live plugins for performing hypnotic / dub techno live. Private. `SPEC.md` is the source of truth.
 
-27 plugins, one shared core: 9 instruments (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE, DECK, CONTROL), 10 effects (FILTER, GATE, DENSITY, DELAY, REVERB, DRIVE, RADIO, REPEAT, DUCK, ENERGY), 8 master/mix tools (ISOLATOR, BUILD, GLUE, LOWEND, LIMIT, ROOM EQ, ALLOC, TAP).
+28 plugins, one shared core: 9 instruments (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE, DECK, CONTROL), 11 effects (STRIP, FILTER, GATE, DENSITY, DELAY, REVERB, DRIVE, RADIO, REPEAT, DUCK, ENERGY), 8 master/mix tools (ISOLATOR, BUILD, GLUE, LOWEND, LIMIT, ROOM EQ, ALLOC, TAP).
 
 ## Build (Mac)
 
@@ -12,7 +12,7 @@ Ableton Live plugins for performing hypnotic / dub techno live. Private. `SPEC.m
 
 The first run installs CMake via Homebrew if needed and clones JUCE 8.0.4 into `./JUCE`. It builds every plugin as AU and VST3 and copies them into `~/Library/Audio/Plug-Ins/Components` and `~/Library/Audio/Plug-Ins/VST3`. Then rescan in Live (Settings > Plug-Ins > Rescan). Use AU or VST3, not both. They show up as `SF KICK`, `SF BASS` and so on.
 
-One plugin only: `./build.sh KICK` (any module id: KICK PERC RUMBLE BASS LEAD PAD VOICE DECK CONTROL FILTER GATE DENSITY DELAY REVERB DRIVE RADIO REPEAT DUCK ENERGY ISOLATOR BUILD GLUE LOWEND LIMIT ROOMEQ ALLOC TAP).
+One plugin only: `./build.sh KICK` (any module id: KICK PERC RUMBLE BASS LEAD PAD VOICE DECK CONTROL FILTER GATE DENSITY DELAY REVERB DRIVE RADIO REPEAT DUCK ENERGY ISOLATOR BUILD GLUE LOWEND LIMIT ROOMEQ ALLOC TAP STRIP).
 
 The full build compiles 27 plugins and takes a while the first time (each plugin carries the whole core).
 
@@ -32,7 +32,7 @@ cmake --build build-test --target SFTests SFSnapshot
 3. **Groups** get SF ENERGY (instead of the DJ filter). PROFILE: DRUMS / BASS / MUSIC / VOICE.
 4. **Returns:** SF DELAY, SF REVERB, SF DENSITY (for the send-delay hat fills).
 5. **Master:** SF ISOLATOR > SF BUILD > SF GLUE > SF LOWEND > SF ROOM EQ > SF LIMIT, plus SF ALLOC anywhere on the master.
-6. **Stems or hardware tracks:** SF TAP (set ROLE) so they join Pocket and ALLOC.
+6. **Live instruments, drum racks, hardware:** SF STRIP last on the track gives it the suite's performance row and puts it in Pocket and ALLOC. **Stems:** SF TAP (no sound of its own) or SF STRIP.
 7. **E16:** map with Live's MIDI Map (Cmd-M). In Live's MIDI preferences turn **Remote** on for the E16 *output*, so rings follow song recalls and ALLOC slot changes. The first 8 controls of each plugin are its performance row.
 8. **Songs:** set every plugin for a song, choose the song number on SF CONTROL, press **STORE ALL**. Program Change (or the SONG knob) recalls it on the next bar.
 

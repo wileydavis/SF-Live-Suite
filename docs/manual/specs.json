@@ -461,5 +461,32 @@
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
   {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+]},
+"STRIP": {"instrument": false, "latency": 512, "params": [
+  {"id": "density", "name": "DENSITY", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
+  {"id": "gate", "name": "GATE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "100 %", "choices": "", "macro": -1},
+  {"id": "filter", "name": "FILTER", "type": "knob", "primary": true, "min": "LP 100", "max": "HP 100", "def": "OFF", "choices": "", "macro": 0},
+  {"id": "drive", "name": "DRIVE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
+  {"id": "pocket", "name": "POCKET", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "space", "name": "SPACE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
+  {"id": "throw", "name": "THROW", "type": "momentary", "primary": true, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
+  {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "role", "name": "ROLE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OTHER", "choices": "KICK|BASS|VOICE|LEAD|PERC|RUMBLE|PAD|DECK|OTHER", "macro": 0},
+  {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
+  {"id": "echo_prob", "name": "ECHO PROB", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "100 %", "choices": "", "macro": 0},
+  {"id": "darken", "name": "DARKEN", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "40 %", "choices": "", "macro": 0},
+  {"id": "gate_mode", "name": "GATE MODE", "type": "menu", "primary": false, "min": "", "max": "", "def": "HITS", "choices": "HITS|PATTERN", "macro": 0},
+  {"id": "pattern", "name": "PATTERN", "type": "menu", "primary": false, "min": "", "max": "", "def": "8THS", "choices": "FULL|8THS|OFFBEAT|OFF 8THS|TRESILLO|GALLOP|SKIP 1|STAB|PUMP|BROKEN|CLAVE|DOTTED", "macro": 0},
+  {"id": "rate", "name": "RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/32", "macro": 0},
+  {"id": "character", "name": "CHARACTER", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "res", "name": "FILTER RES", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "20 %", "choices": "", "macro": 0},
+  {"id": "pocket_shape", "name": "POCKET SHAPE", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
+  {"id": "space_type", "name": "SPACE TYPE", "type": "menu", "primary": false, "min": "", "max": "", "def": "DUB ECHO", "choices": "REVERB|DUB ECHO", "macro": 0},
+  {"id": "space_size", "name": "SPACE SIZE", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "sensitivity", "name": "SENSITIVITY", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
 ]}
 }

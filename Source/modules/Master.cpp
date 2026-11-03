@@ -50,7 +50,7 @@ public:
             auto cell = in.removeFromLeft (in.getWidth() / (float) (3 - j)).reduced (6, 0);
             const float v = disp[j].load();
             ui::label (g, names[j], cell.removeFromLeft (40), v < 0.01f ? ui::kRed : ui::kDim, 10.0f);
-            ui::levelBar (g, cell.withSizeKeepingCentre (cell.getWidth(), 6), std::min (v, 2.0f) * 0.5f);
+            ui::valueBar (g, cell.withSizeKeepingCentre (cell.getWidth(), 6), std::min (v, 2.0f) * 0.5f);
         }
     }
 private:
@@ -123,7 +123,7 @@ public:
     {
         ui::frame (g, r, "BUILD");
         auto in = r.reduced (12, 20);
-        ui::levelBar (g, in.removeFromLeft (in.getWidth() * 0.6f).withSizeKeepingCentre (in.getWidth() * 0.6f, 8), std::pow (10.0f, (disp.load() * 66.0f - 60.0f) / 20.0f));
+        ui::valueBar (g, in.removeFromLeft (in.getWidth() * 0.6f).withSizeKeepingCentre (in.getWidth() * 0.6f, 8), disp.load());
         const juce::String st = dispArmed.load() ? "DROP ON BAR" : dispReleased.load() ? "RETURN KNOB" : "LIVE";
         ui::label (g, st, in, dispArmed.load() ? ui::kGreen : dispReleased.load() ? ui::kAmber : ui::kDim, 12.0f, juce::Justification::centredRight);
     }

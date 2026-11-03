@@ -102,7 +102,8 @@ if(SF_BUILD_PLUGINS)
         "LIMIT|SfLm|FALSE|SF LIMIT"
         "ROOMEQ|SfRq|FALSE|SF ROOM EQ"
         "ALLOC|SfAl|FALSE|SF ALLOC"
-        "TAP|SfTp|FALSE|SF TAP")
+        "TAP|SfTp|FALSE|SF TAP"
+        "STRIP|SfSp|FALSE|SF STRIP")
     foreach(ENTRY ${SF_LIST})
         string(REPLACE "|" ";" PARTS "${ENTRY}")
         list(GET PARTS 0 MID)

@@ -51,6 +51,15 @@ inline void levelBar (juce::Graphics& g, juce::Rectangle<float> r, float linear)
     g.fillRect (r.withWidth (r.getWidth() * t));
 }
 
+// Plain 0..1 value bar (no level colours).
+inline void valueBar (juce::Graphics& g, juce::Rectangle<float> r, float v)
+{
+    g.setColour (kTrack);
+    g.fillRect (r);
+    g.setColour (kText);
+    g.fillRect (r.withWidth (r.getWidth() * juce::jlimit (0.0f, 1.0f, v)));
+}
+
 // Ring-buffer trace (values 0..1), newest at the right.
 template <int N>
 inline void trace (juce::Graphics& g, juce::Rectangle<float> r, const std::atomic<float> (&v)[N], int writePos, juce::Colour c)

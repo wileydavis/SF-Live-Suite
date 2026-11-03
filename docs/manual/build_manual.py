@@ -110,8 +110,8 @@ class Doc(BaseDocTemplate):
         canv.line(0.8 * inch, h - 3.35 * inch, w - 0.8 * inch, h - 3.35 * inch)
         canv.setFont("Mono", 9); canv.setFillColor(colors.HexColor("#9a9a9a"))
         y = h - 3.7 * inch
-        for line in ["27 PLUGINS FOR PERFORMING HYPNOTIC / DUB TECHNO IN ABLETON LIVE",
-                     "9 INSTRUMENTS   10 EFFECTS   8 MASTER AND MIX TOOLS",
+        for line in ["28 PLUGINS FOR PERFORMING HYPNOTIC / DUB TECHNO IN ABLETON LIVE",
+                     "9 INSTRUMENTS   11 EFFECTS   8 MASTER AND MIX TOOLS",
                      "", "VERSION 0.1   NOVEMBER 2026", "STRANGE FREQUENCIES"]:
             canv.drawString(0.8 * inch, y, line); y -= 14
         canv.setFont("Mono", 7.5)
@@ -252,7 +252,8 @@ lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Ma
        ["Groups", "SF ENERGY on each group, PROFILE to match (DRUMS, BASS, MUSIC, VOICE)."],
        ["Returns", "SF DELAY, SF REVERB, SF DENSITY."],
        ["Master", "SF ISOLATOR > SF BUILD > SF GLUE > SF LOWEND > SF ROOM EQ > SF LIMIT. SF ALLOC anywhere on the master."],
-       ["Stems / hardware", "SF TAP with ROLE set."]]
+       ["Live instruments / hardware", "SF STRIP last on the track: the suite's performance row, Pocket and ALLOC for any sound."],
+       ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
 story.append(H2("THE E16"))
 story += bullets(["Map with Live's MIDI Map (Cmd-M): click a knob in the plugin (or in Live's device panel), turn the E16 knob.",
@@ -270,7 +271,7 @@ story.append(PageBreak())
 
 # ---------------- PART 2: modules
 order = [("INSTRUMENTS", ["KICK", "PERC", "RUMBLE", "BASS", "LEAD", "PAD", "VOICE", "DECK", "CONTROL"]),
-         ("EFFECTS", ["FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
+         ("EFFECTS", ["STRIP", "FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
          ("MASTER AND MIX", ["ISOLATOR", "BUILD", "GLUE", "LOWEND", "LIMIT", "ROOMEQ", "ALLOC", "TAP"])]
 chapter = 6
 for group, mods in order:
