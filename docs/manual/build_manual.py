@@ -15,8 +15,11 @@ from reportlab.platypus.flowables import Flowable
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "controllers", "e16"))
 import content as C
+import layout as E16          # the SF SHOW scene's layout: one source for the scene file and these tables
 
 F = "/usr/share/fonts/truetype/dejavu/"
 pdfmetrics.registerFont(TTFont("Sans", F + "DejaVuSans.ttf"))
@@ -130,6 +133,37 @@ class RoutingDiagram(Flowable):
         self.arrow(x2 + w2, ym + h2 / 2, x3, yo[1] + bh / 2)
         self.arrow(x2 + w2, ym + h2 / 2 - 10, x3, yo[2] + bh / 2)
 
+class E16Grid(Flowable):
+    """The E16 in SF SHOW: a 4 x 4 grid numbered row by row from the top left. Rows 1-2 are the same on
+    every page; rows 3-4 are drawn as they are on an instrument page. A light blue ring is a volume."""
+    CW, RH = 100, 38
+    H = 4 * RH + 16
+    def __init__(self, cells): super().__init__(); self.cells = cells
+    def wrap(self, aw, ah): self.aw = aw; return aw, self.H
+    def draw(self):
+        c = self.canv
+        top = self.H - 2
+        for r in range(4):
+            for col in range(4):
+                i = r * 4 + col + 1
+                name, sub, ring, quiet = self.cells[i]
+                x, y = col * self.CW, top - (r + 1) * self.RH
+                cx, cy = x + 13, y + self.RH / 2
+                c.setLineWidth(2.4); c.setStrokeColor(ring); c.circle(cx, cy, 10.5, stroke=1, fill=0)
+                c.setFillColor(INK); c.setFont("MonoB", 7.2); c.drawCentredString(cx, cy - 2.5, str(i))
+                c.setFillColor(GREY if quiet else INK); c.setFont("MonoB", 7.2); c.drawString(x + 29, cy + 1.6, name)
+                if sub: c.setFillColor(GREY); c.setFont("Mono", 5.9); c.drawString(x + 29, cy - 6.6, sub)
+        yd = top - 2 * self.RH
+        c.setStrokeColor(GREY); c.setLineWidth(0.6); c.setDash(2.2, 2.2); c.line(0, yd, 4 * self.CW, yd); c.setDash()
+        xb = 4 * self.CW + 8
+        for (y1, y0, text, sub) in ((top - 3, yd + 3, "EVERY PAGE", "ROWS 1 AND 2"), (yd - 3, top - 4 * self.RH + 3, "THE PAGE", "ROWS 3 AND 4")):
+            c.setStrokeColor(INK); c.setLineWidth(0.8)
+            c.line(xb, y1, xb + 4, y1); c.line(xb + 4, y1, xb + 4, y0); c.line(xb, y0, xb + 4, y0)
+            c.setFillColor(INK); c.setFont("MonoB", 7.2); c.drawString(xb + 10, (y0 + y1) / 2 + 1.5, text)
+            c.setFillColor(GREY); c.setFont("Mono", 5.9); c.drawString(xb + 10, (y0 + y1) / 2 - 6.5, sub)
+        c.setFillColor(GREY); c.setFont("Mono", 5.9)
+        c.drawString(0, 2, "ROWS 3 AND 4 AS ON AN INSTRUMENT PAGE.  LIGHT BLUE RING: A VOLUME.")
+
 # ------------------------------------------------------------------ document
 class Doc(BaseDocTemplate):
     def __init__(self, path):
@@ -196,7 +230,7 @@ def P(text, st="body"): return Paragraph(text, S[st])
 def bullets(items): return [Paragraph(t, S["bullet"], bulletText="—") for t in items]
 def numbered(items): return [Paragraph(t, S["bullet"], bulletText=f"{i}.") for i, t in enumerate(items, 1)]
 
-def table(rows, widths, header=True, mono_first=True):
+def table(rows, widths, header=True, mono_first=True, pad=3.5):
     data = []
     for r_i, row in enumerate(rows):
         cells = []
@@ -208,7 +242,7 @@ def table(rows, widths, header=True, mono_first=True):
         data.append(cells)
     t = Table(data, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
     st = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-          ("TOPPADDING", (0, 0), (-1, -1), 3.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+          ("TOPPADDING", (0, 0), (-1, -1), pad), ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
           ("LINEBELOW", (0, 0), (-1, -1), 0.4, LIGHT)]
     if header: st += [("LINEBELOW", (0, 0), (-1, 0), 0.9, INK)]
     t.setStyle(TableStyle(st))
@@ -371,9 +405,9 @@ lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Ma
        ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
 story.append(H2("THE E16"))
-story += bullets(["Map with Live's MIDI Map (Cmd-M): click a knob in the plugin (or in Live's device panel), turn the E16 knob.",
-                  "In Live's MIDI preferences turn <b>Remote</b> on for the E16 <i>output</i>. Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
-                  "The E16's default absolute 0-127 output is right; the plugins smooth every step."])
+story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's parameter panel (the triangle in its title bar), click the parameter there and turn the E16 knob. A parameter that isn't listed: Configure, touch it in the plugin window, Configure off.",
+                  "In Live's MIDI preferences turn <b>Remote</b> on for the E16's Port 2, input <i>and output</i>. Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
+                  "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has a ready-made E16 scene for the show template, SF SHOW."])
 story.append(H2("SAMPLES"))
 story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the plugin window or click LOAD. The sample is analysed (root note, decay, onsets) and embedded in the Live set, so the set travels without the file."))
 story.append(H2("FIRST SESSION CHECKS"))
@@ -441,7 +475,7 @@ story.append(table([["TRACK", "INPUT / MONITOR", "OUTPUT"],
 story.append(Spacer(1, 6))
 story += bullets(["Main is the set. Exporting or resampling it gives the release mix; the venue's correction (ROOM EQ) exists only on 92 PA, so the recording never hears it.",
                   "<b>Disable every send on 90 LIVE BUS</b> (right-click a send, Disable Send). The returns feed LIVE BUS, and Live can't compensate a return's delay on a track whose matching send is active, even at zero (Ableton's Delay Compensation FAQ).",
-                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK keep playing. Mute 92 PA and the speakers go silent while REC keeps recording.",
+                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK keep playing. Mute 92 PA and the speakers go silent while REC keeps recording. Put 92 PA's on/off on a computer key (Cmd-K, click its activator, press the key), not on an E16 press: a knob is easily pressed while it is turned.",
                   "PANIC silences every SF plugin, DECK included, but not Live's own clips and devices: for total silence, mute 92 PA.",
                   "BRIDGE is for transitions and regrouping. It still needs Live: it is not a backup for a computer failure.",
                   "ROOM EQ only cuts, so it needs no limiter after it; LIMIT's -1 dB ceiling leaves the margin."])
@@ -472,7 +506,8 @@ story += bullets(["KICK lane on C1: with KEY TRACK on, any other note transposes
 story.append(H2("CLOCK, MIDI AND LATENCY"))
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     ["ONE port A in", "on", "off", "off"], ["ONE port B in", "on", "off", "off"],
-    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 in", "off", "off", "on"], ["E16 out", "off", "off", "on"]],
+    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 Port 2 in", "off", "off", "on"], ["E16 Port 2 out", "off", "off", "on"],
+    ["E16 Ports 1 and 3, in and out", "off", "off", "off"]],
     [2.6 * inch, 0.9 * inch, 0.9 * inch, W - 4.4 * inch]))
 story.append(Spacer(1, 6))
 story += bullets(["Live is the clock master. On the ONE: USB device mode, sync from USB, Auto Sync on (it starts with Live), Start and Stop accepted, MIDI Thru off. Never send clock both ways.",
@@ -480,48 +515,54 @@ story += bullets(["Live is the clock master. On the ONE: USB device mode, sync f
                   "Calibrate once: record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences. Leave POCKET OFFSET at 0 unless the pump is still off after that.",
                   "Every Pocket stage in a chain adds its 512-sample lookahead to the total latency (compensated, but it adds up): no SF TAP or SF DUCK on tracks that already hold SF instruments."])
 
-story.append(H2("THE E16: TOP HALF"))
-story.append(P("One E16 scene for the whole rig. Encoders 1-8 are the same on every page; 9-16 change with the page."))
-story.append(table([["ENCODER", "TURN", "PRESS"],
-    ["1", "LOW ENERGY (SF ENERGY on 10 LOW)", ""],
-    ["2", "DRUMS ENERGY", ""],
-    ["3", "MUSIC ENERGY", ""],
-    ["4", "BUILD (SF BUILD on 90 LIVE BUS)", "DROP (hold): the build snaps off on the next bar"],
-    ["5", "KICK volume", ""],
-    ["6", "LOW group volume", ""],
-    ["7", "DRUMS group volume", ""],
-    ["8", "MUSIC group volume", ""],
-    ["13 (every page)", "", "92 PA on / off (toggle): the speakers' kill switch"],
-    ["16 (every page)", "", "PANIC (hold): every SF plugin silent while held"]], [1.3 * inch, 2.6 * inch, W - 3.9 * inch]))
-story.append(Spacer(1, 6))
+story.append(H2("THE E16"))
+story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README). The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
+PRESS_DOES = {"DROP": "the build resets on the next bar line", "PANIC": "every SF plugin silent while held",
+              "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
+              "ROLL": "the drums roll while held"}
+def press_text(p, full=True):
+    kind = "hold" if p.mode == "HOLD" else "toggle"
+    return f"{p.name} ({kind})" + (f": {PRESS_DOES[p.name]}" if full else "")
+def where_to(c):
+    t = c.target.split(" > ")
+    return f"{t[1]}, {t[0]}" if t[1].startswith("SF ") else t[0]
+cells = {}
+for i, c in enumerate(E16.TOP, 1):
+    pr = E16.PRESSES_ALL.get(i)
+    sub = f"PRESS: {pr.name} ({'HOLD' if pr.mode == 'HOLD' else 'TOGGLE'})" if pr else where_to(c)
+    cells[i] = (c.label, sub, CYAN if c.colour == E16.LIGHT_BLUE else INK, False)
+for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND", 1), ("GATE", 0), ("DENSITY", 0), ("FILTER", 0), ("SOUND", 1), ("LEVEL", 0)]):
+    pr = E16.PRESSES_ALL.get(i)
+    cells[i] = (name, f"PRESS: {pr.name} ({'HOLD' if pr.mode == 'HOLD' else 'TOGGLE'})" if pr else ("THE PLUGIN'S OWN" if quiet else ""),
+                CYAN if name == "LEVEL" else INK, bool(quiet))
+story.append(Spacer(1, 2)); story.append(E16Grid(cells)); story.append(Spacer(1, 8))
+story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(press_text(pr))}." for i, pr in sorted(E16.PRESSES_ALL.items())]
+                 + ["<b>PANIC and 92 PA's on/off are on computer keys</b> (Key Map, Cmd-K), never on a press: a knob is easily pressed while it is turned, and neither may ever happen by accident. A key flips them: PANIC on, every SF plugin silent; again, back. Every press on the E16 is one the set plays through if it happens by accident."])
 story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
-                  "Each instrument's LEVEL belongs to its song; the faders here are your balance on the night. Set every LEVEL at soundcheck so a fader at 0 dB gives the intended mix, and give the fader mappings a maximum of 0 dB (Max in Live's MIDI Mappings)."])
+                  "Each instrument's LEVEL belongs to its song; the volumes here are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix, and give every volume mapping a maximum of 0 dB (Max in Live's MIDI Mappings).",
+                  "Rings: light blue is a volume, white is everything else."])
 
 story.append(H2("THE E16: PAGES"))
-story.append(table([["PAGE", "ENCODERS 9-12", "ENCODERS 13-16"],
-    ["1 PERFORM", "ACID CUTOFF / STAB send A / TEXTURE COLOR / VOICE FILTER", "DUB return / SPACE return / LIVE BUS volume / BRIDGE volume"],
-    ["2 KICK", "TUNE / DECAY / PUNCH / CLICK", "DENSITY / FILTER / DRIVE / LEVEL"],
-    ["3 BASS", "CUTOFF / RES / ENV AMT / GATE", "DENSITY / FILTER / DRIVE / LEVEL"],
-    ["4 RUMBLE", "SIZE / DARK / GRIT / GATE", "DENSITY / FILTER / PUMP / LEVEL"],
-    ["5 HATS", "CLOSED: DENSITY / DECAY / TONE; OPEN: DENSITY", "OPEN: DECAY / TONE; CLAP: DENSITY / DECAY"],
-    ["6 STRIKE", "POWER / DISTANCE / SIZE / DECAY", "DENSITY / FILTER / MATERIAL / LEVEL"],
-    ["7 ACID", "CUTOFF / RES / ENV AMT / GATE", "DENSITY / FILTER / DRIVE / LEVEL"],
-    ["8 STAB", "CUTOFF / RES / ENV AMT / GATE", "DENSITY / FILTER / SPACE / LEVEL"],
-    ["9 TEXTURE", "CUTOFF / COLOR / DETUNE / GATE", "DENSITY / FILTER / ATTACK / LEVEL"],
-    ["10 VOICE", "SIGNAL / TONE / ECHO / GATE", "DENSITY / FILTER / DRIVE / LEVEL"],
-    ["11 SPACE", "DUB: TIME / FEEDBACK / TONE / DRIVE", "SPACE: SIZE / DECAY / DARK / DUCK"],
-    ["12 MACROS", "MACRO 1-4", "MACRO 5 / MACRO 6 / REPEAT LENGTH / REPEAT PITCH"]], [0.95 * inch, 2.95 * inch, W - 3.9 * inch]))
+rows = [["PAGE", "ROW 3: ENCODERS 9-12", "ROW 4: ENCODERS 13-16", "PRESSES"]]
+for n, (title, bottom) in enumerate(E16.PAGES, 1):
+    pr = [f"{i} {press_text(E16.PRESSES_PAGE[(title, i)], False)}" for i in range(9, 17) if (title, i) in E16.PRESSES_PAGE]
+    rows.append([f"{n} {title}", esc(" / ".join(c.label for c in bottom[:4])), esc(" / ".join(c.label for c in bottom[4:])), esc(", ".join(pr))])
+story.append(table(rows, [0.95 * inch, 2.3 * inch, 2.3 * inch, W - 5.55 * inch]))
 story.append(Spacer(1, 6))
-story += bullets(["On every instrument page 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row, with a swap where a model's character lives elsewhere (GRANULAR: COLOR is grain size, DETUNE is scatter; STAB: SPACE is the ensemble).",
-                  "Presses on 11 SPACE: 9 DUB THROW (hold), 10 DUB FREEZE (toggle), 13 SPACE THROW (hold), 14 SPACE FREEZE (toggle). On 12 MACROS: 15 REPEAT ROLL (hold).",
+story += bullets(["On every single-instrument page 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout (HATS holds three PERCs). The rest is the plugin's own performance row, with a swap where a model's character lives elsewhere (GRANULAR: COLOR is grain size, DETUNE is scatter; STAB: SPACE is the ensemble).",
+                  "On SPACE the presses sit under their knobs: row 3 is DUB, row 4 is SPACE. On MACROS, hold ROLL on 15 and turn LENGTH under the same finger.",
                   "The HATS page is the fill page: CLOSED DENSITY with ECHO SPACE 1/16 turns 1/8 hats into 1/16s, the send-delay trick built in."])
 
 story.append(H2("THE E16: ADDRESSES AND SETTINGS"))
-story += bullets(["One address per parameter. A parameter on two pages (ACID CUTOFF on PERFORM and on ACID) sends the same channel and CC from both encoders: two ways to reach one mapping.",
-                  "A clean scheme: one E16 channel per destination (1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB, 10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 groups, 15 LIVE BUS / BRIDGE / PA / REPEAT, 16 CONTROL). Inside a channel: CC 20-27 the eight controls of its page in order, CC 28 its volume, CC 29 send A, CC 30 send B. Mixed pages use each encoder's own channel.",
-                  "Absolute CC 0-127, one destination per encoder, no value sent on page change, USB Thru off. Live's Takeover Mode: Pick-Up.",
+story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB, 10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 the groups (LOW, DRUMS, MUSIC and DRUMS' REPEAT), 15 LIVE BUS and BRIDGE, 16 CONTROL.",
+                  "<b>CC = block base + the parameter's place in its plugin's own order</b>, counting from 0. One plugin on a channel: base 20, so its performance row (its first eight parameters) is CC 20-27. Channel 14: LOW ENERGY 20, DRUMS ENERGY 30, MUSIC ENERGY 40, REPEAT 50. Channel 15: BUILD 20, with 30-79 kept for the master devices. Channel 16: CONTROL 20 (MACRO 1-6 are 20-25). The plugins never reorder their parameters, so an address never moves. The appendix lists every address.",
+                  "<b>Mixer:</b> CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC volumes; channel 15: 100 LIVE BUS, 101 BRIDGE (102 kept for DECK). A parameter on two pages sends the same address from both: two ways to one mapping.",
+                  "<b>Presses:</b> a hold is a CC, 127 on press and 0 on release, so the parameter is on while the knob is down. A toggle is a note: Live flips a switch on every Note On, so the E16 can never think FREEZE is on while Live has it off. SF SHOW sets every turn; until the OXI App's press format is known, the presses are added in the App (the README lists them), and again after loading a new scene file.",
+                  "<b>On the E16:</b> Auto Transmit off, for the scene and globally (stored values sent on a page change would pull Live's faders to them), MIDI Thru off. Stay in SF SHOW for the whole show.",
+                  "<b>In Live:</b> E16 Port 2 Remote on, input and output; Ports 1 and 3 off (Port 1 is the OXI App's, and a second Remote port doubles every message: a toggle would flip twice). Takeover Mode: Value Scaling, so a knob that disagrees with Live after a recall moves the sound smoothly instead of jumping.",
+                  "<b>Map once, keep it:</b> MIDI mappings belong to the Live set, so map the show set once and save it as a template (File &gt; Save Live Set As Template). New sets start mapped.",
                   "<b>Map the E16 straight to the SF parameters, not through Instrument Rack macros.</b> A song recall changes the plugin's value underneath a macro: the macro doesn't follow, its ring shows the wrong value and the next turn jumps the sound back. Ranges go in Live's MIDI Mappings (Min and Max per mapping): give resonance and feedback the part of their travel that matters, and widen it when the music asks.",
-                  "Check the feedback: move a parameter in Live and watch the ring, change page and come back. A ring shows the stored value; SLOW and MOTION can take the sound elsewhere for a while.",
+                  "Check the shared knobs once: turn LOW ENERGY on page 2, go to page 1 and turn it a step. The sound must move a step, not jump back. If it jumps, the README's relative fallback fixes it.",
                   "Keep STORE ALL, MODEL, KEY and the calibration controls off the performance pages."])
 
 story.append(H2("MACROS"))
@@ -560,18 +601,20 @@ story += bullets(["Instrument tracks on Monitor In: they play from the ONE wheth
                   "Collect All and Save. SF samples are inside the set; DECK tracks are referenced by path, so keep the files where they are."])
 
 story.append(H2("BUILD ORDER"))
-story += numbered(["CONTROL, KICK, BASS, LIVE BUS, PA and REC. Clock and latency calibrated, a short recording made.",
+story += numbered(["CONTROL, KICK, BASS, RUMBLE, LIVE BUS, PA and REC. Clock and latency calibrated, a short recording made.",
                    "CLOSED, OPEN, CLAP and STRIKE.",
-                   "The E16 top half.",
                    "ACID, STAB, TEXTURE and VOICE, one at a time.",
                    "The returns; check the sends are disabled on LIVE BUS.",
-                   "The E16 pages and the macros.",
-                   "BRIDGE and DECK; rehearse moving between them and LIVE BUS.",
+                   "BRIDGE and DECK.",
+                   "SF SHOW on the E16 (controllers/e16): map the top half, then the pages; PANIC and 92 PA on their keys; the macros. Save the mapped set as a template.",
+                   "Rehearse moving between BRIDGE, DECK and LIVE BUS.",
                    "Record a whole set before adding anything else."])
 story.append(H2("BEFORE THE FIRST SHOW"))
 story += bullets(["CONTROL shows BUS SHARED and KICK REPORTING; the pump lands on the kick.",
                   "The ONE's Program Change recalls the song, every track on the same bar, and a recalled knob is yours the moment you turn it. (VST3 needs Live 12.2 or later; the AU works in any version.)",
-                  "PANIC held on the E16: silence, and every header shows PANIC. Released: back without a click. 92 PA muted: the speakers silent, REC still recording.",
+                  "PANIC from its key: silence, and every header shows PANIC. Again: back without a click. 92 PA muted from its key: the speakers silent, REC still recording.",
+                  "Every E16 hold press (DROP, THROW, ROLL) held for three seconds stays on for the whole hold and goes off on release.",
+                  "The shared E16 knobs don't jump: LOW ENERGY turned on page 2, then a step on page 1, moves a step. Changing pages sends nothing (Live's MIDI input indicator stays dark).",
                   "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording."])
 story.append(PageBreak())
 
@@ -654,18 +697,30 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be an SF KICK (or use SF DUCK with SOURCE SIDECHAIN)."],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. The VST3 needs Live 12.2 or later; otherwise use the AU."],
-                    ["E16 rings don't follow", "Remote on for the E16 output in Live's MIDI preferences; map with Live's MIDI Map."],
+                    ["E16 rings don't follow", "Remote on for E16 Port 2's output in Live's MIDI preferences; map with Live's MIDI Map."],
+                    ["An E16 press does nothing", "The presses aren't in the scene file yet: add them in the OXI App (controllers/e16 README), and again after loading a new scene file. A toggle that flips back: Remote is on for two E16 ports, so the note arrives twice. Port 2 only."],
+                    ["An E16 knob jumps when touched", "A shared knob holding an old value: controllers/e16 README, check 2. Or Auto Transmit is on: off in the scene and globally."],
                     ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],
                     ["A knob shows GLIDE", "SLOW is on: the knob is travelling to where you set it."],
                     ["A knob moves on its own", "MOTION: check M1 / M2 TARGET in the plugin's MOTION row."],
                     ["Header shows FAULT (red)", "The plugin caught an invalid value or a runaway and reset itself to silence. It carries on working. If it happens again, note what was playing: it is a bug."],
                     ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out, clears and stays silent while held. Live's own clips and devices aren't SF: mute the PA track for those."],
-                    ["Header shows PANIC (red)", "PANIC is held on SF CONTROL. Check that the button mapped to it isn't latched (it must be momentary)."],
+                    ["Header shows PANIC (red)", "PANIC is on at SF CONTROL: held in its window, or flipped on by its key or button. A key flips it back."],
                     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds. Rebuild and install the whole suite."],
                     ["A return doubles the dry signal", "DRY off on SF DELAY, SF REVERB or SF DENSITY on a return track."],
                     ["Pitch is wrong after a song change", "KEY on SF CONTROL is stored per song. KEY FOLLOW off on an instrument ignores it."],
                     ["Levels changed after the update", "Since Nov 3 every model is calibrated to its role's target (chapter 5). Re-balance the faders once."]], [1.7 * inch, W - 1.7 * inch], mono_first=False))
+
+story.append(CondPageBreak(3 * inch))
+story.append(H2("E16 ADDRESS MAP (SF SHOW)"))
+story.append(P("Every address of the SF SHOW scene once, by channel: what to click in Live when mapping (Cmd-M), the range to give the mapping, and where the knob is on the E16. The same list is controllers/e16/sf-show-map.csv."))
+rows = [["CH", "MESSAGE", "LIVE TARGET", "MAPPING", "ON THE E16"]]
+for (msg, ch, n), (target, places, kind, rng, item) in sorted(E16.addresses().items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2])):
+    m = f"CC {n}" if msg == "CC" else f"NOTE {n} ({E16.note_name(n)})"
+    how = {"TURN": "absolute", "HOLD": "press: hold", "TOGGLE": "press: toggle"}[kind] + (f", {rng}" if rng else "")
+    rows.append([str(ch), m, esc(target), esc(how), esc(E16.where(places))])
+story.append(table(rows, [0.35 * inch, 1.05 * inch, 2.55 * inch, 1.25 * inch, W - 5.2 * inch], mono_first=False, pad=2.3))
 
 doc = Doc(os.path.join(ROOT, "docs", "SF-Live-Suite-Manual.pdf"))
 doc.multiBuild(story)

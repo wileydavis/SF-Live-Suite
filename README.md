@@ -33,15 +33,15 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 
 ## Setting up the live set
 
-The manual's chapter 7, **The show template**, is a complete show set built on this: every track and its routing, the OXI ONE's sequencers and channels, clock and latency settings, the E16's permanent top half and its pages, a macro plan, recording and a build order.
+The manual's chapter 7, **The show template**, is a complete show set built on this: every track and its routing, the OXI ONE's sequencers and channels, clock and latency settings, the E16's permanent top half and its pages, a macro plan, recording and a build order. The E16 scene for it is ready to load: **`controllers/e16/SF SHOW.oxie16`**, with an address map and the loading and mapping steps (`controllers/e16/README.md`).
 
-1. **SF CONTROL** on its own MIDI track, input from the OXI One. Program Change on channel 16 selects the song (01-16); as VST3 this needs Live 12.2 or later (the AU reads it in any version). Set each song's **KEY** here; map **PANIC** to a button you can find in the dark. Everything stays silent while PANIC is held.
+1. **SF CONTROL** on its own MIDI track, input from the OXI One. Program Change on channel 16 selects the song (01-16); as VST3 this needs Live 12.2 or later (the AU reads it in any version). Set each song's **KEY** here; map **PANIC** to a computer key (Key Map) or a dedicated button you can find in the dark, never to a knob's press. Everything stays silent while PANIC is on.
 2. **Instruments**, one per MIDI track: SF KICK, SF PERC (2-3), SF RUMBLE, SF BASS, SF LEAD, SF VOICE, SF PAD, SF STRIKE, SF DECK. Pick models in the header menu, or a starting point from **PRESET**.
 3. **Groups** get SF ENERGY (instead of the DJ filter). PROFILE: DRUMS / BASS / MUSIC / VOICE.
 4. **Returns:** SF DELAY, SF REVERB, SF DENSITY (for the send-delay hat fills). Turn **DRY** off on a return, so it gives only the effect.
 5. **Master:** SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT, plus SF ALLOC anywhere on the master. **SF ROOM EQ goes after the recording point, not on the master** (below).
 6. **Live instruments, drum racks, hardware:** SF STRIP last on the track gives it the suite's performance row and puts it in Pocket and ALLOC. **Stems:** SF TAP (no sound of its own) or SF STRIP.
-7. **E16:** map with Live's MIDI Map (Cmd-M). In Live's MIDI preferences turn **Remote** on for the E16 *output*, so rings follow song recalls and ALLOC slot changes. The first 8 controls of each plugin are its performance row.
+7. **E16:** load the SF SHOW scene (`controllers/e16`) and map with Live's MIDI Map (Cmd-M). In Live's MIDI preferences turn **Remote** on for E16 Port 2, input *and output*, so rings follow song recalls and ALLOC slot changes; Ports 1 and 3 off. The first 8 controls of each plugin are its performance row.
 8. **Songs:** set every plugin for a song, choose the song number on SF CONTROL, press **STORE ALL**. Program Change (or the SONG knob) recalls it on the next bar.
 
 **Recording and the room.** The recording is the set; room correction belongs to the room. Set the Main track's output (the master; Live 12 calls it Main) to an output pair you don't use. Make an audio track **PA**: *Audio From* = Resampling (the Main output), Monitor **In**, SF ROOM EQ on it, *Audio To* = the PA outputs. Record the set on an audio track **REC**: *Audio From* = Resampling, Monitor **Off**, armed. Live records what comes into a track, before its devices, so the recording never carries the venue's correction. (Or do the venue EQ in the audio interface's own mixer, after Live.)
