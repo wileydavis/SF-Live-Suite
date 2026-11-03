@@ -60,6 +60,76 @@ class Swatch(Flowable):
     def wrap(self, aw, ah): return 10, 10
     def draw(self): self.canv.setFillColor(self.c); self.canv.rect(0, 0, 10, 10, stroke=0, fill=1)
 
+class RoutingDiagram(Flowable):
+    """The show template's signal flow, drawn in the manual's own type: sources > LIVE BUS > Main >
+    PA and REC (both from Resampling)."""
+    H = 214
+    def wrap(self, aw, ah): self.aw = aw; return aw, self.H
+    def box(self, x, y, w, h, text, subs=(), heavy=False):
+        c = self.canv
+        c.setLineWidth(1.6 if heavy else 0.8); c.setStrokeColor(INK); c.setFillColor(colors.white)
+        c.rect(x, y, w, h, stroke=1, fill=1)
+        lines = len(subs)
+        ty = y + h / 2 - 2.6 + 3.6 * lines
+        c.setFillColor(INK); c.setFont("MonoB", 7.4); c.drawCentredString(x + w / 2, ty, text)
+        c.setFont("Mono", 6.0); c.setFillColor(GREY)
+        for i, sub in enumerate(subs): c.drawCentredString(x + w / 2, ty - 8.0 * (i + 1), sub)
+    def arrow(self, x0, y0, x1, y1, dashed=False):
+        import math
+        c = self.canv
+        col = GREY if dashed else INK
+        a = math.atan2(y1 - y0, x1 - x0)
+        c.setStrokeColor(col); c.setLineWidth(0.8)
+        if dashed: c.setDash(2.2, 2.2)
+        c.line(x0, y0, x1 - 4 * math.cos(a), y1 - 4 * math.sin(a))
+        c.setDash()
+        p = c.beginPath(); p.moveTo(x1, y1)
+        p.lineTo(x1 - 6 * math.cos(a) + 2.6 * math.sin(a), y1 - 6 * math.sin(a) - 2.6 * math.cos(a))
+        p.lineTo(x1 - 6 * math.cos(a) - 2.6 * math.sin(a), y1 - 6 * math.sin(a) + 2.6 * math.cos(a))
+        p.close(); c.setFillColor(col); c.drawPath(p, stroke=0, fill=1)
+    def draw(self):
+        c = self.canv
+        aw, H = self.aw, self.H
+        bh, gap = 22, 6
+        x0, w0 = 26, 112
+        top = H - 4
+        ys = [top - bh - i * (bh + gap) for i in range(5)]                 # KICK, LOW, DRUMS, MUSIC, RETURNS
+        src = [("01 KICK", ("SF KICK",)), ("10 LOW", ("SF ENERGY",)), ("20 DRUMS", ("SF ENERGY, SF REPEAT",)),
+               ("30 MUSIC", ("SF ENERGY",)), ("A DUB  B SPACE", ("SF DELAY, SF REVERB",))]
+        for (t, sub), y in zip(src, ys): self.box(x0, y, w0, bh, t, sub)
+        yb = [ys[4] - 18 - bh, ys[4] - 18 - 2 * bh - gap]                 # BRIDGE, DECK
+        self.box(x0, yb[0], w0, bh, "40 BRIDGE", ("LIVE AUDIO CLIPS",))
+        self.box(x0, yb[1], w0, bh, "41 DECK", ("SF DECK",))
+        # Sends: the groups feed the returns (left of the column, dashed).
+        xs = 12
+        c.setStrokeColor(GREY); c.setLineWidth(0.8); c.setDash(2.2, 2.2)
+        for y in (ys[2], ys[3]): c.line(x0, y + bh / 2, xs, y + bh / 2)
+        c.line(xs, ys[2] + bh / 2, xs, ys[4] + bh / 2)
+        c.setDash()
+        self.arrow(xs, ys[4] + bh / 2, x0, ys[4] + bh / 2, dashed=True)
+        c.saveState(); c.translate(6, (ys[2] + ys[4] + bh) / 2); c.rotate(90)
+        c.setFont("Mono", 6.0); c.setFillColor(GREY); c.drawCentredString(0, 0, "SENDS"); c.restoreState()
+        # LIVE BUS
+        x1, w1, h1 = 160, 96, 44
+        yl = (ys[0] + ys[4] + bh) / 2 - h1 / 2
+        self.box(x1, yl, w1, h1, "90 LIVE BUS", ("ISOLATOR BUILD GLUE", "TONE LOWEND ALLOC"))
+        for y in ys: self.arrow(x0 + w0, y + bh / 2, x1, yl + h1 / 2)
+        # MAIN
+        x2, w2, h2 = 280, 56, 40
+        ym = (yl + h1 / 2 + (yb[0] + yb[1] + bh) / 2) / 2 - h2 / 2
+        self.box(x2, ym, w2, h2, "MAIN", ("SF LIMIT",), heavy=True)
+        self.arrow(x1 + w1, yl + h1 / 2, x2, ym + h2 / 2 + 8)
+        for y in yb: self.arrow(x0 + w0, y + bh / 2, x2, ym + h2 / 2 - 8)
+        # Outputs
+        w3 = 122; x3 = aw - w3
+        yo = [ym + h2 / 2 + 40, ym + h2 / 2 - bh / 2, ym + h2 / 2 - 40 - bh]
+        self.box(x3, yo[0], w3, bh, "UNUSED OUTPUT", ("MAIN'S OWN OUTPUT",))
+        self.box(x3, yo[1], w3, bh, "92 PA", ("RESAMPLING > ROOM EQ > PA",))
+        self.box(x3, yo[2], w3, bh, "93 REC", ("RESAMPLING > RECORDING",))
+        self.arrow(x2 + w2, ym + h2 / 2 + 10, x3, yo[0] + bh / 2, dashed=True)
+        self.arrow(x2 + w2, ym + h2 / 2, x3, yo[1] + bh / 2)
+        self.arrow(x2 + w2, ym + h2 / 2 - 10, x3, yo[2] + bh / 2)
+
 # ------------------------------------------------------------------ document
 class Doc(BaseDocTemplate):
     def __init__(self, path):
@@ -124,6 +194,7 @@ def H2(text):
     return Paragraph(text, S["h2"])
 def P(text, st="body"): return Paragraph(text, S[st])
 def bullets(items): return [Paragraph(t, S["bullet"], bulletText="—") for t in items]
+def numbered(items): return [Paragraph(t, S["bullet"], bulletText=f"{i}.") for i, t in enumerate(items, 1)]
 
 def table(rows, widths, header=True, mono_first=True):
     data = []
@@ -313,6 +384,195 @@ story += bullets(["SF CONTROL shows <b>BUS SHARED</b>. Play SF KICK: it shows <b
                   "SF DECK: load a track, PLAY A: it starts on the bar, locked to Live's tempo.",
                   "Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune. Hold PANIC with SF DELAY in feedback: silence within 5 ms, for as long as you hold it.",
                   "Record a minute on REC with a deep cut on ROOM EQ: the PA has the cut, the recording doesn't."])
+story.append(P("Chapter 7 is a complete show set built on this layout."))
+story.append(PageBreak())
+
+# ---------------- 7: the show template
+story.append(H1("7  THE SHOW TEMPLATE"))
+story.append(Rule())
+story.append(P("One Live set for every show, built on fixed roles. The OXI ONE plays the notes and patterns; the E16 plays the sound, the balance and the transitions. The E16's top half is the same on every page, so the whole arrangement is always under one hand while the other works deep in one sound.", "summary"))
+
+story.append(H2("TRACKS"))
+story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
+    ["00 CONTROL", "SF CONTROL", "ONE port B, ch 16"],
+    ["01 KICK", "SF KICK", "ONE port A, ch 1"],
+    ["10 LOW (group)", "SF ENERGY, PROFILE BASS", ""],
+    ["11 BASS", "SF BASS", "port B, ch 1"],
+    ["12 RUMBLE", "SF RUMBLE, SOURCE KICK BUS", "none: it follows the kick"],
+    ["20 DRUMS (group)", "SF ENERGY, PROFILE DRUMS; SF REPEAT", ""],
+    ["21 CLOSED", "SF PERC: closed hat", "port A, ch 2"],
+    ["22 OPEN", "SF PERC: open hat or ride", "port A, ch 3"],
+    ["23 CLAP", "SF PERC: clap or rim", "port A, ch 4"],
+    ["24 STRIKE", "SF STRIKE", "port B, ch 6"],
+    ["30 MUSIC (group)", "SF ENERGY, PROFILE MUSIC", ""],
+    ["31 ACID", "SF LEAD: ACID 303-TYPE or another mono lead", "port B, ch 2"],
+    ["32 STAB", "SF LEAD: chords and stabs", "port B, ch 3"],
+    ["33 TEXTURE", "SF PAD, often GRANULAR", "port B, ch 4"],
+    ["34 VOICE", "SF VOICE: phrases, radio fragments, choir", "port B, ch 5"],
+    ["40 BRIDGE", "Live audio clips", ""],
+    ["41 DECK", "SF DECK", "port B, ch 7 (hot cues; optional)"],
+    ["A DUB (return)", "SF DELAY, DRY off", ""],
+    ["B SPACE (return)", "SF REVERB, DRY off", ""],
+    ["90 LIVE BUS", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND; SF ALLOC (off at first)", ""],
+    ["Main", "SF LIMIT", ""],
+    ["92 PA", "SF ROOM EQ", "audio: Resampling"],
+    ["93 REC", "nothing", "audio: Resampling"]], [1.35 * inch, 3.25 * inch, W - 4.6 * inch]))
+story.append(Spacer(1, 6))
+story += bullets(["The kick stays outside LOW, so bass and rumble fade together while the kick holds the floor. In each section decide whether BASS or RUMBLE carries the sustained low end: one of two knobs then steers it.",
+                  "The PERCs are separate instruments: CHOKE works inside one track only, so a closed hat doesn't cut the open hat on its own track. Write the open hat's rhythm and DECAY for that.",
+                  "STAB: if the ONE sends whole chords, set CHORD to NONE; if it sends single notes, CHORD (or the model's own chord) voices them. Not both.",
+                  "ACID 303-TYPE slides when notes overlap, always over 60 ms like a 303: write legato notes for slides. GLIDE doesn't change it.",
+                  "VOICE with a phrase loaded: C3 plays slice 1, C#3 slice 2 and so on; below C3, the whole phrase. Sequence it as phrase choreography, not as a pitched sampler.",
+                  "Name the tracks as above: SF ALLOC lists its sources by Live track name (VST3)."])
+
+story.append(H2("ROUTING"))
+story.append(RoutingDiagram())
+story.append(Spacer(1, 6))
+story.append(table([["TRACK", "INPUT / MONITOR", "OUTPUT"],
+    ["Instrument tracks", "MIDI From as above, Monitor In", "their group; KICK to 90 LIVE BUS"],
+    ["Groups, returns A and B", "", "90 LIVE BUS"],
+    ["90 LIVE BUS", "the tracks routed to it, Monitor In, every send disabled", "Main"],
+    ["40 BRIDGE", "clips, Monitor Off (clips still play)", "Main"],
+    ["41 DECK", "MIDI From port B ch 7, Monitor In", "Main"],
+    ["Main", "", "an output pair that goes nowhere"],
+    ["92 PA", "Audio From Resampling, Monitor In, sends disabled", "the PA outputs"],
+    ["93 REC", "Audio From Resampling, Monitor Off, sends disabled", "Sends Only"],
+    ["Cue", "Live's Cue Out; DECK's CUE track", "the headphone outputs"]], [1.75 * inch, 2.75 * inch, W - 4.5 * inch]))
+story.append(Spacer(1, 6))
+story += bullets(["Main is the set. Exporting or resampling it gives the release mix; the venue's correction (ROOM EQ) exists only on 92 PA, so the recording never hears it.",
+                  "<b>Disable every send on 90 LIVE BUS</b> (right-click a send, Disable Send). The returns feed LIVE BUS, and Live can't compensate a return's delay on a track whose matching send is active, even at zero (Ableton's Delay Compensation FAQ).",
+                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK keep playing. Mute 92 PA and the speakers go silent while REC keeps recording.",
+                  "PANIC silences every SF plugin, DECK included, but not Live's own clips and devices: for total silence, mute 92 PA.",
+                  "BRIDGE is for transitions and regrouping. It still needs Live: it is not a backup for a computer failure.",
+                  "ROOM EQ only cuts, so it needs no limiter after it; LIMIT's -1 dB ceiling leaves the margin."])
+
+story.append(H2("THE MASTER DEVICES"))
+story += bullets(["Start GLUE, TONE and LOWEND gently: the set doesn't need every processor working all the time. Soundcheck the busiest passage of the night and set LIMIT's INPUT for 1-3 dB of limiting there.",
+                  "LIMIT AUTO off while you set the gain staging, then on, AUTO MODE DOWN ONLY, for shows: it stops the set creeping above TARGET and holds through breakdowns.",
+                  "SF ALLOC off at first. Turn it on band by band once the arrangement is known. It measures each source before its LEVEL and before Live's fader, so a source you've faded out still claims its bands: take a source out with its lane mute or its FILTER, or switch its ALLOC off."])
+
+story.append(H2("THE OXI ONE"))
+story.append(P("Port A carries the drums, port B everything pitched and SF CONTROL. Every sequencer has its own channel; in Live, set every track's MIDI From to its port and channel, never All Ins / All Channels."))
+story.append(table([["SEQUENCER", "MODE", "OUTPUT", "TRACK"],
+    ["1 DRUMS", "Multitrack: lane 1-4 on ch 1-4", "port A", "KICK, CLOSED, OPEN, CLAP (lanes 5-8 spare)"],
+    ["2 BASS", "Mono", "port B ch 1", "BASS"],
+    ["3 ACID", "Mono", "port B ch 2", "ACID"],
+    ["4 STAB", "Chord or Poly", "port B ch 3", "STAB"],
+    ["5 TEXTURE", "Poly", "port B ch 4", "TEXTURE"],
+    ["6 VOICE", "Mono", "port B ch 5", "VOICE"],
+    ["7 STRIKE", "Mono to start", "port B ch 6", "STRIKE"],
+    ["8 CONTROL", "Program Change only", "port B ch 16", "CONTROL"]], [1.0 * inch, 1.9 * inch, 1.0 * inch, W - 3.9 * inch]))
+story.append(Spacer(1, 6))
+story += bullets(["KICK lane on C1: with KEY TRACK on, any other note transposes the kick (C1 = TUNE), so C1 is right either way. PERC plays any note.",
+                  "RUMBLE needs no lane: SOURCE KICK BUS follows SF KICK.",
+                  "KEY OFF on SF CONTROL to start with: the ONE's notes set the pitch, and KICK and RUMBLE are tuned per song with TUNE. Turn KEY on for songs that should change key without reprogramming the ONE (mind the low register, chapter 1).",
+                  "One ONE project per track, with a pattern per section: SPARSE, MAIN, VARIATION, EXIT. Sequencer 8 sends that track's Program Change on port B ch 16, so loading the project recalls the matching SF song. Program Change stays off on the musical sequencers.",
+                  "When patterns change is set on the ONE (its launch and arranger settings): Live's launch quantization doesn't reach it."])
+
+story.append(H2("CLOCK, MIDI AND LATENCY"))
+story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
+    ["ONE port A in", "on", "off", "off"], ["ONE port B in", "on", "off", "off"],
+    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 in", "off", "off", "on"], ["E16 out", "off", "off", "on"]],
+    [2.6 * inch, 0.9 * inch, 0.9 * inch, W - 4.4 * inch]))
+story.append(Spacer(1, 6))
+story += bullets(["Live is the clock master. On the ONE: USB device mode, sync from USB, Auto Sync on (it starts with Live), Start and Stop accepted, MIDI Thru off. Never send clock both ways.",
+                  "Audio: 48 kHz, buffer 256 (Pocket needs 512 or less), Delay Compensation on, <b>Reduced Latency When Monitoring off</b> (it skips compensation on monitored tracks, so returns and Pocket drift), launch quantization 1 bar, record quantization off.",
+                  "Calibrate once: record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences. Leave POCKET OFFSET at 0 unless the pump is still off after that.",
+                  "Every Pocket stage in a chain adds its 512-sample lookahead to the total latency (compensated, but it adds up): no SF TAP or SF DUCK on tracks that already hold SF instruments."])
+
+story.append(H2("THE E16: TOP HALF"))
+story.append(P("One E16 scene for the whole rig. Encoders 1-8 are the same on every page; 9-16 change with the page."))
+story.append(table([["ENCODER", "TURN", "PRESS"],
+    ["1", "LOW ENERGY (SF ENERGY on 10 LOW)", ""],
+    ["2", "DRUMS ENERGY", ""],
+    ["3", "MUSIC ENERGY", ""],
+    ["4", "BUILD (SF BUILD on 90 LIVE BUS)", "DROP (hold): the build snaps off on the next bar"],
+    ["5", "KICK volume", ""],
+    ["6", "LOW group volume", ""],
+    ["7", "DRUMS group volume", ""],
+    ["8", "MUSIC group volume", ""],
+    ["13 (every page)", "", "92 PA on / off (toggle): the speakers' kill switch"],
+    ["16 (every page)", "", "PANIC (hold): every SF plugin silent while held"]], [1.3 * inch, 2.6 * inch, W - 3.9 * inch]))
+story.append(Spacer(1, 6))
+story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
+                  "Each instrument's LEVEL belongs to its song; the faders here are your balance on the night. Set every LEVEL at soundcheck so a fader at 0 dB gives the intended mix, and give the fader mappings a maximum of 0 dB (Max in Live's MIDI Mappings)."])
+
+story.append(H2("THE E16: PAGES"))
+story.append(table([["PAGE", "ENCODERS 9-12", "ENCODERS 13-16"],
+    ["1 PERFORM", "ACID CUTOFF / STAB send A / TEXTURE COLOR / VOICE FILTER", "DUB return / SPACE return / LIVE BUS volume / BRIDGE volume"],
+    ["2 KICK", "TUNE / DECAY / PUNCH / CLICK", "DENSITY / FILTER / DRIVE / LEVEL"],
+    ["3 BASS", "CUTOFF / RES / ENV AMT / GATE", "DENSITY / FILTER / DRIVE / LEVEL"],
+    ["4 RUMBLE", "SIZE / DARK / GRIT / GATE", "DENSITY / FILTER / PUMP / LEVEL"],
+    ["5 HATS", "CLOSED: DENSITY / DECAY / TONE; OPEN: DENSITY", "OPEN: DECAY / TONE; CLAP: DENSITY / DECAY"],
+    ["6 STRIKE", "POWER / DISTANCE / SIZE / DECAY", "DENSITY / FILTER / MATERIAL / LEVEL"],
+    ["7 ACID", "CUTOFF / RES / ENV AMT / GATE", "DENSITY / FILTER / DRIVE / LEVEL"],
+    ["8 STAB", "CUTOFF / RES / ENV AMT / GATE", "DENSITY / FILTER / SPACE / LEVEL"],
+    ["9 TEXTURE", "CUTOFF / COLOR / DETUNE / GATE", "DENSITY / FILTER / ATTACK / LEVEL"],
+    ["10 VOICE", "SIGNAL / TONE / ECHO / GATE", "DENSITY / FILTER / DRIVE / LEVEL"],
+    ["11 SPACE", "DUB: TIME / FEEDBACK / TONE / DRIVE", "SPACE: SIZE / DECAY / DARK / DUCK"],
+    ["12 MACROS", "MACRO 1-4", "MACRO 5 / MACRO 6 / REPEAT LENGTH / REPEAT PITCH"]], [0.95 * inch, 2.95 * inch, W - 3.9 * inch]))
+story.append(Spacer(1, 6))
+story += bullets(["On every instrument page 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row, with a swap where a model's character lives elsewhere (GRANULAR: COLOR is grain size, DETUNE is scatter; STAB: SPACE is the ensemble).",
+                  "Presses on 11 SPACE: 9 DUB THROW (hold), 10 DUB FREEZE (toggle), 13 SPACE THROW (hold), 14 SPACE FREEZE (toggle). On 12 MACROS: 15 REPEAT ROLL (hold).",
+                  "The HATS page is the fill page: CLOSED DENSITY with ECHO SPACE 1/16 turns 1/8 hats into 1/16s, the send-delay trick built in."])
+
+story.append(H2("THE E16: ADDRESSES AND SETTINGS"))
+story += bullets(["One address per parameter. A parameter on two pages (ACID CUTOFF on PERFORM and on ACID) sends the same channel and CC from both encoders: two ways to reach one mapping.",
+                  "A clean scheme: one E16 channel per destination (1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB, 10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 groups, 15 LIVE BUS / BRIDGE / PA / REPEAT, 16 CONTROL). Inside a channel: CC 20-27 the eight controls of its page in order, CC 28 its volume, CC 29 send A, CC 30 send B. Mixed pages use each encoder's own channel.",
+                  "Absolute CC 0-127, one destination per encoder, no value sent on page change, USB Thru off. Live's Takeover Mode: Pick-Up.",
+                  "<b>Map the E16 straight to the SF parameters, not through Instrument Rack macros.</b> A song recall changes the plugin's value underneath a macro: the macro doesn't follow, its ring shows the wrong value and the next turn jumps the sound back. Ranges go in Live's MIDI Mappings (Min and Max per mapping): give resonance and feedback the part of their travel that matters, and widen it when the music asks.",
+                  "Check the feedback: move a parameter in Live and watch the ring, change page and come back. A ring shows the stored value; SLOW and MOTION can take the sound elsewhere for a while.",
+                  "Keep STORE ALL, MODEL, KEY and the calibration controls off the performance pages."])
+
+story.append(H2("MACROS"))
+story.append(P("SF CONTROL's six macros, on the MACROS page. Every SF plugin follows one macro (MACRO SRC) by an amount (MACRO AMT, negative turns it the other way); a macro moves the knobs marked M in the module tables, adds to them and is stored per song. A starting plan:"))
+story.append(table([["MACRO", "FOLLOWED BY", "MOVES"],
+    ["1 ENERGY", "the three ENERGY plugins, BUILD", "every group's energy at once (a negative amount on LOW darkens the bass while the rest lifts)"],
+    ["2 MOOD", "TEXTURE, STAB, VOICE", "cutoff, envelope and drive; the voice's SIGNAL and ECHO"],
+    ["3 DENSITY", "CLOSED, OPEN, CLAP, STRIKE", "DECAY and DENSITY: the fills"],
+    ["4 PULSE", "KICK, RUMBLE", "kick DECAY, PUNCH, DRIVE; rumble SIZE, GRIT, DENSITY"],
+    ["5 SPACE", "DUB, SPACE returns", "delay FEEDBACK and MIX; reverb SIZE, DECAY and MIX"],
+    ["6 FRACTURE", "ACID, BASS", "cutoff, envelope, density and drive: smooth to heavy"]], [1.0 * inch, 2.1 * inch, W - 3.1 * inch]))
+story.append(P("Start the amounts at 30-50 %. One macro per plugin: a plugin can follow only one.", "smallgrey"))
+
+story.append(H2("RETURNS AND POCKET"))
+story += bullets(["A DUB: SF DELAY, DRY off, TIME synced, FEEDBACK mapped to 0-70 % at first, DUCK up so the repeats sit around the kick. INPUT THROW ONLY makes its THROW press the only way in: dub throws.",
+                  "B SPACE: SF REVERB, DRY off, DUCK 30-60 % so the tail blooms in the gaps, LO CUT up.",
+                  "Sends post-fader: turning a source down stops feeding its effect while the tail rings on. No return-to-return sends at first.",
+                  "Pocket needs no wiring: SF KICK reports on the bus. SF CONTROL should show BUS SHARED and KICK REPORTING.",
+                  "Pulling the KICK fader down leaves the kick playing on the bus: Pocket and RUMBLE keep pumping to a silent kick, which can be the point. For a clean withdrawal, mute the kick lane on the ONE."])
+
+story.append(H2("SONGS, PATTERNS AND SCENES"))
+story.append(table([["SYSTEM", "RESPONSIBLE FOR"],
+    ["OXI ONE projects and patterns", "Notes, rhythms, gates, accents, the pattern progression."],
+    ["SF songs (SF CONTROL)", "The sound of every SF plugin, recalled on the bar."],
+    ["E16 pages", "Where your hands are."],
+    ["Live Session scenes", "BRIDGE clips, reference material, rehearsal."],
+    ["Live Arrangement", "Recording the performance."]], [2.0 * inch, W - 2.0 * inch], mono_first=False))
+story.append(Spacer(1, 6))
+story += bullets(["The roles stay put for the whole set: a new track changes what they play, not where they are.",
+                  "Rehearse song recall and SF REPEAT in your Live before relying on them in a transition: both changed on Nov 3."])
+
+story.append(H2("RECORDING AND REHEARSAL"))
+story += bullets(["Instrument tracks on Monitor In: they play from the ONE whether or not they're armed.",
+                  "To record: RESET on SF LIMIT, arm the instrument tracks and 93 REC, Automation Arm on, Arrangement record, play. The stereo recording on REC is the set; the MIDI and automation are for editing and rehearsal.",
+                  "To replay recorded MIDI: stop the ONE, set those tracks to Monitor Auto and disarm them (Monitor In ignores a track's own clips).",
+                  "Collect All and Save. SF samples are inside the set; DECK tracks are referenced by path, so keep the files where they are."])
+
+story.append(H2("BUILD ORDER"))
+story += numbered(["CONTROL, KICK, BASS, LIVE BUS, PA and REC. Clock and latency calibrated, a short recording made.",
+                   "CLOSED, OPEN, CLAP and STRIKE.",
+                   "The E16 top half.",
+                   "ACID, STAB, TEXTURE and VOICE, one at a time.",
+                   "The returns; check the sends are disabled on LIVE BUS.",
+                   "The E16 pages and the macros.",
+                   "BRIDGE and DECK; rehearse moving between them and LIVE BUS.",
+                   "Record a whole set before adding anything else."])
+story.append(H2("BEFORE THE FIRST SHOW"))
+story += bullets(["CONTROL shows BUS SHARED and KICK REPORTING; the pump lands on the kick.",
+                  "The ONE's Program Change recalls the song, every track on the same bar, and a recalled knob is yours the moment you turn it. (VST3 needs Live 12.2 or later; the AU works in any version.)",
+                  "PANIC held on the E16: silence, and every header shows PANIC. Released: back without a click. 92 PA muted: the speakers silent, REC still recording.",
+                  "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording."])
 story.append(PageBreak())
 
 # ---------------- PART 2: modules
@@ -321,7 +581,7 @@ order = [("INSTRUMENTS", ["KICK", "PERC", "RUMBLE", "BASS", "LEAD", "PAD", "VOIC
          ("MASTER AND MIX", ["ISOLATOR", "BUILD", "GLUE", "TONE", "LOWEND", "LIMIT", "ROOMEQ", "ALLOC", "TAP"])]
 SYSTEM_IDS = ("slow", "macro_src", "macro_amt")
 def is_system(pid): return pid in SYSTEM_IDS or pid[:3] in ("m1_", "m2_")
-chapter = 7
+chapter = 8
 for group, mods in order:
     first = True
     for mid in mods:
@@ -393,14 +653,17 @@ story.append(H2("WHEN SOMETHING ISN'T RIGHT"))
 story.append(table([["SYMPTOM", "CHECK"],
                     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be an SF KICK (or use SF DUCK with SOURCE SIDECHAIN)."],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
-                    ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. With VST3, try the AU."],
+                    ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. The VST3 needs Live 12.2 or later; otherwise use the AU."],
                     ["E16 rings don't follow", "Remote on for the E16 output in Live's MIDI preferences; map with Live's MIDI Map."],
                     ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],
                     ["A knob shows GLIDE", "SLOW is on: the knob is travelling to where you set it."],
                     ["A knob moves on its own", "MOTION: check M1 / M2 TARGET in the plugin's MOTION row."],
                     ["Header shows FAULT (red)", "The plugin caught an invalid value or a runaway and reset itself to silence. It carries on working. If it happens again, note what was playing: it is a bug."],
-                    ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out and clears."],
+                    ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out, clears and stays silent while held. Live's own clips and devices aren't SF: mute the PA track for those."],
+                    ["Header shows PANIC (red)", "PANIC is held on SF CONTROL. Check that the button mapped to it isn't latched (it must be momentary)."],
+                    ["CONTROL shows LOCAL ONLY", "The plugins come from different builds. Rebuild and install the whole suite."],
+                    ["A return doubles the dry signal", "DRY off on SF DELAY, SF REVERB or SF DENSITY on a return track."],
                     ["Pitch is wrong after a song change", "KEY on SF CONTROL is stored per song. KEY FOLLOW off on an instrument ignores it."],
                     ["Levels changed after the update", "Since Nov 3 every model is calibrated to its role's target (chapter 5). Re-balance the faders once."]], [1.7 * inch, W - 1.7 * inch], mono_first=False))
 

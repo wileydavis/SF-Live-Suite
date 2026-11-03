@@ -193,6 +193,8 @@ On its own MIDI track receiving the OXI One. MACRO 1-6 (published to every SF pl
 # Suggested Live layout
 MIDI tracks: SF CONTROL, SF KICK, SF PERC x2-3, SF RUMBLE, SF BASS, SF LEAD x1-2, SF VOICE, SF PAD, SF STRIKE, SF DECK. Groups with SF ENERGY. Returns (DRY off): SF DELAY (INPUT THROW ONLY or as a send), SF REVERB, SF DENSITY. Master: SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT, with SF ALLOC anywhere on the master. Stems / hardware tracks: SF TAP or SF STRIP.
 
+The complete show template (tracks, groups, LIVE BUS, BRIDGE and DECK, routing, OXI ONE and E16 maps, macro plan, build order) is chapter 7 of the manual [Nov 3].
+
 Record and venue are separate paths [Nov 3, second audit]: the recording is the set; room correction belongs to the room. Main (master) output to an unused output pair. An audio track PA (Audio From: Resampling, Monitor In) carries SF ROOM EQ and goes to the PA outputs. The set is recorded on an audio track REC (Audio From: Resampling, Monitor Off, armed); Live records a track's input, before its devices, so the recording has no ROOM EQ. LIMIT's integrated meter covers the whole set; RESET it at the start. (Alternative: do the venue EQ in the audio interface's own mixer, after Live.) [Live check: Resampling as the PA feed, latency and stability over a full set.]
 
 # Open questions (need Live)

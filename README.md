@@ -33,6 +33,8 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 
 ## Setting up the live set
 
+The manual's chapter 7, **The show template**, is a complete show set built on this: every track and its routing, the OXI ONE's sequencers and channels, clock and latency settings, the E16's permanent top half and its pages, a macro plan, recording and a build order.
+
 1. **SF CONTROL** on its own MIDI track, input from the OXI One. Program Change on channel 16 selects the song (01-16); as VST3 this needs Live 12.2 or later (the AU reads it in any version). Set each song's **KEY** here; map **PANIC** to a button you can find in the dark. Everything stays silent while PANIC is held.
 2. **Instruments**, one per MIDI track: SF KICK, SF PERC (2-3), SF RUMBLE, SF BASS, SF LEAD, SF VOICE, SF PAD, SF STRIKE, SF DECK. Pick models in the header menu, or a starting point from **PRESET**.
 3. **Groups** get SF ENERGY (instead of the DJ filter). PROFILE: DRUMS / BASS / MUSIC / VOICE.
