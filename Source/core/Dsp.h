@@ -28,6 +28,28 @@ inline float fastTanh (float x)
     return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
 }
 inline float softClip (float x)        { return fastTanh (x); }
+
+// fastTanh with first-order antiderivative anti-aliasing (ADAA): the output is the average of the
+// curve between consecutive inputs, which removes most of the aliasing a hard-driven saturator
+// makes (use inside an oversampled path for the strongest drive). Half a sample of delay.
+struct AdaaTanh
+{
+    double x1 = 0.0, f1 = F (0.0);
+    static double F (double x)
+    {
+        const double a = std::fabs (x);
+        if (a <= 3.0) return (x * x * 0.5 + 12.0 * std::log (x * x + 3.0)) / 9.0;
+        return (4.5 + 12.0 * std::log (12.0)) / 9.0 + (a - 3.0);
+    }
+    float tick (float xf)
+    {
+        const double x = xf, fx = F (x), d = x - x1;
+        const float y = std::fabs (d) < 1.0e-5 ? fastTanh ((float) (0.5 * (x + x1))) : (float) ((fx - f1) / d);
+        x1 = x; f1 = fx;
+        return y;
+    }
+    void reset() { x1 = 0.0; f1 = F (0.0); }
+};
 inline float hardClip (float x, float c = 1.0f) { return std::max (-c, std::min (c, x)); }
 
 // Tempo divisions (beats). Index lists are shared by every "TIME"/"RATE" menu.
@@ -370,16 +392,16 @@ struct Allpass
 
 // 8-line feedback delay network reverb (Hadamard mixing, modulated).
 //  - Input diffusion: 4 series all-passes per channel smear the attack into a dense onset.
-//  - Two-band decay (Jot): every line has its own first-order absorption filter whose DC gain
-//    gives DECAY (RT60) and whose Nyquist gain gives the shorter high-frequency RT60 set by DARK,
-//    each computed for that line's length, so every mode dies at the same rate.
+//  - Two-band decay: every line has its own shelving absorption (gain at low frequencies = DECAY
+//    as RT60, gain above the DARK crossover = the shorter high-frequency RT60), computed for that
+//    line's length, so every mode in a band dies at the same rate.
 //  - FREEZE: lossless loop, input closed.
 struct Fdn
 {
     static constexpr int N = 8;
     DelayLine line[N];
     Allpass diff[2][4];
-    float len[N] {}, a0[N] {}, b1[N] {}, z[N] {}, lfo = 0.0f;
+    float len[N] {}, gLo[N] {}, gHi[N] {}, z[N] {}, lfo = 0.0f, lpA = 0.3f;
     OnePole lowCut[2];
     double sr = 48000.0;
     float modDepth = 0.0f;
@@ -413,18 +435,17 @@ struct Fdn
         static const float base[N] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0533f, 0.0617f, 0.0683f, 0.0751f };
         const float scale = 0.35f + size * 2.4f;
         const float rtLow = std::max (0.1f, decaySeconds);
-        const float rtHigh = rtLow * lerp (0.85f, 0.07f, clamp01 (dark));
+        const float rtHigh = rtLow * lerp (0.85f, 0.1f, clamp01 (dark));
+        const float fc = expMap (1.0f - clamp01 (dark), 1500.0f, 5000.0f);     // where the highs start to go
+        lpA = 1.0f - std::exp (-kTwoPi * fc / (float) sr);
         frozen = freeze;
         for (int i = 0; i < N; ++i)
         {
             len[i] = base[i] * scale * (float) sr;
-            if (freeze) { a0[i] = 1.0f; b1[i] = 0.0f; continue; }
+            if (freeze) { gLo[i] = gHi[i] = 1.0f; continue; }
             const float secs = len[i] / (float) sr;
-            const float gDc = std::min (0.9995f, std::pow (10.0f, -3.0f * secs / rtLow));
-            const float gNy = std::min (gDc, std::pow (10.0f, -3.0f * secs / rtHigh));
-            const float b = (gDc - gNy) / (gDc + gNy);
-            b1[i] = b;
-            a0[i] = gDc * (1.0f - b);
+            gLo[i] = std::min (0.9995f, std::pow (10.0f, -3.0f * secs / rtLow));
+            gHi[i] = std::min (gLo[i], std::pow (10.0f, -3.0f * secs / rtHigh));
         }
         modDepth = mod * 0.0025f * (float) sr;
     }
@@ -436,8 +457,8 @@ struct Fdn
         {
             const float m = modDepth * std::sin (kTwoPi * (lfo + (float) i * 0.125f));
             const float y = line[i].read (len[i] + m);
-            z[i] = a0[i] * y + b1[i] * z[i];          // absorption: per-line RT60, two bands
-            x[i] = z[i];
+            z[i] += lpA * (y - z[i]);                     // absorption: per-line RT60, two bands
+            x[i] = gHi[i] * y + (gLo[i] - gHi[i]) * z[i];
         }
         outL = lowCut[0].hp (x[0] + x[2] + x[4] + x[6]) * 0.5f;
         outR = lowCut[1].hp (x[1] + x[3] + x[5] + x[7]) * 0.5f;

@@ -40,7 +40,7 @@ public:
         for (auto& x : xoDry) x.reset();
         for (auto& t : tilt) for (auto& b : t) b.reset();
         inF.z = outF.z = 0.0f;
-        autoG = autoGPrev = 1.0f;
+        autoG = 1.0f;
     }
     static float shape (float x, float ch, float bias)
     {
@@ -63,12 +63,10 @@ public:
         // Keep a dry copy (delayed by the oversampler latency) for MIX and LOW KEEP.
         dryDelay.setSize (2, n, false, false, true);
         const int lat = latency();
-        float inLevel = 0.0f;
         for (int k = 0; k < 2; ++k)
             for (int i = 0; i < n; ++i)
             {
                 const float x = io.getSample (k, i);
-                inLevel = std::max (inLevel, inF.tick (x));
                 dryLine[k].push (x);
                 dryDelay.setSample (k, i, dryLine[k].tap (lat));
             }
@@ -88,33 +86,34 @@ public:
             tilt[k][0].lowShelf (800.0f, 0.6f, -t * 6.0f, sr);
             tilt[k][1].highShelf (800.0f, 0.6f, t * 6.0f, sr);
         }
-        float outLevel = 0.0f;
         if (lowKeep > 20.0f) { for (auto& x : xo) x.set (lowKeep, sr); for (auto& x : xoDry) x.set (lowKeep, sr); }
-        for (int k = 0; k < 2; ++k)
+        // Auto gain, per sample: hold output loudness near input loudness (followers on the
+        // stereo peak of the dry and the driven signal; ~30 ms gain smoothing).
+        const bool autoOn = c.b (AUTO);
+        const float sm = std::exp (-1.0f / (0.03f * (float) sr));
+        float g0; const float g1 = levelDb (c, LEVEL, g0);
+        auto* xl = io.getWritePointer (0); auto* xr = io.getWritePointer (1);
+        const auto* dl = dryDelay.getReadPointer (0); const auto* dr = dryDelay.getReadPointer (1);
+        for (int i = 0; i < n; ++i)
         {
-            auto* x = io.getWritePointer (k);
-            const auto* d = dryDelay.getReadPointer (k);
-            for (int i = 0; i < n; ++i)
-            {
-                float y = tilt[k][1].tick (tilt[k][0].tick (x[i]));
-                if (lowKeep > 20.0f)
+            float y[2] = { tilt[0][1].tick (tilt[0][0].tick (xl[i])), tilt[1][1].tick (tilt[1][0].tick (xr[i])) };
+            const float d[2] = { dl[i], dr[i] };
+            if (lowKeep > 20.0f)
+                for (int k = 0; k < 2; ++k)
                 {
                     float lo, hi, dlo, dhi;
-                    xo[k].split (y, lo, hi);
-                    xoDry[k].split (d[i], dlo, dhi);
-                    y = hi + dlo;
+                    xo[k].split (y[k], lo, hi);
+                    xoDry[k].split (d[k], dlo, dhi);
+                    y[k] = hi + dlo;
                 }
-                outLevel = std::max (outLevel, outF.tick (y));
-                x[i] = d[i] * (1.0f - mix) + y * mix;
-            }
+            const float inLvl = inF.tick (std::max (std::fabs (d[0]), std::fabs (d[1])));
+            const float outLvl = outF.tick (std::max (std::fabs (y[0]), std::fabs (y[1])));
+            const float target = autoOn && outLvl > 1e-4f && inLvl > 1e-4f ? juce::jlimit (0.1f, 2.0f, inLvl / outLvl) : 1.0f;
+            autoG = target + sm * (autoG - target);
+            const float g = (g0 + (g1 - g0) * (float) i / (float) n) * autoG;
+            xl[i] = (d[0] * (1.0f - mix) + y[0] * mix) * g;
+            xr[i] = (d[1] * (1.0f - mix) + y[1] * mix) * g;
         }
-        // Auto gain: hold output loudness near input loudness.
-        float target = 1.0f;
-        if (c.b (AUTO) && outLevel > 1e-4f && inLevel > 1e-4f) target = juce::jlimit (0.1f, 2.0f, inLevel / outLevel);
-        autoG += 0.05f * (target - autoG);
-        float g0; const float g1 = levelDb (c, LEVEL, g0);
-        applyGain (io, g0 * autoGPrev, g1 * autoG);
-        autoGPrev = autoG;
         dispCh = ch;
     }
     int displayHeight() const override { return 60; }
@@ -133,7 +132,7 @@ private:
     Biquad tilt[2][2];
     Crossover xo[2], xoDry[2];
     Follower inF, outF;
-    float autoG = 1.0f, autoGPrev = 1.0f;
+    float autoG = 1.0f;
     std::atomic<float> dispCh { 0 };
 };
 ModulePtr makeDRIVE() { return std::make_unique<DriveModule>(); }

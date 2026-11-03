@@ -504,8 +504,8 @@ public:
     std::vector<ParamSpec> params() const override
     {
         std::vector<std::string> roles; for (int i = 0; i < kNumRoles; ++i) roles.push_back (kRoleNames[i]);
-        auto r = choice ("role", "ROLE", roles, ROLE_OTHER); r.primary = true; r.song = false;
-        return { r, toggle ("alloc", "ALLOC", true).prim(), pct ("pocket_depth", "POCKET DEPTH", 0.0f).prim(),
+        auto r = choice ("role", "ROLE", roles, ROLE_OTHER); r.primary = true; r.song = false; r.preset = false;
+        return { r, toggle ("alloc", "ALLOC", true).noPreset().prim(), pct ("pocket_depth", "POCKET DEPTH", 0.0f).prim(),
                  pct ("pocket_shape", "POCKET SHAPE", 0.3f).prim(), levelParam().prim() };
     }
     int latency() const override { return Pocket::kLatency; }

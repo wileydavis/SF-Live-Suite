@@ -77,6 +77,7 @@ struct Ctx
     bool playing = false;
     double beatsPerBar = 4.0;
     int keyRoot = -1;             // SF CONTROL KEY: 0..11 = C..B, -1 = not set
+    int64_t samplePos = 0;        // stream position of this chunk (chunks sit on a fixed 64-sample grid)
     const float* p = nullptr;     // parameter values at block end (glided, macro applied)
     const float* p0 = nullptr;    // values at block start (for per-sample ramps)
     Bus* bus = nullptr;

@@ -7,6 +7,7 @@
 #include "Kit.h"
 #include "../core/BandLimited.h"
 #include "../core/Oversample.h"
+#include "Calibration.h"
 
 namespace sf
 {
@@ -36,8 +37,8 @@ public:
                  pct ("pocket_depth", "POCKET DEPTH", 0.2f),
                  pct ("pocket_shape", "POCKET SHAPE", 0.3f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
-                 toggle ("alloc", "ALLOC", true),
-                 toggle ("key_follow", "KEY FOLLOW", true) };
+                 toggle ("alloc", "ALLOC", true).noPreset(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP PHRASE (C3 = SLICE 1)"; }
@@ -94,12 +95,15 @@ public:
             const float pos = tone * 4.0f;
             const int a = std::min (3, (int) pos);
             const float fr = pos - (float) a;
+            for (int k = 0; k < 3; ++k) formant[k] = lerp (F[a][k], F[a + 1][k], fr);
             for (auto& v : choir)
                 if (v.active)
-                    for (int k = 0; k < 3; ++k) v.fm[k].set (lerp (F[a][k], F[a + 1][k], fr), 8.0f, sr);
+                    for (int k = 0; k < 3; ++k) v.fm[k].set (formant[k], 8.0f, sr);
         }
         float dry[Oversampler::kBlock];
         const int nn = std::min (c.n, Oversampler::kBlock);
+        const float choirCal = cal::gain (cal::voiceChoir);
+        const float phraseCal = smp != nullptr ? cal::at (cal::voice, model) : 1.0f;
         for (int k = 0; k < 2; ++k) { radio[k].set (300.0f * (1.0f - sig * 0.6f), 0.7f, sr); radioHi[k].set (2200.0f + sig * 9000.0f, 0.7f, sr); }
         const double echoBeats = divisionBeats (c.ci (ECHOTIME), divIndex ("1 BAR"));
         const float echoD = (float) std::min (echoBeats * c.samplesPerBeat(), sr * 8.5);
@@ -148,8 +152,8 @@ public:
                 }
             }
             else
-                x = choirSynth();
-            dry[i] = x;
+                x = choirSynth() * choirCal;
+            dry[i] = x * phraseCal;
         }
         // DRIVE, 2x oversampled.
         if (drive > 0.001f)
@@ -228,8 +232,7 @@ private:
             for (auto& x : choir) if (! x.active) { v = &x; break; }
             if (v == nullptr) v = &choir[0];
             v->active = true; v->note = ev.note; v->f = noteHz ((float) ev.note + keyShift); v->target = ev.vel; v->osc = Osc();
-            static const float F0[3] = { 800, 1150, 2900 };
-            for (int k = 0; k < 3; ++k) v->fm[k].set (F0[k], 8.0f, sr);
+            for (int k = 0; k < 3; ++k) v->fm[k].set (formant[k], 8.0f, sr);
             return;
         }
         const int count = sliceCount (*s, sliceMode);
@@ -317,7 +320,7 @@ private:
     Noise rng;
     Osc carrier[3];
     Oversampler os;
-    float heldY = 0, keyShift = 0;
+    float heldY = 0, keyShift = 0, formant[3] { 800, 1150, 2900 };
     int holdN = 0, sliceModeDisp = 0;
     std::atomic<int> dispSlice { -1 };
 };

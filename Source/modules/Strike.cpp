@@ -7,6 +7,7 @@
 // modes split and detune, debris rattles, and the output saturates (2x oversampled).
 #include "Kit.h"
 #include "../core/Oversample.h"
+#include "Calibration.h"
 
 namespace sf
 {
@@ -66,8 +67,8 @@ public:
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 0),
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  pct ("vel_sens", "VEL SENS", 0.5f),
-                 toggle ("alloc", "ALLOC", true),
-                 toggle ("key_follow", "KEY FOLLOW", true) };
+                 toggle ("alloc", "ALLOC", true).noPreset(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
     }
     void prepare (double rate, int mb) override
     {
@@ -289,7 +290,7 @@ private:
         }
         // The crack itself (direct pressure wave) on top.
         const float crack = v.blastLp * 0.35f;
-        float gain = kGain * kObjects[v.object].gain;
+        float gain = kGain * kObjects[v.object].gain * cal::at (cal::strike, v.object);
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return; } gain *= v.fade; }
         outL += (l * 0.25f + crack) * gain;
         outR += (r * 0.25f + crack) * gain;

@@ -180,6 +180,7 @@ void SFProcessor::prepareToPlay (double sampleRate, int)
     chunkMidi.ensureSize (8192);
     for (int k = 0; k < kMotions; ++k) motion[(size_t) k].prepare (sr, motionSeed + 0x9E3779B9u * (uint32_t) k);
     overSamples = 0;
+    streamPos = 0;
     firstBlock = true;
 }
 
@@ -301,7 +302,9 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
 
     for (int start = 0; start < total;)
     {
-        int n = std::min (kChunk, total - start);
+        // Chunks sit on a fixed grid of the stream (multiples of kChunk since prepare), so the
+        // same performance renders bit-identically at any host buffer size.
+        int n = std::min (kChunk - (int) (streamPos % (uint64_t) kChunk), total - start);
         c.ppq = ppq0 + start * bps;
         if (const int ps = pendingSong.load(); ps >= 0)
         {
@@ -316,8 +319,10 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
             }
         }
         c.n = n;
+        c.samplePos = (int64_t) streamPos;
         processChunk (buffer, mainOut, side, start, n, c, midi, panicNow && start == 0, start + n >= total);
         start += n;
+        streamPos += (uint64_t) n;
     }
     firstBlock = false;
 

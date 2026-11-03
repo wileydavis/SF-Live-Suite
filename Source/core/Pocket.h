@@ -35,7 +35,7 @@ public:
         sideFollow.z = 0.0f;
         for (auto& x : xo) x.reset();
         for (auto& b : bell) b.reset();
-        presence = 0.0f; duty = 0.0f; envHold = 0.0f; sidePeak = 0.05f;
+        presence = 0.0f; duty = 0.0f; envHold = 0.0f; sidePeak = 0.05f; act = 0.0f;
     }
 
     // depth 0..1, shape 0..1 (0 transparent pitch-tracking cut .. 1 full-band pump).
@@ -75,6 +75,10 @@ public:
         if (s > 0.8f) lowPresence = lerp (lowPresence, 1.0f, (s - 0.8f) * 5.0f);   // pump ignores it
         for (int ci = 0; ci < 2; ++ci) xo[ci].set (fc, sr);
 
+        // The band split (an all-pass when summed back) only runs while the band duck is in use;
+        // otherwise the audio passes untouched (crossfaded over 10 ms when that changes).
+        const float actTarget = enabled && bandAmt > 0.0005f ? 1.0f : 0.0f;
+        const float actCoef = std::exp (-1.0f / (float) (0.01 * sr));
         const float holdCoef = std::exp (-1.0f / (float) (std::max (0.001f, (1.0f - s) * 0.08f) * sr));
         const float dutyCoef = std::exp (-1.0f / (float) (2.0 * secPerBeat * sr));
         const float presUp = (float) (1.0 / (secPerBeat * sr)), presDown = (float) (1.0 / (8.0 * secPerBeat * sr));
@@ -123,19 +127,25 @@ public:
             duty = envHold + dutyCoef * (duty - envHold);
             const float e = enabled ? envHold * presence : 0.0f;
 
-            if ((i & 15) == 0)
+            if (((c.samplePos + i) & 15) == 0)          // on the stream grid: block-size independent
             {
                 const float g = -18.0f * bellAmt * e * lowPresence;
                 for (int ci = 0; ci < 2; ++ci) bell[ci].peak (std::max (30.0f, pitch), 2.2f, g, sr);
             }
             const float lowGain = 1.0f - bandAmt * e * lowPresence;
+            act = actTarget + actCoef * (act - actTarget);
+            if (act < 1.0e-4f && actTarget == 0.0f) act = 0.0f;
             for (int ci = 0; ci < std::min (numCh, 2); ++ci)
             {
                 float x = ch[ci][i];
                 if (delayAudio) { delay[ci].push (x); x = delay[ci].tap (kLatency); }
-                float lo, hi;
-                xo[ci].split (x, lo, hi);
-                x = lo * lowGain + hi;
+                if (act > 0.0f)
+                {
+                    float lo, hi;
+                    xo[ci].split (x, lo, hi);
+                    x = x + act * ((lo * lowGain + hi) - x);
+                }
+                else xo[ci].reset();
                 ch[ci][i] = bell[ci].tick (x);
             }
             traceAcc = std::max (traceAcc, e * std::max (bandAmt, bellAmt));
@@ -163,7 +173,7 @@ private:
     Biquad bell[2];
     Svf sideLp;
     Follower sideFollow;
-    float presence = 0, duty = 0, envHold = 0, sidePeak = 0.05f, traceAcc = 0;
+    float presence = 0, duty = 0, envHold = 0, sidePeak = 0.05f, traceAcc = 0, act = 0;
     int traceCount = 0;
 };
 } // namespace sf

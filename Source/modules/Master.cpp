@@ -101,7 +101,7 @@ public:
             if (i == dropAt) { released = true; bz = 0.0f; fdn.clear(); }
             const float t = released ? 0.0f : bTarget;
             bz = t + 0.999f * (bz - t);
-            if ((i & 15) == 0)
+            if (((c.samplePos + i) & 15) == 0)
             {
                 const float hz = expMap (std::pow (bz, 1.5f), 20.0f, c.v (HPMAX));
                 for (int k = 0; k < 2; ++k) { hp[k][0].set (hz, 0.7071f, sr); hp[k][1].set (hz, 0.9f + bz * 1.5f, sr); }
@@ -422,7 +422,7 @@ public:
                  toggle ("auto", "AUTO").prim(),
                  momentary ("reset", "RESET").prim() };
     }
-    int latency() const override { return (int) std::lround (FirOversampler4x::latency() + TruePeak::kDelay + look - 1); }
+    int latency() const override { return (int) std::lround (os.latency() + TruePeak::kDelay + look - 1); }
     double tailSeconds() const override { return 0.1; }
     void prepare (double rate, int) override
     {
@@ -450,7 +450,7 @@ public:
         const bool rst = c.b (RESET);
         if (rst && ! resetWas) { outMeter.resetIntegrated(); tpMax = 0.0f; }
         resetWas = rst;
-        const float ceilDb = c.v (CEILING), ceil = dbToGain (ceilDb);
+        const float ceilDb = c.v (CEILING), ceil = dbToGain (ceilDb), tpCeil = ceil * 0.985f;
         const float clip = c.v (CLIP);
         const float knee = ceil * dbToGain (-6.0f * clip), span = std::max (1e-6f, ceil - knee);
         const bool clipOn = clip > 0.01f;
@@ -482,9 +482,10 @@ public:
             const float cl = os.process (0, L[i] * ig, clipper);
             const float cr = os.process (1, R[i] * ig, clipper);
             preMeter.push (cl, cr);
-            // Gain needed for the true peak of the clipped signal (TruePeak::kDelay samples ago).
+            // Gain needed for the true peak of the clipped signal (TruePeak::kDelay samples ago),
+            // aimed 0.13 dB under CEILING for the detector's residual error.
             const float tp = tpIn.push (cl, cr);
-            const float need = tp > ceil ? ceil / tp : 1.0f;
+            const float need = tp > tpCeil ? tpCeil / tp : 1.0f;
             // Min-hold over the lookahead window (monotonic queue).
             while (minTail != minHead && minVal[(minTail - 1 + kMaxLook) % kMaxLook] >= need) minTail = (minTail - 1 + kMaxLook) % kMaxLook;
             minVal[minTail] = need; minIdx[minTail] = t; minTail = (minTail + 1) % kMaxLook;

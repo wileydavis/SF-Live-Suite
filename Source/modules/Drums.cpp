@@ -5,6 +5,7 @@
 #include "Kit.h"
 #include "../core/BandLimited.h"
 #include "../core/Oversample.h"
+#include "Calibration.h"
 
 namespace sf
 {
@@ -61,8 +62,8 @@ public:
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  toggle ("key_track", "KEY TRACK"),
                  pct ("res", "FILTER RES", 0.1f),
-                 toggle ("alloc", "ALLOC", true),
-                 toggle ("key_follow", "KEY FOLLOW", true) };
+                 toggle ("alloc", "ALLOC", true).noPreset(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -94,7 +95,7 @@ public:
         int model = 0;
         double t = 0.0, phase = 0.0;
         float vel = 1, f0 = 200, f1 = 50, tau = 0.01f, decay = 0.3f, click = 0, clickHz = 3000, drive = 0, shape = 0, lp = 8000, fm = 0;
-        float fade = 1.0f, fadeStep = 0.0f;
+        float fade = 1.0f, fadeStep = 0.0f, cal = 1.0f;
         float lpZ = 0;
         unsigned tick = 0;
         Svf res;
@@ -121,6 +122,7 @@ public:
         v = Voice();
         v.active = true; v.model = model;
         v.vel = vel * layerGain * m.gain;
+        v.cal = cal::at (cal::kick, model);
         v.f1 = m.f1 * semis (tune);
         v.f0 = v.f1 * (1.0f + (m.ratio - 1.0f) * std::pow (2.0f, (c.v (PUNCH) - 0.5f) * 2.0f));
         v.tau = m.tau * std::pow (2.0f, (c.v (PTIME) - 0.5f) * 3.0f);
@@ -191,7 +193,7 @@ public:
             if (t > v.decay * 9.0f + 0.05f) v.active = false;
         }
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return 0.0f; } y *= v.fade; }
-        return y;
+        return y * v.cal;
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
@@ -298,7 +300,7 @@ public:
                  toggle ("choke", "CHOKE", true),
                  pct ("spread", "SPREAD", 0.3f),
                  pct ("res", "FILTER RES", 0.1f),
-                 toggle ("alloc", "ALLOC", true) };
+                 toggle ("alloc", "ALLOC", true).noPreset() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -328,7 +330,7 @@ public:
         bool active = false;
         PercType type = P_METAL;
         double t = 0;
-        float vel = 1, decay = 0.1f, pan = 0.5f, gl = 0.7071f, gr = 0.7071f, fade = 1.0f, fadeStep = 0.0f, tune = 1.0f, tone = 0.5f, noise = 0;
+        float vel = 1, decay = 0.1f, pan = 0.5f, gl = 0.7071f, gr = 0.7071f, fade = 1.0f, fadeStep = 0.0f, tune = 1.0f, tone = 0.5f, noise = 0, cal = 1.0f;
         double ph[6] {};
         float freqs[6] {};
         Svf bp, hp, res[6];
@@ -353,7 +355,8 @@ public:
         v.decay = m.decay * std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.65f, (float) ev.gen);
         v.noise = m.noise;
         v.pan = 0.5f + (ev.gen == 0 ? 0.0f : ((ev.gen & 1) ? -1.0f : 1.0f) * c.v (SPREAD) * 0.5f * (rng.uni() * 0.5f + 0.5f));
-        v.gl = std::sqrt (1.0f - v.pan); v.gr = std::sqrt (v.pan);
+        v.cal = cal::at (cal::perc, model);
+        v.gl = std::sqrt (1.0f - v.pan) * v.cal; v.gr = std::sqrt (v.pan) * v.cal;
         static const float metal[6] = { 205.3f, 304.4f, 369.6f, 522.7f, 540.0f, 800.0f };
         static const float modal[6] = { 1.0f, 1.59f, 2.14f, 2.30f, 2.65f, 2.92f };
         const float dark = std::pow (0.7f, (float) ev.gen);
@@ -522,13 +525,13 @@ public:
                  levelParam (-6.0f).prim(),
                  choice ("model", "MODEL", { "REVERB", "DELAY", "SUB DRONE", "DISTORTED", "DUB BOOM", "SAMPLE" }, 0),
                  knob ("tune", "TUNE", -12.0f, 12.0f, 0.0f, "st"),
-                 choice ("source", "SOURCE", { "KICK BUS", "MIDI", "BOTH" }, 0),
+                 choice ("source", "SOURCE", { "KICK BUS", "MIDI", "BOTH" }, 0).noPreset(),
                  choice ("predelay", "PREDELAY", { "0", "1/32", "1/16", "1/8" }, 1),
                  pct ("width", "WIDTH", 0.3f),
                  pct ("pocket_shape", "POCKET SHAPE", 0.5f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 0),
-                 toggle ("alloc", "ALLOC", true),
-                 toggle ("key_follow", "KEY FOLLOW", true) };
+                 toggle ("alloc", "ALLOC", true).noPreset(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP RUMBLE ONE-SHOT (MODEL: SAMPLE)"; }
@@ -594,6 +597,7 @@ public:
         const float dens = c.v (DENS);
         const double space = echoSpaceBeats (c.ci (ESPACE));
         const SampleData* smp = sample.audio();
+        const float modelCal = cal::at (cal::rumble, model);
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         float gates[Oversampler::kBlock];
         const int n = std::min (c.n, Oversampler::kBlock);
@@ -682,8 +686,8 @@ public:
             const float wl = hp[0].tickHP (lp[0][1].tickLP (lp[0][0].tickLP (L[i])));
             const float wr = hp[1].tickHP (lp[1][1].tickLP (lp[1][0].tickLP (R[i])));
             const float m = 0.5f * (wl + wr), s = 0.5f * (wl - wr) * width;
-            L[i] = (m + s) * gates[i];
-            R[i] = (m - s) * gates[i];
+            L[i] = (m + s) * gates[i] * modelCal;
+            R[i] = (m - s) * gates[i] * modelCal;
         }
         out.process (c, io, FILT, -1, c.v (PUMP), c.v (PSHAPE), c.b (ALLOCON), LEVEL, false);
     }

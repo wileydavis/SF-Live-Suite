@@ -1,7 +1,8 @@
 #pragma once
 // Metering to broadcast standards, allocation-free (audio thread):
-//   TruePeak       ITU-R BS.1770-4 style 4x interpolation (48-tap Kaiser-windowed sinc,
-//                  12 taps per phase), max |x| over the four phases of every sample.
+//   TruePeak       8x interpolation (128-tap Kaiser-windowed sinc, 16 taps per phase), max |x|
+//                  over the eight phases of every sample: within 0.1 dB of the continuous peak
+//                  (BS.1770-4 asks for 4x; 4x can read up to 0.7 dB low on dense material).
 //   LoudnessMeter  BS.1770 K-weighting; momentary (400 ms), short-term (3 s) and integrated
 //                  loudness (400 ms blocks every 100 ms, -70 LUFS absolute and -10 LU relative
 //                  gates, computed from a 0.1 dB histogram: unlimited length, fixed memory).
@@ -13,15 +14,15 @@ namespace sf
 class TruePeak
 {
 public:
-    static constexpr int kTaps = 12, kPhases = 4;
+    static constexpr int kTaps = 32, kPhases = 8;
     static constexpr int kDelay = kTaps / 2;          // samples between input and the estimate
     TruePeak()
     {
-        const double pi = 3.14159265358979323846, beta = 7.0;
+        const double pi = 3.14159265358979323846, beta = 9.0;
         auto bessel0 = [] (double x) { double s = 1.0, t = 1.0; for (int k = 1; k < 50; ++k) { t *= (x / (2.0 * k)) * (x / (2.0 * k)); s += t; } return s; };
         const double norm = bessel0 (beta);
         const int N = kTaps * kPhases;
-        const double C = N / 2.0;                         // 24: phase 0, tap 6 = the sample itself
+        const double C = N / 2.0;                         // phase 0, tap kTaps/2 = the sample itself
         for (int j = 0; j < N; ++j)
         {
             const double t = (j - C) / kPhases;
@@ -62,10 +63,33 @@ private:
 class LoudnessMeter
 {
 public:
+    // BS.1770 K-weighting at any rate (the standard's two filters re-derived from their analogue
+    // prototypes, as libebur128 does).
+    static void kWeighting (double rate, Biquad& shelf, Biquad& hp)
+    {
+        const double pi = 3.14159265358979323846;
+        {
+            const double f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196;
+            const double K = std::tan (pi * f0 / rate), Vh = std::pow (10.0, G / 20.0), Vb = std::pow (Vh, 0.4996667741545416);
+            const double a0 = 1.0 + K / Q + K * K;
+            shelf.b0 = (float) ((Vh + Vb * K / Q + K * K) / a0);
+            shelf.b1 = (float) (2.0 * (K * K - Vh) / a0);
+            shelf.b2 = (float) ((Vh - Vb * K / Q + K * K) / a0);
+            shelf.a1 = (float) (2.0 * (K * K - 1.0) / a0);
+            shelf.a2 = (float) ((1.0 - K / Q + K * K) / a0);
+        }
+        {
+            const double f0 = 38.13547087602444, Q = 0.5003270373238773;
+            const double K = std::tan (pi * f0 / rate), a0 = 1.0 + K / Q + K * K;
+            hp.b0 = 1.0f; hp.b1 = -2.0f; hp.b2 = 1.0f;
+            hp.a1 = (float) (2.0 * (K * K - 1.0) / a0);
+            hp.a2 = (float) ((1.0 - K / Q + K * K) / a0);
+        }
+    }
     void prepare (double rate)
     {
         sr = rate;
-        for (int c = 0; c < 2; ++c) { shelf[c].highShelf (1681.97f, 0.7072f, 3.9998f, rate); hp[c].highPass (38.1355f, 0.5003f, rate); }
+        for (int c = 0; c < 2; ++c) kWeighting (rate, shelf[c], hp[c]);
         blockLen = std::max (1, (int) std::lround (0.1 * rate));
         resetAll();
     }

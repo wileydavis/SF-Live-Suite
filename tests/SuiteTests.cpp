@@ -799,15 +799,18 @@ static void testTransportJumps()
     Bus::testClock = nullptr;
 }
 
+#include "QualityTests.h"
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && std::string (argv[1]) == "--dump") { dumpSpecs(); return 0; }
     std::vector<std::string> ids = allModuleIds();
-    if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
+    if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-' && std::string (argv[i]).find_first_of ("abcdefghijklmnopqrstuvwxyz") == std::string::npos) ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
+                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -816,6 +819,16 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--strip") { testStrip(); }
     else if (std::string (argv[1]) == "--alloc") { testAlloc(); }
     else if (std::string (argv[1]) == "--jumps") { testTransportJumps(); testDeck(); }
+    else if (std::string (argv[1]) == "--oversampling") { testOversampling(); }
+    else if (std::string (argv[1]) == "--limit") { testLimit(); }
+    else if (std::string (argv[1]) == "--reverb") { testReverb(); }
+    else if (std::string (argv[1]) == "--calibration") { testCalibration (argc > 2 && std::string (argv[2]) == "--print"); }
+    else if (std::string (argv[1]) == "--presets") { testPresets(); }
+    else if (std::string (argv[1]) == "--motion") { testMotion(); }
+    else if (std::string (argv[1]) == "--panic") { testPanic(); }
+    else if (std::string (argv[1]) == "--rates") { testRates(); }
+    else if (std::string (argv[1]) == "--cpu") { testCpu(); }
+    else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

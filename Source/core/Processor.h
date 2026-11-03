@@ -135,6 +135,7 @@ private:
 
     // Safety
     int overSamples = 0;
+    uint64_t streamPos = 0;
 
     // Presets
     std::vector<sf::Preset> factory;

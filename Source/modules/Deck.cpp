@@ -3,6 +3,7 @@
 // hot cues from MIDI, loop roll, per-deck isolator + filter, crossfader, CUE output, track log.
 #include "Kit.h"
 #include "../core/BandLimited.h"
+#include "../core/Loudness.h"
 #include "../core/Resample.h"
 #include <signalsmith-stretch/signalsmith-stretch.h>
 
@@ -115,7 +116,7 @@ static void analyseTrack (TrackData& t)
     }
     // Integrated loudness (BS.1770 K-weighting, 400 ms blocks, -70 / -10 gates).
     Biquad sh[2], hp[2];
-    for (int c = 0; c < 2; ++c) { sh[c].highShelf (1681.97f, 0.7072f, 3.9998f, sr); hp[c].highPass (38.1355f, 0.5003f, sr); }
+    for (int c = 0; c < 2; ++c) LoudnessMeter::kWeighting (sr, sh[c], hp[c]);
     const int blk = (int) (0.4 * sr);
     std::vector<double> blocks;
     for (int i = 0; i + blk <= n; i += blk / 4)

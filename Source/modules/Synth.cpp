@@ -1,10 +1,13 @@
 // BASS, LEAD, PAD: one synth engine, role-specific model lists and defaults.
-// Voices render at 2x the host rate from band-limited mipmapped tables (saw, square, triangle,
-// PWM as the difference of two saws, BLEP-corrected hard sync), filters and drive run at 2x, and
-// one halfband decimator per channel brings the sum back down: no audible aliasing at any pitch.
+// Voices render oversampled from band-limited mipmapped tables (saw, square, triangle, PWM as the
+// difference of two saws, BLEP-corrected hard sync): 2x for the linear-filter models, 4x for the
+// models with a driven ladder / MS20 filter and for hard sync. DRIVE and the MS20 saturation use
+// antiderivative anti-aliasing on top.
+// Halfband decimators bring the sums back down: no audible aliasing at any pitch.
 #include "Kit.h"
 #include "../core/BandLimited.h"
 #include "../core/Oversample.h"
+#include "Calibration.h"
 
 namespace sf
 {
@@ -211,8 +214,8 @@ public:
                  pct ("pocket_shape", "POCKET SHAPE", 0.25f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
                  pct ("echo_swing", "ECHO SWING", 0.0f),
-                 toggle ("alloc", "ALLOC", true),
-                 toggle ("key_follow", "KEY FOLLOW", true) };
+                 toggle ("alloc", "ALLOC", true).noPreset(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP SAMPLE (MODELS: SAMPLE, GRANULAR)"; }
@@ -227,6 +230,7 @@ public:
         osr = 2.0 * rate;
         waves = WaveSet::get (osr);
         dec.prepare (rate);
+        for (auto& d : dec4) d.set (HalfbandDesign::forStage (rate, 1));
         out.prepare (rate, mb, roleId, name.c_str(), true);
         ens.prepare (rate);
         events.reserve (2048);
@@ -240,20 +244,35 @@ public:
         for (auto& v : voices) v.active = false;
         held.clear();
         dec.reset();
+        for (auto& d : dec4) d.reset();
         ens.reset();
         out.reset();
         activeVoices = 0;
     }
 
+    // Control values of a voice, computed on the stream's 32-sample grid (and at a note start),
+    // so the voice sounds the same at any host buffer size.
+    struct VoiceCtl
+    {
+        float res = 0, driveG = 1, driveNorm = 1, color = 0.5f, det = 0.5f, cutT = 0.5f, gainAll = 0, subMul = 1, pw2 = 0.5f, osc2Amt = 0, subLvl = 0, sideK = 1;
+        float detCents = 0, uniR[8] {}, pw[8] {}, r2[8] {};
+        int uni = 1, shape1 = 0, oct1[8] {}, oct2[8] {}, octSub = 0;
+        bool doSub = false;
+    };
     struct Voice
     {
         bool active = false, releasing = false;
         int note = 60, gen = 0, model = 0, layer = 0, autoOff = -1;
         float vel = 1.0f, gain = 1.0f, freq = 110.0f, target = 110.0f, glideCoef = 0.0f, accent = 0.0f;
+        double rate = 96000.0;            // render rate: 2x, or 4x for ladder / MS20 models
+        int os = 2;
         double ph[8] {}, ph2[8] {}, subPh = 0.0, modPh = 0.0, spos = 0.0;
         float pan[8] {};
         Adsr amp, fenv;
         SyncSaw sync;
+        AdaaTanh driveSat, ms20Sat;
+        VoiceCtl ctl;
+        bool ctlStale = true;
         Ladder ladder;
         Svf svf, svf2, nbp;
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
@@ -289,16 +308,35 @@ public:
                 const auto& ev = events[e++];
                 if (ev.on)
                 {
-                    noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff * 2, relMul);
-                    if (layer > 0.01f) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff * 2, relMul);
+                    noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff, relMul);
+                    if (layer > 0.01f) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff, relMul);
                 }
                 else noteOff (ev.note, ev.gen, relMul);
             }
-            int n = std::min (kSub, c.n - i0);
+            // Sub-blocks also sit on a fixed grid of the stream (block-size independent sound).
+            int n = std::min (kSub - (int) ((c.samplePos + i0) % kSub), c.n - i0);
             if (e < events.size()) n = std::min (n, std::max (1, events[e].offset - i0));
             std::fill (L2, L2 + 2 * n, 0.0f);
             std::fill (R2, R2 + 2 * n, 0.0f);
-            for (auto& v : voices) if (v.active) render (c, v, L2, R2, 2 * n, smp);
+            bool any4 = false;
+            const bool onGrid = (c.samplePos + i0) % kSub == 0;
+            for (auto& v : voices)
+                if (v.active)
+                {
+                    if (v.os == 4)
+                    {
+                        if (! any4) { std::fill (L4, L4 + 4 * n, 0.0f); std::fill (R4, R4 + 4 * n, 0.0f); any4 = true; }
+                        render (c, v, L4, R4, 4 * n, smp, onGrid);
+                    }
+                    else render (c, v, L2, R2, 2 * n, smp, onGrid);
+                }
+            // 4x voices: down to 2x (always run, so the filters' state stays continuous).
+            if (! any4) { std::fill (L4, L4 + 4 * n, 0.0f); std::fill (R4, R4 + 4 * n, 0.0f); }
+            for (int i = 0; i < 2 * n; ++i)
+            {
+                L2[i] += dec4[0].down (L4[2 * i], L4[2 * i + 1]);
+                R2[i] += dec4[1].down (R4[2 * i], R4[2 * i + 1]);
+            }
             dec.process (0, L2, L + i0, n);
             dec.process (1, R2, R + i0, n);
             i0 += n;
@@ -340,7 +378,7 @@ private:
             const bool legato = v != nullptr && ev.gen == 0 && held.size() > 1;
             if (v == nullptr) v = &voices[(size_t) pickVoice (voices)];
             setupVoice (c, *v, m, modelIdx, ev, (float) ev.note + tune, gain, layerId, autoOff, relMul, ! legato, accent);
-            if (legato) v->glideCoef = std::exp (-1.0f / (0.06f * (float) osr * (m.acid ? 1.0f : 0.5f + c.v (GLIDE) * 3.0f)));
+            if (legato) v->glideCoef = std::exp (-1.0f / (0.06f * (float) v->rate * (m.acid ? 1.0f : 0.5f + c.v (GLIDE) * 3.0f)));
             return;
         }
         for (size_t k = 0; k < chord.size(); ++k)
@@ -358,6 +396,8 @@ private:
         {
             const float keepFreq = v.freq;
             v = Voice();
+            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.engine == E_SYNC) ? 4 : 2;
+            v.rate = sr * v.os;
             v.freq = wasActive ? keepFreq : noteHz (note);
             for (int k = 0; k < 8; ++k) { v.ph[k] = rng.uni(); v.ph2[k] = rng.uni(); v.pan[k] = 0.5f + (k == 0 ? 0.0f : ((k & 1) ? -0.35f : 0.35f) * (0.5f + 0.5f * rng.uni())); }
         }
@@ -366,17 +406,18 @@ private:
         v.vel = 0.55f + 0.45f * lerp (1.0f, ev.vel, 0.6f);
         v.gain = gain;
         v.target = noteHz (note);
-        v.glideCoef = c.v (GLIDE) > 0.02f && ! m.acid ? std::exp (-1.0f / ((0.005f + c.v (GLIDE) * 0.4f) * (float) osr)) : 0.0f;
+        v.glideCoef = c.v (GLIDE) > 0.02f && ! m.acid ? std::exp (-1.0f / ((0.005f + c.v (GLIDE) * 0.4f) * (float) v.rate)) : 0.0f;
         if (! wasActive) v.freq = v.target;
         v.accent = accent ? c.v (ACCENT) : 0.0f;
         const float decK = std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.6f, (float) ev.gen) * (1.0f - v.accent * 0.4f);
         const float attK = c.v (ATTACK) * 2.0f;
-        v.amp.set (m.att + attK, m.dec * (m.acid ? 1.0f : decK), m.sus, m.rel * relMul, osr);
-        v.fenv.set (m.fAtt + attK * 0.5f, m.fDec * decK, m.fSus, m.fRel * relMul, osr);
+        v.amp.set (m.att + attK, m.dec * (m.acid ? 1.0f : decK), m.sus, m.rel * relMul, v.rate);
+        v.fenv.set (m.fAtt + attK * 0.5f, m.fDec * decK, m.fSus, m.fRel * relMul, v.rate);
         v.amp.on (retrigger || ! wasActive);
         v.fenv.on (retrigger || ! wasActive || m.acid);
-        v.autoOff = autoOff;
+        v.autoOff = autoOff > 0 ? autoOff * v.os : autoOff;
         v.t = 0.0f;
+        v.ctlStale = true;
     }
 
     void noteOff (int note, int gen, float relMul)
@@ -393,7 +434,7 @@ private:
                 {
                     v.note = held.back();
                     v.target = noteHz ((float) held.back() + pitchOffset);
-                    v.glideCoef = std::exp (-1.0f / (0.06f * (float) osr));
+                    v.glideCoef = std::exp (-1.0f / (0.06f * (float) v.rate));
                     slid = true;
                 }
             if (slid) return;
@@ -408,59 +449,78 @@ private:
             { v.amp.off(); v.fenv.off(); v.releasing = true; }
     }
 
-    // Renders n samples at the oversampled rate (osr) into L/R (accumulating).
-    void render (Ctx& c, Voice& v, float* L, float* R, int n, const SampleData* smp)
+    // Renders n samples at the voice's oversampled rate (v.rate) into L/R (accumulating).
+    void updateControls (Ctx& c, Voice& v, int n)
     {
         const auto& m = models[(size_t) v.model];
         const auto& W = *waves;
-        const float invOsr = (float) (1.0 / osr);
-        // Control values for this sub-block.
-        const float cutK = c.v (CUTOFF), res = clamp01 (c.v (RES) * m.resMul), envA = c.v (ENVAMT) * m.envMul * (1.0f + v.accent);
+        auto& k = v.ctl;
+        const double vr = v.rate;
+        const float invOsr = (float) (1.0 / vr);
+        const float cutK = c.v (CUTOFF), envA = c.v (ENVAMT) * m.envMul * (1.0f + v.accent);
+        k.res = clamp01 (c.v (RES) * m.resMul);
         const float drive = clamp01 (c.v (DRIVE) + m.drive);
-        const float driveG = 1.0f + drive * 6.0f, driveNorm = 1.2f / std::sqrt (driveG);
-        const float color = c.v (COLOR), det = c.v (DETUNE);
+        k.driveG = drive > 0.001f ? 1.0f + drive * 6.0f : 0.0f;
+        k.driveNorm = 1.2f / std::sqrt (std::max (1.0f, k.driveG));
+        k.color = c.v (COLOR); k.det = c.v (DETUNE);
         const float fe = v.fenv.v;
         const float keyTrack = std::log2 (std::max (20.0f, v.freq) / 130.0f) * 0.3f;
-        const float cutT = clamp01 (cutK + envA * fe * 0.6f + keyTrack * 0.1f) * std::pow (0.75f, (float) v.gen);
-        const float cutHz = expMap (cutT, 35.0f, 18000.0f);
+        k.cutT = clamp01 (cutK + envA * fe * 0.6f + keyTrack * 0.1f) * std::pow (0.75f, (float) v.gen);
+        const float cutHz = expMap (k.cutT, 35.0f, 18000.0f);
         switch (m.filt)
         {
-            case F_LADDER: v.ladder.set (cutHz, res * 0.98f, osr); break;
-            case F_SVF:    v.svf.set (cutHz, 0.6f + res * 8.0f, osr); break;
-            case F_MS20:   v.svf.set (cutHz, 0.6f + res * 12.0f, osr); v.svf2.set (std::max (20.0f, cutHz * 0.08f), 0.7f + res * 3.0f, osr); break;
+            case F_LADDER: v.ladder.set (cutHz, k.res * 0.98f, vr); break;
+            case F_SVF:    v.svf.set (cutHz, 0.6f + k.res * 8.0f, vr); break;
+            case F_MS20:   v.svf.set (cutHz, 0.6f + k.res * 12.0f, vr); v.svf2.set (std::max (20.0f, cutHz * 0.08f), 0.7f + k.res * 3.0f, vr); break;
             case F_NONE: break;
         }
-        if (m.engine == E_NOISE) v.nbp.set (v.freq, 4.0f + color * 40.0f, osr);
-        const int uni = std::max (1, std::min (8, m.unison));
-        const float detCents = m.detune * 40.0f * (0.2f + det * 1.6f);
-        const float gainAll = v.gain * v.vel * (1.0f + v.accent * 0.5f) * 0.32f * m.gain;
-        // Pitch multipliers that move slowly: computed once per sub-block.
-        float subMul = 1.0f;
-        if (m.pitchDive > 0.0f) subMul *= semis (-m.pitchDive * std::exp (-v.t / 0.08f));
+        if (m.engine == E_NOISE) v.nbp.set (v.freq, 4.0f + k.color * 40.0f, vr);
+        k.uni = std::max (1, std::min (8, m.unison));
+        k.detCents = m.detune * 40.0f * (0.2f + k.det * 1.6f);
+        k.gainAll = v.gain * v.vel * (1.0f + v.accent * 0.5f) * 0.32f * m.gain;
+        // Pitch multipliers that move slowly.
+        k.subMul = 1.0f;
+        if (m.pitchDive > 0.0f) k.subMul *= semis (-m.pitchDive * std::exp (-v.t / 0.08f));
         if (m.wow > 0.0f)
         {
             v.drift += 0.3f * (float) n * invOsr; if (v.drift > 1.0f) v.drift -= 1.0f;
-            subMul *= semis (m.wow * (0.12f * std::sin (kTwoPi * v.drift) + 0.03f * std::sin (kTwoPi * v.drift * 17.0f)));
+            k.subMul *= semis (m.wow * (0.12f * std::sin (kTwoPi * v.drift) + 0.03f * std::sin (kTwoPi * v.drift * 17.0f)));
         }
-        float uniR[8], pw[8], r2[8];
-        int oct1[8], oct2[8];
-        const float fTop = std::max (v.freq, v.target) * subMul;
-        const int shape1 = m.engine == E_HOOVER ? 1 : (m.acid ? (color < 0.5f ? 0 : 1) : m.wave);
-        for (int u = 0; u < uni; ++u)
+        const float fTop = std::max (v.freq, v.target) * k.subMul;
+        k.shape1 = m.engine == E_HOOVER ? 1 : (m.acid ? (k.color < 0.5f ? 0 : 1) : m.wave);
+        for (int u = 0; u < k.uni; ++u)
         {
-            const float cents = uni == 1 ? 0.0f : detCents * ((float) u / (float) (uni - 1) - 0.5f) * 2.0f;
-            uniR[u] = semis (cents / 100.0f);
-            pw[u] = m.engine == E_HOOVER ? 0.5f + 0.35f * std::sin (kTwoPi * (v.t * 0.7f + (float) u * 0.3f)) : 0.5f;
-            r2[u] = m.ratio * semis ((detCents * 0.5f + det * 7.0f * (m.unison > 1 ? 0.0f : 1.0f)) / 100.0f);
-            oct1[u] = W.saw.octaveFor (fTop * uniR[u]);
-            oct2[u] = W.saw.octaveFor (fTop * uniR[u] * r2[u]);
+            const float cents = k.uni == 1 ? 0.0f : k.detCents * ((float) u / (float) (k.uni - 1) - 0.5f) * 2.0f;
+            k.uniR[u] = semis (cents / 100.0f);
+            k.pw[u] = m.engine == E_HOOVER ? 0.5f + 0.35f * std::sin (kTwoPi * (v.t * 0.7f + (float) u * 0.3f)) : 0.5f;
+            k.r2[u] = m.ratio * semis ((k.detCents * 0.5f + k.det * 7.0f * (m.unison > 1 ? 0.0f : 1.0f)) / 100.0f);
+            k.oct1[u] = W.saw.octaveFor (fTop * k.uniR[u]);
+            k.oct2[u] = W.saw.octaveFor (fTop * k.uniR[u] * k.r2[u]);
         }
-        const int octSub = W.square.octaveFor (fTop * 0.5f);
-        const float pw2 = 0.3f + color * 0.4f;
-        const float osc2Amt = m.osc2 * (m.acid ? 0.0f : 1.0f);
-        const bool doSub = m.sub > 0.0f || (m.engine == E_SUB && ! m.acid && color > 0.0f && m.mono);
-        const float subLvl = m.sub * (m.mono ? (0.5f + color) : 1.0f) * 0.7f;
-        const float sideK = clamp01 (cutT * 1.5f);
+        k.octSub = W.square.octaveFor (fTop * 0.5f);
+        k.pw2 = 0.3f + k.color * 0.4f;
+        k.osc2Amt = m.osc2 * (m.acid ? 0.0f : 1.0f);
+        k.doSub = m.sub > 0.0f || (m.engine == E_SUB && ! m.acid && k.color > 0.0f && m.mono);
+        k.subLvl = m.sub * (m.mono ? (0.5f + k.color) : 1.0f) * 0.7f;
+        k.sideK = clamp01 (k.cutT * 1.5f);
+    }
+
+    void render (Ctx& c, Voice& v, float* L, float* R, int n, const SampleData* smp, bool onGrid)
+    {
+        const auto& m = models[(size_t) v.model];
+        const auto& W = *waves;
+        const double vr = v.rate;
+        const float invOsr = (float) (1.0 / vr);
+        if (onGrid || v.ctlStale) { updateControls (c, v, kSub * v.os); v.ctlStale = false; }
+        const auto& k = v.ctl;
+        const float res = k.res; juce::ignoreUnused (res);
+        const float driveG = k.driveG, driveNorm = k.driveNorm, color = k.color, det = k.det, gainAll = k.gainAll, subMul = k.subMul;
+        const int uni = k.uni, shape1 = k.shape1, octSub = k.octSub;
+        const float* uniR = k.uniR; const float* pw = k.pw; const float* r2 = k.r2;
+        const int* oct1 = k.oct1; const int* oct2 = k.oct2;
+        const float pw2 = k.pw2, osc2Amt = k.osc2Amt, subLvl = k.subLvl, sideK = k.sideK;
+        const bool doSub = k.doSub;
+        const float drive = driveG > 0.0f ? 1.0f : 0.0f;
         auto sinT = [&W] (double ph) { return W.frame[0].read (0, ph); };
         // Band-limited oscillator read: 0 saw, 1 pulse (pw), 2 triangle, 3 sine.
         auto osc = [&W, &sinT] (int shape, int oct, double ph, float pwv) -> float
@@ -565,15 +625,15 @@ private:
                     const int glen = (int) ((0.03f + color * 0.25f) * sr);       // source samples
                     if (len > glen + 4 && --v.grainClock <= 0)
                     {
-                        v.grainClock = std::max (1, glen / 2);                    // 2x-rate samples (= glen / 4 at 1x)
+                        v.grainClock = std::max (1, glen * v.os / 4);             // voice-rate samples (= glen / 4 at 1x)
                         for (auto& gr : v.grains)
                             if (! gr.on)
                             {
-                                gr.on = true; gr.age = 0; gr.len = glen * 2;
+                                gr.on = true; gr.age = 0; gr.len = glen * v.os;
                                 const float scatter = det * 0.3f;
                                 gr.pos = std::fmod (v.t * 0.05f * sr + rng.uni() * scatter * len, (double) (len - glen - 4));
                                 if (gr.pos < 0) gr.pos += len - glen - 4;
-                                gr.rate = 0.5 * (f / root) * (1.0 + (rng.uni() - 0.5f) * det * 0.02f);
+                                gr.rate = (f / root) / v.os * (1.0 + (rng.uni() - 0.5f) * det * 0.02f);
                                 gr.pan = 0.5f + (rng.uni() - 0.5f) * 0.8f;
                                 break;
                             }
@@ -600,7 +660,7 @@ private:
                     xl = hermiteAt (smp->buf.getReadPointer (0), len, v.spos);
                     xr = hermiteAt (smp->buf.getReadPointer (smp->buf.getNumChannels() > 1 ? 1 : 0), len, v.spos);
                     stereo = true;
-                    v.spos += 0.5 * (double) f / (double) noteHz (smp->rootNote);
+                    v.spos += (double) f / (double) noteHz (smp->rootNote) / v.os;
                     break;
                 }
             }
@@ -608,12 +668,12 @@ private:
             // Filter (mono filters run on the mid; stereo engines get mid/side filtered as one).
             auto filt = [&] (float in) -> float
             {
-                if (drive > 0.001f) in = fastTanh (in * driveG) * driveNorm;
+                if (drive > 0.0f) in = v.driveSat.tick (in * driveG) * driveNorm;
                 switch (m.filt)
                 {
                     case F_LADDER: return v.ladder.tick (in);
                     case F_SVF: return v.svf.tickLP (in);
-                    case F_MS20: return fastTanh (v.svf2.tickHP (v.svf.tickLP (in)) * 1.5f);
+                    case F_MS20: return v.ms20Sat.tick (v.svf2.tickHP (v.svf.tickLP (in)) * 1.5f);
                     default: return in;
                 }
             };
@@ -669,13 +729,21 @@ private:
     double osr = 96000.0;
     std::shared_ptr<const WaveSet> waves;
     Decimator2x dec;
+    Halfband dec4[2];
     static constexpr int kSub = 32;
-    float L2[2 * kSub] {}, R2[2 * kSub] {};
+    float L2[2 * kSub] {}, R2[2 * kSub] {}, L4[4 * kSub] {}, R4[4 * kSub] {};
     juce::AudioBuffer<float> grainSrc;
     std::atomic<int> activeVoices { 0 };
 };
 
-ModulePtr makeBASS() { return std::make_unique<SynthModule> ("BASS", ROLE_BASS, bassModels(), 0.35f, 0.3f, 0.4f, 0.5f, 0.6f); }
-ModulePtr makeLEAD() { return std::make_unique<SynthModule> ("LEAD", ROLE_LEAD, leadModels(), 0.4f, 0.5f, 0.5f, 0.5f, 0.2f); }
-ModulePtr makePAD()  { return std::make_unique<SynthModule> ("PAD", ROLE_PAD, padModels(), 0.55f, 0.1f, 0.1f, 0.75f, 0.3f); }
+// Gain staging (Calibration.h): every model at its role's target loudness.
+template <size_t N>
+static std::vector<SynthModel> calibrated (std::vector<SynthModel> m, const float (&db)[N])
+{
+    for (size_t i = 0; i < m.size() && i < N; ++i) m[i].gain *= cal::gain (db[i]);
+    return m;
+}
+ModulePtr makeBASS() { return std::make_unique<SynthModule> ("BASS", ROLE_BASS, calibrated (bassModels(), cal::bass), 0.35f, 0.3f, 0.4f, 0.5f, 0.6f); }
+ModulePtr makeLEAD() { return std::make_unique<SynthModule> ("LEAD", ROLE_LEAD, calibrated (leadModels(), cal::lead), 0.4f, 0.5f, 0.5f, 0.5f, 0.2f); }
+ModulePtr makePAD()  { return std::make_unique<SynthModule> ("PAD", ROLE_PAD, calibrated (padModels(), cal::pad), 0.55f, 0.1f, 0.1f, 0.75f, 0.3f); }
 } // namespace sf

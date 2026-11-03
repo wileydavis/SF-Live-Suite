@@ -261,18 +261,70 @@ private:
     int n = 3, pos = 0, delay = 1;
 };
 
-// Stereo 4x linear-phase oversampler built from two FIR halfband stages.
+// Linear-phase Kaiser lowpass for the last 2x -> 1x step of the master clipper: flat to 20 kHz
+// and >= 100 dB down from the base Nyquist up, so nothing is left near Nyquist to make
+// inter-sample peaks the true-peak detector could under-read.
+class FirLowpassDecimator
+{
+public:
+    static constexpr int kMax = 511;
+    void design (double pass, double stop, double osr)
+    {
+        const double pi = 3.14159265358979323846, A = 100.0, beta = 0.1102 * (A - 8.7);
+        const double dw = 2.0 * pi * (stop - pass) / osr;
+        n = (int) std::ceil ((A - 7.95) / (2.285 * std::max (1e-4, dw)));
+        n = std::max (31, std::min (kMax, n | 1));
+        const double fc = 0.5 * (pass + stop) / osr;
+        auto bessel0 = [] (double x) { double s = 1.0, t = 1.0; for (int k = 1; k < 60; ++k) { t *= (x / (2.0 * k)) * (x / (2.0 * k)); s += t; } return s; };
+        const int M = (n - 1) / 2;
+        double sum = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const int d = i - M;
+            const double sinc = d == 0 ? 2.0 * fc : std::sin (2.0 * pi * fc * d) / (pi * d);
+            const double r = (double) d / M;
+            taps[i] = (float) (sinc * bessel0 (beta * std::sqrt (std::max (0.0, 1.0 - r * r))));
+            sum += taps[i];
+        }
+        for (int i = 0; i < n; ++i) taps[i] = (float) (taps[i] / sum);
+        reset();
+    }
+    void reset() { std::fill (buf, buf + 2 * kMax, 0.0f); pos = 0; }
+    float down (float x0, float x1)
+    {
+        push (x0); push (x1);
+        const float* b = buf + pos;
+        float acc = 0.0f;
+        for (int i = 0; i < n; ++i) acc += taps[i] * b[i];
+        return acc;
+    }
+private:
+    void push (float x) { pos = (pos == 0 ? n : pos) - 1; buf[pos] = x; buf[pos + n] = x; }
+    float taps[kMax] {};
+    float buf[2 * kMax] {};
+    int n = 31, pos = 0;
+};
+
+// Stereo 4x linear-phase oversampler: FIR halfband stages up, FIR halfband + steep FIR lowpass down.
 class FirOversampler4x
 {
 public:
     void prepare (double baseRate)
     {
-        (void) baseRate;
-        for (int c = 0; c < 2; ++c) { u1[c].design (79, 0.0); d1[c].design (79, 0.0); u2[c].design (23, 0.0); d2[c].design (23, 0.0); }
+        const double pass = std::min (20000.0, 0.45 * baseRate);
+        for (int c = 0; c < 2; ++c)
+        {
+            u1[c].design (79, 0.0); u2[c].design (23, 0.0); d2[c].design (23, 0.0);
+            d1[c].design (pass, 0.5 * baseRate, 2.0 * baseRate);
+        }
+        // Latency: impulse centroid of the whole up/down path.
+        double num = 0.0, den = 0.0;
+        for (int i = 0; i < 1024; ++i) { const double y = process (0, i == 0 ? 1.0f : 0.0f, [] (float x) { return x; }); num += i * y; den += y; }
+        lat = den != 0.0 ? num / den : 0.0;
+        reset();
     }
     void reset() { for (int c = 0; c < 2; ++c) { u1[c].reset(); d1[c].reset(); u2[c].reset(); d2[c].reset(); } }
-    // Base-rate latency of up + down (79-tap and 23-tap stages): 39 + 5.5 samples.
-    static double latency() { return 39.0 + 5.5; }
+    double latency() const { return lat; }
     template <typename F>
     float process (int c, float x, F&& f)
     {
@@ -281,9 +333,13 @@ public:
         u2[c].up (a0, b[0], b[1]);
         u2[c].up (a1, b[2], b[3]);
         for (auto& v : b) v = f (v);
-        return d1[c].down (d2[c].down (b[0], b[1]), d2[c].down (b[2], b[3]));
+        const float m0 = d2[c].down (b[0], b[1]);          // in order: the filters have state
+        const float m1 = d2[c].down (b[2], b[3]);
+        return d1[c].down (m0, m1);
     }
 private:
-    FirHalfband u1[2], d1[2], u2[2], d2[2];
+    FirHalfband u1[2], u2[2], d2[2];
+    FirLowpassDecimator d1[2];
+    double lat = 0.0;
 };
 } // namespace sf

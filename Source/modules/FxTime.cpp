@@ -613,7 +613,7 @@ public:
                     const float within = (float) (pos / segLen);
                     const float gt = within < gate ? std::min (1.0f, (gate - within) * 60.0f) * std::min (1.0f, within * 400.0f + 0.05f) : 0.0f;
                     const float cut = expMap (1.0f - filt * std::min (1.0f, pass / 8.0f), 300.0f, 20000.0f);
-                    if ((i & 15) == 0) for (auto& f : lp) f.set (cut, 0.7071f, sr);
+                    if (((c.samplePos + i) & 15) == 0) for (auto& f : lp) f.set (cut, 0.7071f, sr);
                     oL = lp[0].tickLP (l * g * gt); oR = lp[1].tickLP (r * g * gt);
                     pos += rate;
                 }

@@ -20,7 +20,7 @@ public:
     std::vector<ParamSpec> params() const override
     {
         std::vector<std::string> roles; for (int i = 0; i < kNumRoles; ++i) roles.push_back (kRoleNames[i]);
-        auto role = choice ("role", "ROLE", roles, ROLE_OTHER); role.song = false;
+        auto role = choice ("role", "ROLE", roles, ROLE_OTHER); role.song = false; role.preset = false;
         return { pct ("density", "DENSITY", 0.0f).prim().dir (1),
                  pct ("gate", "GATE", 1.0f).prim().dir (-1),
                  bip ("filter", "FILTER").prim(),
@@ -30,7 +30,7 @@ public:
                  momentary ("throw", "THROW").prim(),
                  levelParam().prim(),
                  role,
-                 toggle ("alloc", "ALLOC", true),
+                 toggle ("alloc", "ALLOC", true).noPreset(),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
                  pct ("echo_prob", "ECHO PROB", 1.0f),
                  pct ("darken", "DARKEN", 0.4f),
