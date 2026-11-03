@@ -134,9 +134,10 @@ private:
 ModulePtr makeCONTROL() { return std::make_unique<ControlModule>(); }
 
 // =====================================================================================  ALLOC
-// Mix assigner. You put the sources in order (drag in the list, top = most important). Each of
-// the 10 bands has a priority curve over that list:
-//   PRIORITY - where the curve's peak sits (top .. bottom of the list)
+// Mix assigner. Sources are put in order of importance (drag in the list, top = most important):
+// one global order, and any band can have its own order instead (click the band, drag; LINK
+// returns it to the global order). Each of the 10 bands has a priority curve over its order:
+//   PRIORITY - where the curve's peak sits (top .. bottom of the order)
 //   DEPTH    - how hard sources away from the peak are cut (0 = nothing cut)
 //   Q        - width of the peak (wide = neighbours share, narrow = one source owns the band)
 // MODE DYNAMIC cuts a source only while a more favoured source is playing in that band;
@@ -145,7 +146,12 @@ class AllocModule : public Module, private juce::Timer
 {
 public:
     enum { ENABLE, MODE, MAXCUT, SENS, PRI0 = 4, DEPTH0 = PRI0 + kBands, Q0 = DEPTH0 + kBands };
-    AllocModule() { for (auto& r : rank) r = -1; startTimerHz (20); }
+    AllocModule()
+    {
+        for (auto& band : rank) for (auto& r : band) r = -1;
+        for (auto& l : linked) l = true;
+        startTimerHz (20);
+    }
     ~AllocModule() override { stopTimer(); }
     std::string id() const override { return "ALLOC"; }
     std::vector<ParamSpec> params() const override
@@ -155,14 +161,13 @@ public:
             choice ("mode", "MODE", { "DYNAMIC", "STATIC" }, 0).prim(),
             knob ("max_cut", "MAX CUT", 0.0f, 24.0f, 12.0f, "dB").prim(),
             pct ("sensitivity", "SENSITIVITY", 0.5f).prim() };
-        for (int b = 0; b < kBands; ++b) { auto k = pct (("pri" + std::to_string (b + 1)).c_str(), ("PRIORITY " + std::to_string (b + 1)).c_str(), 0.0f); k.glide = true; p.push_back (k.hide()); }
+        for (int b = 0; b < kBands; ++b) p.push_back (pct (("pri" + std::to_string (b + 1)).c_str(), ("PRIORITY " + std::to_string (b + 1)).c_str(), 0.0f).hide());
         for (int b = 0; b < kBands; ++b) p.push_back (pct (("depth" + std::to_string (b + 1)).c_str(), ("DEPTH " + std::to_string (b + 1)).c_str(), 0.0f).hide());
         for (int b = 0; b < kBands; ++b) p.push_back (pct (("q" + std::to_string (b + 1)).c_str(), ("Q " + std::to_string (b + 1)).c_str(), 0.5f).hide());
         return p;
     }
     void prepare (double rate, int) override { sr = rate; }
 
-    // Peak position in list rows and width (rows) for a band.
     static void curve (float pri, float q, int n, float& peak, float& sigma)
     {
         peak = pri * (float) std::max (0, n - 1);
@@ -177,23 +182,19 @@ public:
         const bool en = c.b (ENABLE), dynamic = c.ci (MODE) == 0;
         const float maxCut = c.v (MAXCUT);
         const float floorDb = -58.0f + (1.0f - c.v (SENS)) * 22.0f;
-        // Sources in list order (ranks come from the message thread).
-        int order[kSources]; int n = 0;
-        for (int r = 0; r < kSources; ++r) slotAt[r] = -1;
-        for (int s = 0; s < kSources; ++s)
-        {
-            const int rk = rank[s].load();
-            if (rk >= 0 && rk < kSources && Bus::get().sourceAlive (s) && d.src[s].enabled.load() != 0) slotAt[rk] = s;
-        }
-        for (int r = 0; r < kSources; ++r) if (slotAt[r] >= 0) order[n++] = slotAt[r];
-        // Sources the list hasn't placed yet (just appeared): after the list, in role order.
-        for (int role = 0; role < kNumRoles; ++role)
-            for (int s = 0; s < kSources; ++s)
-                if (rank[s].load() < 0 && Bus::get().sourceAlive (s) && d.src[s].enabled.load() != 0 && d.src[s].role.load() == role && n < kSources)
-                    order[n++] = s;
+        bool alive[kSources];
+        for (int s = 0; s < kSources; ++s) alive[s] = Bus::get().sourceAlive (s) && d.src[s].enabled.load() != 0;
         for (int s = 0; s < kSources; ++s) for (int b = 0; b < kBands; ++b) cutOut[s][b] = 0.0f;
         for (int b = 0; b < kBands; ++b)
         {
+            // This band's order (ranks come from the message thread); unplaced sources after it, by role.
+            int order[kSources], n = 0, slotAt[kSources];
+            for (auto& x : slotAt) x = -1;
+            for (int s = 0; s < kSources; ++s) { const int rk = rank[b][s].load(); if (alive[s] && rk >= 0 && rk < kSources) slotAt[rk] = s; }
+            for (int r = 0; r < kSources; ++r) if (slotAt[r] >= 0) order[n++] = slotAt[r];
+            for (int role = 0; role < kNumRoles; ++role)
+                for (int s = 0; s < kSources; ++s)
+                    if (alive[s] && rank[b][s].load() < 0 && d.src[s].role.load() == role && n < kSources) order[n++] = s;
             float peak, sigma;
             curve (c.v (PRI0 + b), c.v (Q0 + b), n, peak, sigma);
             const float depth = c.v (DEPTH0 + b);
@@ -204,7 +205,6 @@ public:
                 float cut = en ? maxCut * depth * (1.0f - w[i]) : 0.0f;
                 if (cut > 0.0f && dynamic)
                 {
-                    // Only while someone more favoured is actually playing in this band.
                     float winner = -120.0f;
                     for (int j = 0; j < n; ++j) if (w[j] > w[i] + 0.05f) winner = std::max (winner, e[j]);
                     cut *= clamp01 ((winner - floorDb) / 18.0f);
@@ -223,16 +223,27 @@ public:
         dispFloor = floorDb;
     }
 
-    // ---- state: the list order (by name)
+    // ---- state: global order + per-band orders (by name)
     void save (juce::ValueTree& t) const override
     {
-        juce::String s; for (auto& nm : listOrder) s << nm << "\n";
-        t.setProperty ("order", s, nullptr);
+        auto join = [] (const std::vector<std::string>& v) { juce::String s; for (auto& nm : v) s << nm << "\n"; return s; };
+        t.setProperty ("order", join (globalOrder), nullptr);
+        for (int b = 0; b < kBands; ++b)
+        {
+            t.setProperty ("linked" + juce::String (b), linked[b], nullptr);
+            t.setProperty ("order" + juce::String (b), join (bandOrder[b]), nullptr);
+        }
     }
     void load (const juce::ValueTree& t) override
     {
-        listOrder.clear();
-        for (auto& line : juce::StringArray::fromLines (t.getProperty ("order").toString())) if (line.isNotEmpty()) listOrder.push_back (line.toStdString());
+        auto split = [] (const juce::var& v) { std::vector<std::string> out; for (auto& l : juce::StringArray::fromLines (v.toString())) if (l.isNotEmpty()) out.push_back (l.toStdString()); return out; };
+        globalOrder = split (t.getProperty ("order"));
+        for (int b = 0; b < kBands; ++b)
+        {
+            linked[b] = (bool) t.getProperty ("linked" + juce::String (b), true);
+            bandOrder[b] = split (t.getProperty ("order" + juce::String (b)));
+        }
+        updateRanks();
     }
 
     // ---- display
@@ -240,10 +251,12 @@ public:
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         area = r;
-        const auto rows = visibleRows();
-        auto list = listArea();
-        ui::frame (g, r.withWidth (list.getWidth() + 8), "SOURCES  DRAG TO ORDER");
         const float rh = rowH();
+        // List: global order, or the selected band's order.
+        const auto rows = visibleRows (selBand);
+        auto list = listArea();
+        const juce::String title = selBand < 0 ? "ORDER: ALL BANDS" : "ORDER: " + juce::String (bandName (selBand)) + " HZ" + (linked[selBand] ? " (ALL)" : " (OWN)");
+        ui::frame (g, r.withWidth (list.getWidth() + 8), title);
         for (size_t i = 0; i < rows.size(); ++i)
         {
             auto row = juce::Rectangle<float> (list.getX(), list.getY() + rh * (float) i, list.getWidth(), rh);
@@ -254,28 +267,43 @@ public:
             ui::label (g, juce::String (rows[i].label), row, dragging ? ui::kAccent : ui::kText, 10.5f);
         }
         if (rows.empty()) ui::label (g, "NO SOURCES", list.withHeight (20), ui::kFaint, 10.0f);
-        static const char* bandNames[kBands] = { "40", "80", "120", "180", "270", "390", "600", "1K", "2.5K", "9K" };
+        // Buttons under the list.
+        auto allB = allButton(), linkB = linkButton();
+        g.setColour (selBand < 0 ? ui::kText : ui::kLine); g.drawRect (allB, 1.0f);
+        ui::label (g, "ALL BANDS", allB, selBand < 0 ? ui::kText : ui::kDim, 9.5f, juce::Justification::centred);
+        if (selBand >= 0)
+        {
+            g.setColour (ui::kLine); g.drawRect (linkB, 1.0f);
+            ui::label (g, linked[selBand] ? "LINKED" : "LINK TO ALL", linkB, linked[selBand] ? ui::kFaint : ui::kText, 9.5f, juce::Justification::centred);
+        }
+        ui::label (g, selBand < 0 ? "CLICK A BAND: OWN ORDER" : "DRAG: OWN ORDER",
+                   juce::Rectangle<float> (list.getX(), allB.getBottom() + 4.0f, list.getWidth(), 24.0f), ui::kFaint, 8.0f);
+
         for (int b = 0; b < kBands; ++b)
         {
             auto col = bandArea (b);
-            ui::frame (g, col, bandNames[b]);
-            auto lanes = col.reduced (4.0f, 0.0f).withTop (list.getY()).withHeight (rh * (float) std::max<size_t> (1, rows.size()));
-            const int n = (int) rows.size();
+            const auto bandRows = visibleRows (b);
+            const int n = (int) bandRows.size();
+            // Header: click to select. White frame = selected; "OWN" = own order.
+            g.setColour (b == selBand ? ui::kText : ui::kLine);
+            g.drawRect (col, b == selBand ? 1.5f : 1.0f);
+            ui::label (g, bandName (b), col.reduced (5.0f, 2.0f).removeFromTop (14.0f), b == selBand ? ui::kText : ui::kFaint, 10.0f);
+            if (! linked[b]) ui::label (g, "OWN", col.reduced (5.0f, 2.0f).removeFromTop (14.0f), ui::kText, 8.5f, juce::Justification::centredRight);
+            auto lanes = col.reduced (4.0f, 0.0f).withTop (list.getY()).withHeight (rh * (float) std::max (1, n));
             float peak, sigma;
             curve (getParam ? getParam (PRI0 + b) : 0.0f, getParam ? getParam (Q0 + b) : 0.5f, n, peak, sigma);
             const float depth = getParam ? getParam (DEPTH0 + b) : 0.0f;
-            // Per source: what plays (white) and what ALLOC takes away (amber).
             for (int i = 0; i < n; ++i)
             {
-                const int s = rows[(size_t) i].slot;
-                auto lane = juce::Rectangle<float> (lanes.getX(), lanes.getY() + rh * (float) i, lanes.getWidth(), rh).reduced (0.0f, 4.0f);
+                const int s = bandRows[(size_t) i].slot;
+                auto lane = juce::Rectangle<float> (lanes.getX(), lanes.getY() + rh * (float) i, lanes.getWidth(), rh).reduced (0.0f, 3.0f);
                 g.setColour (ui::kGrid); g.fillRect (lane);
                 const float pre = clamp01 ((dispE[s][b].load() - dispFloor.load()) / 50.0f);
                 const float post = clamp01 ((dispE[s][b].load() - dispCut[s][b].load() - dispFloor.load()) / 50.0f);
                 g.setColour (ui::kAmber); g.fillRect (lane.withWidth (lane.getWidth() * pre));
-                g.setColour (ui::kText);  g.fillRect (lane.withWidth (lane.getWidth() * post));
+                g.setColour (ui::kTrack.brighter (0.9f)); g.fillRect (lane.withWidth (lane.getWidth() * post));
+                ui::label (g, shortName (bandRows[(size_t) i].label), lane.withTrimmedLeft (3.0f), post > 0.35f ? ui::kBg : ui::kDim, 8.0f);
             }
-            // The priority curve: x = how protected each row is (right = fully protected).
             if (n > 0)
             {
                 juce::Path p;
@@ -283,31 +311,26 @@ public:
                 for (int k = 0; k <= steps; ++k)
                 {
                     const float rowPos = (float) k / (float) steps * (float) n - 0.5f;
-                    const float d = (rowPos - peak) / sigma;
-                    const float wgt = 1.0f - depth * (1.0f - std::exp (-0.5f * d * d));
+                    const float dd = (rowPos - peak) / sigma;
+                    const float wgt = 1.0f - depth * (1.0f - std::exp (-0.5f * dd * dd));
                     const float x = lanes.getX() + lanes.getWidth() * (0.15f + 0.85f * wgt);
                     const float y = lanes.getY() + rh * (rowPos + 0.5f);
                     if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
                 }
                 const bool touched = dragParam == PRI0 + b || dragParam == DEPTH0 + b || dragParam == Q0 + b;
-                g.setColour (touched ? ui::kAccent : depth > 0.001f ? ui::kDim : ui::kFaint);
+                g.setColour (touched ? ui::kAccent : depth > 0.001f ? ui::kText : ui::kFaint);
                 g.strokePath (p, juce::PathStrokeType (touched ? 2.0f : 1.4f));
-                // Who owns this band: the source nearest the peak (only when the curve does something).
                 if (depth > 0.001f)
                 {
                     const int owner = juce::jlimit (0, n - 1, (int) std::lround (peak));
-                    juce::String nm (rows[(size_t) owner].label);
-                    nm = nm.fromFirstOccurrenceOf ("TAP ", false, false).isNotEmpty() && nm.startsWith ("TAP ") ? nm.substring (4) : nm;
-                    ui::label (g, nm.substring (0, 9), juce::Rectangle<float> (col.getX() + 4.0f, col.getBottom() - 134.0f, col.getWidth() - 8.0f, 14.0f), ui::kText, 9.0f);
+                    ui::label (g, shortName (bandRows[(size_t) owner].label), juce::Rectangle<float> (col.getX() + 4.0f, col.getBottom() - 134.0f, col.getWidth() - 8.0f, 14.0f), ui::kText, 9.0f);
                 }
             }
-            // Knobs.
             for (int k = 0; k < 3; ++k)
             {
                 const int idx = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b;
-                auto kr = knobRect (b, k);
                 const float v = getParam ? getParam (idx) : 0.0f;
-                drawKnob (g, kr, v, k == 0 ? "PRI" : k == 1 ? "DEPTH" : "Q", dragParam == idx);
+                drawKnob (g, knobRect (b, k), v, k == 0 ? "PRI" : k == 1 ? "DEPTH" : "Q", dragParam == idx);
             }
         }
     }
@@ -318,9 +341,15 @@ public:
         {
             dragParam = -1; dragRow = -1;
             for (int b = 0; b < kBands; ++b)
+            {
                 for (int k = 0; k < 3; ++k)
-                    if (knobRect (b, k).contains (p)) { dragParam = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b; startVal = getParam ? getParam (dragParam) : 0.0f; startY = p.y; }
-            const auto rows = visibleRows();
+                    if (knobRect (b, k).contains (p)) { dragParam = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b; startVal = getParam ? getParam (dragParam) : 0.0f; startY = p.y; return; }
+                if (bandArea (b).withHeight (18.0f).contains (p) || (bandArea (b).contains (p) && p.y < knobRect (b, 0).getY() - 20.0f))
+                { selBand = selBand == b ? -1 : b; return; }
+            }
+            if (allButton().contains (p)) { selBand = -1; return; }
+            if (selBand >= 0 && linkButton().contains (p)) { linked[selBand] = true; bandOrder[selBand].clear(); updateRanks(); return; }
+            const auto rows = visibleRows (selBand);
             if (listArea().contains (p))
             {
                 const int i = (int) ((p.y - listArea().getY()) / rowH());
@@ -331,16 +360,18 @@ public:
         if (dragParam >= 0 && setParam) setParam (dragParam, clamp01 (startVal + (startY - p.y) / 160.0f));
         if (dragRow >= 0)
         {
-            const auto rows = visibleRows();
+            const auto rows = visibleRows (selBand);
             const int target = juce::jlimit (0, std::max (0, (int) rows.size() - 1), (int) ((p.y - listArea().getY()) / rowH()));
             if (target != dragRow)
             {
-                // Move in the stored order: take the dragged name out, put it before/after the target's name.
+                auto& ord = orderFor (selBand, true);
+                // Make sure every visible row is in the stored order, then move the dragged name.
+                for (auto& row : rows) if (std::find (ord.begin(), ord.end(), row.label) == ord.end()) ord.push_back (row.label);
                 const std::string moving = rows[(size_t) dragRow].label, anchor = rows[(size_t) target].label;
-                listOrder.erase (std::remove (listOrder.begin(), listOrder.end(), moving), listOrder.end());
-                auto it = std::find (listOrder.begin(), listOrder.end(), anchor);
-                if (target > dragRow && it != listOrder.end()) ++it;
-                listOrder.insert (it, moving);
+                ord.erase (std::remove (ord.begin(), ord.end(), moving), ord.end());
+                auto it = std::find (ord.begin(), ord.end(), anchor);
+                if (target > dragRow && it != ord.end()) ++it;
+                ord.insert (it, moving);
                 dragRow = target;
                 updateRanks();
             }
@@ -351,7 +382,21 @@ public:
 private:
     struct Row { std::string label; int slot; };
 
-    juce::Rectangle<float> listArea() const { return { area.getX() + 6.0f, area.getY() + 20.0f, 150.0f, area.getHeight() - 140.0f }; }
+    static const char* bandName (int b) { static const char* n[kBands] = { "40", "80", "120", "180", "270", "390", "600", "1K", "2.5K", "9K" }; return n[b]; }
+    static juce::String shortName (const std::string& s) { juce::String n (s); if (n.startsWith ("TAP ")) n = n.substring (4); if (n.startsWith ("STRIP ")) n = n.substring (6); return n.substring (0, 9); }
+
+    // Editing a band's order unlinks it, starting from the global order.
+    std::vector<std::string>& orderFor (int band, bool forEdit)
+    {
+        if (band < 0) return globalOrder;
+        if (forEdit && linked[band]) { linked[band] = false; bandOrder[band] = globalOrder; }
+        return linked[band] ? globalOrder : bandOrder[band];
+    }
+    const std::vector<std::string>& orderView (int band) const { return band < 0 || linked[band] ? globalOrder : bandOrder[band]; }
+
+    juce::Rectangle<float> listArea() const { return { area.getX() + 6.0f, area.getY() + 20.0f, 150.0f, area.getHeight() - 200.0f }; }
+    juce::Rectangle<float> allButton() const { auto l = listArea(); return { l.getX(), l.getBottom() + 8.0f, l.getWidth() * 0.48f, 22.0f }; }
+    juce::Rectangle<float> linkButton() const { auto l = listArea(); return { l.getX() + l.getWidth() * 0.52f, l.getBottom() + 8.0f, l.getWidth() * 0.48f, 22.0f }; }
     float rowH() const { return 22.0f; }
     juce::Rectangle<float> bandArea (int b) const
     {
@@ -375,50 +420,64 @@ private:
         ui::label (g, juce::String (juce::roundToInt (v * 100.0f)), r, hot ? ui::kAccent : ui::kText, 9.5f);
     }
 
-    // Alive sources as list rows, in stored order (new names are appended by role priority).
-    std::vector<Row> visibleRows() const
+    // Alive sources with unique labels (duplicates get " 2", " 3"), by role.
+    std::vector<Row> aliveRows() const
     {
-        std::vector<Row> rows;
+        std::vector<Row> out;
         auto& d = Bus::get().d();
-        std::vector<std::pair<std::string, int>> alive;
-        std::map<std::string, int> seen;
         std::vector<std::pair<int, int>> byRole;
         for (int s = 0; s < kSources; ++s) if (Bus::get().sourceAlive (s)) byRole.push_back ({ d.src[s].role.load(), s });
         std::sort (byRole.begin(), byRole.end());
+        std::map<std::string, int> seen;
         for (auto& rs : byRole)
         {
             char nm[24]; Bus::unpackName (d.src[rs.second].name, nm);
             std::string label = nm;
             const int k = ++seen[label];
-            if (k > 1) label += " " + std::to_string (k);       // two tracks with the same name
-            alive.push_back ({ label, rs.second });
+            if (k > 1) label += " " + std::to_string (k);
+            out.push_back ({ label, rs.second });
         }
-        for (auto& nm : listOrder) for (auto& a : alive) if (a.first == nm) rows.push_back ({ a.first, a.second });
-        for (auto& a : alive) if (std::find (listOrder.begin(), listOrder.end(), a.first) == listOrder.end()) rows.push_back ({ a.first, a.second });
+        return out;
+    }
+    // Rows in a band's order (-1 = global); sources the order doesn't name yet come last.
+    std::vector<Row> visibleRows (int band) const
+    {
+        const auto alive = aliveRows();
+        const auto& ord = orderView (band);
+        std::vector<Row> rows;
+        for (auto& nm : ord) for (auto& a : alive) if (a.label == nm) rows.push_back (a);
+        for (auto& a : alive) if (std::find (ord.begin(), ord.end(), a.label) == ord.end()) rows.push_back (a);
         return rows;
     }
     void updateRanks()
     {
-        const auto rows = visibleRows();
-        int r[kSources]; for (auto& x : r) x = -1;
-        for (size_t i = 0; i < rows.size(); ++i) r[rows[i].slot] = (int) i;
-        for (int s = 0; s < kSources; ++s) rank[s] = r[s];
+        for (int b = 0; b < kBands; ++b)
+        {
+            const auto rows = visibleRows (b);
+            int r[kSources]; for (auto& x : r) x = -1;
+            for (size_t i = 0; i < rows.size(); ++i) r[rows[i].slot] = (int) i;
+            for (int s = 0; s < kSources; ++s) rank[b][s] = r[s];
+        }
     }
     void timerCallback() override
     {
-        // Remember newcomers in the order, so the list only changes when you drag it.
-        for (auto& row : visibleRows())
-            if (std::find (listOrder.begin(), listOrder.end(), row.label) == listOrder.end()) listOrder.push_back (row.label);
+        // Newcomers join the end of every order, so lists only change when you drag them.
+        for (auto& row : aliveRows())
+        {
+            if (std::find (globalOrder.begin(), globalOrder.end(), row.label) == globalOrder.end()) globalOrder.push_back (row.label);
+            for (int b = 0; b < kBands; ++b)
+                if (! linked[b] && std::find (bandOrder[b].begin(), bandOrder[b].end(), row.label) == bandOrder[b].end()) bandOrder[b].push_back (row.label);
+        }
         updateRanks();
     }
 
     double sr = 48000.0;
-    std::vector<std::string> listOrder;
-    std::atomic<int> rank[kSources];
-    int slotAt[kSources] {};
+    std::vector<std::string> globalOrder, bandOrder[kBands];
+    bool linked[kBands];
+    std::atomic<int> rank[kBands][kSources];
     float cutOut[kSources][kBands] {};
     juce::Rectangle<float> area;
-    int dragParam = -1, dragRow = -1;
+    int dragParam = -1, dragRow = -1, selBand = -1;
     float startVal = 0.0f, startY = 0.0f;
     std::atomic<float> dispE[kSources][kBands] {}, dispCut[kSources][kBands] {}, dispFloor { -50.0f };
 };

@@ -409,9 +409,10 @@ MODULES["ROOMEQ"] = dict(group="MASTER AND MIX", summary="Cut-only correction fo
         q="Width of all six bands.", venue="Recalls a stored venue.", store_venue="Stores the current bands into the selected venue."))
 MODULES["ALLOC"] = dict(group="MASTER AND MIX", summary="The mix assigner. You put the sources in order; each of the ten bands has a priority curve over that order, set with three knobs, and the display shows exactly what each source keeps and loses in that band. Pass-through audio: put it on the master.",
     use=["Every SF instrument, SF STRIP, SF TAP and SF DECK appears in the SOURCES list by its Live track name (VST3) or its role (PERC, PERC 2 ...).",
-         "Drag the list into order, top = most important. The order is saved with the set and never changes on its own; new sources are added at the bottom.",
+         "Drag the list into order, top = most important. This is the ORDER: ALL BANDS. It is saved with the set and never changes on its own; new sources are added at the bottom.",
+         "Any band can have its own order: click the band (its frame turns white, the list shows ORDER: 180 HZ), drag, and the band is marked OWN. LINK TO ALL puts it back on the global order. Click the band again or ALL BANDS to return to the global list.",
          "In each band: PRIORITY moves the curve's peak up and down the list, DEPTH sets how hard everything away from the peak is cut (0 = nothing), Q sets the width (narrow: one source owns the band; wide: neighbours share).",
-         "The band's lanes show each source in that band: white = what plays, amber = what ALLOC takes away. The name at the bottom of the band is the source the peak sits on.",
+         "Each band shows its sources in its own order, named in the lanes: grey = what plays, amber = what ALLOC takes away. The name above the knobs is the source the peak sits on.",
          "MODE DYNAMIC cuts a source only while a more favoured source is actually playing in that band, so when the bass stops the pad gets 180 Hz back within a fraction of a second. STATIC cuts all the time, like a fixed EQ.",
          "Knobs are drawn in the window; the 30 band knobs are not meant for hardware, but all are automatable in Live."],
     models=[], desc={

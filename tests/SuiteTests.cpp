@@ -276,6 +276,26 @@ static void testAlloc()
     run (1.0f, false); cuts (cb, cp);
     std::printf ("   STATIC, BASS silent: cut PAD %.1f dB\n", cp);
     CHECK (cp > 9.0f, "STATIC should always cut");
+    // Band 4 gets its own order (PAD above BASS); the global order is unchanged.
+    alloc.set ("mode", 0.0f);
+    {
+        juce::MemoryBlock mb; alloc.p->getStateInformation (mb);
+        auto root = juce::ValueTree::readFromData (mb.getData(), mb.getSize());
+        auto mod = root.getChildWithName ("MODULE");
+        mod.setProperty ("order", "TAP BASS\nTAP PAD\n", nullptr);
+        mod.setProperty ("linked3", false, nullptr);
+        mod.setProperty ("order3", "TAP PAD\nTAP BASS\n", nullptr);
+        juce::MemoryBlock out; { juce::MemoryOutputStream os (out, false); root.writeToStream (os); }
+        alloc.p->setStateInformation (out.getData(), (int) out.getSize());
+    }
+    alloc.set ("pri4", 0.0f); alloc.set ("depth4", 1.0f); alloc.set ("q4", 1.0f);
+    alloc.set ("pri5", 0.0f); alloc.set ("depth5", 1.0f); alloc.set ("q5", 1.0f);
+    run (1.0f, true); cuts (cb, cp);
+    float cb5 = 0, cp5 = 0;
+    for (int s = 0; s < kSources; ++s) if (Bus::get().sourceAlive (s)) { if (d.src[s].role.load() == ROLE_BASS) cb5 = d.src[s].cut[4].load(); else cp5 = d.src[s].cut[4].load(); }
+    std::printf ("   band 4 own order (PAD first): cut BASS %.1f, PAD %.1f dB; band 5 global: cut BASS %.1f, PAD %.1f dB\n", cb, cp, cb5, cp5);
+    CHECK (cb > 9.0f && cp < 0.5f, "band order did not apply");
+    CHECK (cp5 >= cb5, "global order changed with the band order");
 }
 
 static void testSongs()

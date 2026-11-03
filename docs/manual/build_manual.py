@@ -230,7 +230,8 @@ story.append(Rule())
 story.append(P("ALLOC keeps sources from piling up in the same frequencies. You decide the order of importance; each frequency band has a priority curve over that order; the display shows what every source keeps and loses. Nothing is decided behind your back.", "summary"))
 story.append(H2("THE ORDER"))
 story += bullets(["Every SF instrument, STRIP, TAP and DECK reports its energy in ten fixed bands and appears in the SOURCES list (by its Live track name with VST3, otherwise by role: PERC, PERC 2 ...).",
-                  "Drag the list into order, top = most important. It is saved with the set and only changes when you drag it. New sources are added at the bottom.",
+                  "Drag the list into order, top = most important: the order for ALL BANDS. It is saved with the set and only changes when you drag it. New sources are added at the bottom.",
+                  "Low bands and high bands usually want different orders (kick and bass matter at 60 Hz, hats and voice at 3 kHz). Click a band to show its order in the list and drag: the band now has its OWN order. LINK TO ALL returns it to the global order.",
                   "Each source applies its own cuts: audio never leaves its track."])
 story.append(H2("THE CURVE (PER BAND)"))
 story += bullets(["<b>PRIORITY</b> moves the peak of the curve up and down the list. The source at the peak is protected.",
@@ -240,8 +241,8 @@ story += bullets(["<b>PRIORITY</b> moves the peak of the curve up and down the l
 story.append(H2("DYNAMIC OR STATIC"))
 story.append(P("<b>DYNAMIC</b> (default): a source is cut only while a more favoured source is actually playing in that band. When the bass stops, the pad gets 180 Hz back within a fraction of a second. <b>STATIC</b>: the cuts stay on all the time, like a fixed EQ."))
 story.append(H2("READING THE DISPLAY"))
-story += bullets(["Each band is a column; each source a lane, aligned with the list.", "<b>White</b>: what the source plays in that band after ALLOC. <b>Amber</b>: what ALLOC takes away.",
-                  "The grey line is the curve (right = protected); it turns cyan while you turn one of that band's knobs.", "The name at the bottom of the band is the source the peak sits on."])
+story += bullets(["Each band is a column; each source a lane, in that band's order and named in the lane. A selected band has a white frame; OWN marks a band with its own order.", "<b>Grey</b>: what the source plays in that band after ALLOC. <b>Amber</b>: what ALLOC takes away.",
+                  "The white line is the curve (right = protected); it turns cyan while you turn one of that band's knobs.", "The name at the bottom of the band is the source the peak sits on."])
 bands = [["BAND", "RANGE"]] + [[str(i + 1), r] for i, r in enumerate(["20-60 Hz", "60-100 Hz", "100-150 Hz", "150-220 Hz", "220-320 Hz", "320-480 Hz", "480-750 Hz", "750-1500 Hz", "1.5-4 kHz", "4-20 kHz"])]
 story.append(H2("THE BANDS"))
 story.append(table(bands, [0.9 * inch, 2.4 * inch]))
