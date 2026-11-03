@@ -513,7 +513,11 @@ public:
     {
         const int model = c.ci (MODEL), src = c.ci (SOURCE);
         const double bps = c.beatsPerSample();
-        const double look = Pocket::kLatency * bps;
+        const double secPerBeat = 60.0 / c.bpm;
+        const double look = Pocket::kLatency * bps + (double) c.bus->d().pocketOffsetMs.load() * 0.001 / secPerBeat;
+        const double lookSec = Pocket::kLatency / sr;
+        // Transport jumped backwards (loop brace, restart): forget what was already triggered.
+        if (c.ppq - look < lastTrigPpq - 0.25) { lastTrigPpq = c.ppq - look - 1e-6; midiDelay.clear(); extras.clear(); }
         // Gather triggers (as musical times on the delayed timeline).
         KickHit hits[kKickRing];
         const int nh = (src != 1 && c.bus->kickAlive (4000)) ? c.bus->recentKicks (hits, kKickRing) : 0;
@@ -541,7 +545,8 @@ public:
             const double tq = c.ppqAt (i) - look;
             // Kick-bus triggers whose time has come on the delayed timeline.
             for (int h = 0; h < nh; ++h)
-                if (hits[h].ppq > lastTrigPpq + 1e-6 && hits[h].ppq <= tq && tq - hits[h].ppq < 0.25)
+                if (hits[h].ppq > lastTrigPpq + 1e-6 && hits[h].ppq <= tq && tq - hits[h].ppq < 0.25
+                    && Bus::kickCurrent (hits[h], tq - hits[h].ppq, secPerBeat, lookSec))
                 {
                     lastTrigPpq = hits[h].ppq;
                     fire (hits[h].f0, hits[h].f1, hits[h].tau, hits[h].vel, tune, tq, dens, space);

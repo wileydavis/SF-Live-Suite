@@ -44,7 +44,9 @@ public:
 
         const double bps = c.beatsPerSample();
         const double secPerBeat = 60.0 / c.bpm;
-        const double lookBeats = kLatency * bps;
+        // POCKET OFFSET (SF CONTROL) shifts every pocket; + = later.
+        const double lookBeats = kLatency * bps + (double) bus.d().pocketOffsetMs.load() * 0.001 / secPerBeat;
+        const double lookSec = kLatency / sr;
 
         // Latest hit parameters for the band split frequency and kick filter influence.
         float f1 = 50.0f, kickHp = 0.0f;
@@ -80,6 +82,7 @@ public:
                 {
                     const double dtBeats = tq - hits[h].ppq;
                     if (dtBeats < 0.0 || dtBeats > 8.0) continue;
+                    if (! Bus::kickCurrent (hits[h], dtBeats, secPerBeat, lookSec)) continue;   // left over from before a jump
                     anyRecent = anyRecent || dtBeats < 8.0;
                     const float dt = (float) (dtBeats * secPerBeat);
                     const float dutyScale = clamp01 (1.0f - (duty - 0.55f) * 2.5f);

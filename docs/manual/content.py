@@ -270,6 +270,7 @@ MODULES["CONTROL"] = dict(
         "store_all": "Stores every SF plugin's current values into the selected song.",
         "pc_channel": "MIDI channel that Program Change is read from (default 16).",
         "pc_enable": "Turns Program Change song select on or off.",
+        "pocket_offset": "Timing calibration for Pocket and RUMBLE, -20 to +20 ms (+ = later). Set once, by ear, if the pump lands early or late in your Live setup; leave at 0 otherwise.",
     },
 )
 

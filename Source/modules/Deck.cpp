@@ -156,7 +156,7 @@ static TrackPtr loadTrack (const juce::String& path, double sr, const std::atomi
         else { juce::LagrangeInterpolator li; li.process (ratio, in.getReadPointer (c), t->buf.getWritePointer (c), outN, len, 0); }
     }
     if (cancel.load()) return nullptr;
-    if (cachedBpm > 0.0) { t->bpm = cachedBpm; t->firstBeat = cachedFirst; t->lufs = cachedLufs; }   // already analysed
+    if (cachedBpm > 0.0) { t->bpm = cachedBpm; t->firstBeat = cachedFirst * sr; t->lufs = cachedLufs; }   // already analysed (grid in seconds)
     else analyseTrack (*t);
     return t;
 }
@@ -251,6 +251,18 @@ public:
         }
         io.clear();
         if (extra != nullptr) extra->clear();
+        // Transport jump (loop brace, restart, relocate): playing decks keep running from where
+        // they are, re-anchored by whole beats so they stay on Live's beat grid.
+        const bool jumped = expectedPpq > -1e8 && std::abs (c.ppq - expectedPpq) > 0.01;
+        if (jumped)
+            for (auto& d : decks)
+                if (d.playing)
+                {
+                    d.startPpq += std::round (c.ppq - expectedPpq);
+                    d.synced = false;
+                    d.fade = 0.0f;
+                }
+        expectedPpq = c.ppq + n * c.beatsPerSample();
         const float target = c.v (TARGET);
         static const double rollB[] = { 0.0, 1.0, 0.5, 0.25, 0.125 };
         const double rollLen = rollB[juce::jlimit (0, 4, c.ci (ROLL))];
@@ -396,7 +408,7 @@ public:
             juce::ValueTree v ("TRACK");
             v.setProperty ("path", e.path, nullptr);
             v.setProperty ("bpm", e.bpm, nullptr);
-            v.setProperty ("first", e.firstBeat, nullptr);
+            v.setProperty ("firstSec", e.firstBeat, nullptr);
             v.setProperty ("lufs", e.lufs, nullptr);
             juce::String cues; for (double cb : e.cues) cues << cb << ",";
             v.setProperty ("cues", cues, nullptr);
@@ -412,7 +424,8 @@ public:
         {
             if (v.getType().toString() != "TRACK") continue;
             Entry e; e.path = v.getProperty ("path").toString(); e.name = juce::File (e.path).getFileNameWithoutExtension();
-            e.bpm = (double) v.getProperty ("bpm", 0.0); e.firstBeat = (double) v.getProperty ("first", 0.0); e.lufs = (float) (double) v.getProperty ("lufs", -14.0);
+            e.bpm = (double) v.getProperty ("bpm", 0.0); e.firstBeat = (double) v.getProperty ("firstSec", 0.0);
+            if (! v.hasProperty ("firstSec")) e.bpm = 0.0;   // older sets stored samples: re-analyse e.lufs = (float) (double) v.getProperty ("lufs", -14.0);
             auto toks = juce::StringArray::fromTokens (v.getProperty ("cues").toString(), ",", "");
             for (int i = 0; i < 4 && i < toks.size(); ++i) e.cues[(size_t) i] = toks[i].getDoubleValue();
             e.missing = ! juce::File (e.path).existsAsFile();
@@ -477,7 +490,7 @@ public:
     }
 
 private:
-    struct Entry { juce::String path, name; double bpm = 0, firstBeat = 0; float lufs = -14; std::array<double, 4> cues { 0, 32, 64, 96 }; bool analysing = false, missing = false; };
+    struct Entry { juce::String path, name; double bpm = 0, firstBeat = 0 /* seconds */; float lufs = -14; std::array<double, 4> cues { 0, 32, 64, 96 }; bool analysing = false, missing = false; };
 
     double hotCue (int deckIdx, int k) const
     {
@@ -516,7 +529,7 @@ private:
             {
                 if (! alive->load()) return;
                 for (auto& e : list)
-                    if (e.path == path) { e.analysing = false; e.missing = t == nullptr; if (t) { e.bpm = t->bpm; e.firstBeat = t->firstBeat; e.lufs = t->lufs; } }
+                    if (e.path == path) { e.analysing = false; e.missing = t == nullptr; if (t) { e.bpm = t->bpm; e.firstBeat = t->firstBeat / t->sr; e.lufs = t->lufs; } }
             });
         });
     }
@@ -575,6 +588,7 @@ private:
     juce::Rectangle<float> rowsArea;
     int scroll = 0;
     float gateZ = 1.0f;
+    double expectedPpq = -1e9;
     struct Disp { std::atomic<bool> playing { false }, armed { false }; std::atomic<double> beat { 0 }, bpm { 0 }; } disp[2];
     std::atomic<double> dispHostBpm { 120 };
 };

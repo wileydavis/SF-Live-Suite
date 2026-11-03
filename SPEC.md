@@ -37,7 +37,7 @@ Boring, practical, uppercase. Plugins appear in Live as `SF <ROLE>`. Parameters 
 # Shared architecture
 
 ## SF BUS
-One block of POSIX shared memory (`/sf_live_suite_bus_v1`) mapped by every SF plugin, across plugin binaries and processes. Lock-free atomics only. A segment of the wrong size or version (another build) is never mapped; that plugin falls back to a local bus. Verified Nov 2: two separately built plugin binaries (SF KICK, SF DUCK) loaded in a VST3 host share the bus and Pocket works between them. Carries: macros, song select / store requests, kick reports, ALLOC source energies and cuts, conflict-slot bindings. If shared memory is unavailable the bus falls back to process-local (plugins in one process still talk); SF CONTROL shows BUS SHARED / LOCAL ONLY.
+One block of POSIX shared memory (`/sf_live_suite_bus_v2`) mapped by every SF plugin, across plugin binaries and processes. Lock-free atomics only. A segment of the wrong size or version (another build) is never mapped; that plugin falls back to a local bus. Verified Nov 2: two separately built plugin binaries (SF KICK, SF DUCK) loaded in a VST3 host share the bus and Pocket works between them. Carries: macros, song select / store requests, kick reports, ALLOC source energies and cuts, conflict-slot bindings. If shared memory is unavailable the bus falls back to process-local (plugins in one process still talk); SF CONTROL shows BUS SHARED / LOCAL ONLY.
 
 ## Clock
 Live's transport when playing. When stopped, a wall clock at the last tempo stands in, so tempo-synced motion keeps running and every SF plugin agrees on the beat.
@@ -52,6 +52,7 @@ SF KICK reports every hit to the bus: time (in beats), velocity, pitch sweep sta
 - Safety: when kick tails overlap so much the pocket would be permanent, the pocket shrinks to the attack.
 - Kick returns after a gap: pockets fade back in over a beat (breakdowns open up the bass automatically).
 - Sidechain fallback (SF DUCK, SOURCE = SIDECHAIN, or any time no SF KICK is reporting): low-band envelope of the sidechain input.
+- Transport jumps [decided Nov 2]: kick reports carry a wall-clock stamp; a report is used only if the wall time since it fits the musical time since it, so reports from before a loop wrap / restart / relocate are ignored. RUMBLE re-arms on a backward jump. POCKET OFFSET on SF CONTROL (+/-20 ms) calibrates Pocket and RUMBLE timing for the host if needed.
 - Timing: Pocket runs 512 samples of lookahead (reported to Live as latency) so a kick report from the same audio cycle arrives before it is needed. Requires Live's buffer size <= 512. [decided Nov 2, needs Live test]
 
 ## ALLOC (mix assigner)
@@ -101,6 +102,7 @@ Two decks inside the set. Tracklist (drop files; persisted by path), background 
 - Hot cues from MIDI: C1-D#1 deck A cues 1-4, C2-D#2 deck B (jump on the next beat, short fade in; ignored while the deck is stopped). Default cues at beats 0 / 32 / 64 / 96.
 - ROLL: slip loop roll (the track keeps running underneath; releasing returns to where it would have been). The rolled audio is read at tempo ratio, so with a large tempo difference it is slightly pitched (124 vs 128 BPM = about half a semitone).
 - Loading a deck uses its own queue (never waits for list analysis) and reuses the list's analysis. Tracks are freed on the message thread, never on the audio thread.
+- Transport jumps: playing decks keep running and are re-anchored by whole beats (stay on Live's grid). Beat grids are cached in seconds, so a sample-rate change keeps them valid. [decided Nov 2]
 - Track log: every deck start is appended to Documents/SF Live Suite/tracklog.txt.
 - Stems: use Live's stem separation, stems on their own tracks with SF TAP. [decided Nov 2]
 
@@ -135,6 +137,6 @@ MIDI tracks: SF CONTROL, SF KICK, SF PERC x2-3, SF RUMBLE, SF BASS, SF LEAD x1-2
 
 # Open questions (need Live)
 1. Shared memory between plugin binaries in Live 12 on macOS (expected to work: plugins share one process unless sandboxed; also works across processes). SF CONTROL's BUS line shows SHARED.
-2. Pocket timing with Live's delay compensation: kick and duckers should line up with 512-sample lookahead at buffer sizes up to 512. If pockets land early/late, add a POCKET OFFSET control.
+2. Pocket timing with Live's delay compensation: kick and duckers should line up with 512-sample lookahead at buffer sizes up to 512. If pockets land early/late, trim POCKET OFFSET on SF CONTROL.
 3. Live listing VST3 instruments' extra output (DECK CUE) in Audio From.
 4. Sound of every model by ear; levels across models.

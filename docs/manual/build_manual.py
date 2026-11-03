@@ -220,7 +220,9 @@ story += bullets(["<b>Velocity:</b> ghost kicks get shallow pockets.", "<b>DECAY
 story.append(H2("WHO HAS POCKET"))
 story.append(P("BASS, LEAD, PAD, VOICE (POCKET DEPTH / SHAPE), RUMBLE (PUMP), DELAY and REVERB (DUCK, on the wet signal only), DUCK (on anything), TAP (on any track). SF DUCK can also follow a sidechain input instead of the kick."))
 story.append(H2("TIMING"))
-story.append(P("Pocket looks 512 samples ahead (about 11 ms at 48 kHz) so a kick report is always there before it's needed. Live compensates the delay. Keep Live's buffer size at 512 or less."))
+story.append(P("Pocket looks 512 samples ahead (about 11 ms at 48 kHz) so a kick report is always there before it's needed. Live compensates the delay. Keep Live's buffer size at 512 or less. If the pump lands early or late in your setup, trim POCKET OFFSET on SF CONTROL (+/-20 ms) once, by ear."))
+story.append(H2("LOOPS, RESTARTS AND JUMPS"))
+story.append(P("Everything follows Live's song position. When it jumps (arrangement loop brace, stop and restart, clicking to a new position), kick reports from before the jump are ignored, so nothing ducks for a kick that is no longer playing. RUMBLE re-arms. Playing DECK tracks keep running and are re-anchored by whole beats, so they stay on the beat."))
 story.append(PageBreak())
 
 story.append(H1("4  ALLOC: THE MIX ASSIGNER"))
@@ -342,7 +344,7 @@ story += bullets(["Songs, samples, ALLOC choices, DECK tracklist and venue EQs: 
 story.append(H2("WHEN SOMETHING ISN'T RIGHT"))
 story.append(table([["SYMPTOM", "CHECK"],
                     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be an SF KICK (or use SF DUCK with SOURCE SIDECHAIN)."],
-                    ["Pump early or late", "Live buffer size 512 or less."],
+                    ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. With VST3, try the AU."],
                     ["E16 rings don't follow", "Remote on for the E16 output in Live's MIDI preferences; map with Live's MIDI Map."],
                     ["ALLOC does nothing", "ENABLE on, the instruments' ALLOC toggles on, SF ALLOC running (SF CONTROL shows it)."],

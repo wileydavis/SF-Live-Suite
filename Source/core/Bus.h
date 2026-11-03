@@ -20,12 +20,14 @@ extern const char* const kRoleNames[kNumRoles];
 extern const float kBandCentres[kBands];     // Hz
 extern const float kBandEdges[kBands + 1];   // Hz
 
-struct KickHit { double ppq; float vel, f0, f1, tau, decay, hp, lp; };
+// wall = steady-clock seconds when reported: lets readers reject reports left over from before
+// a transport jump (loop brace, restart, relocate) that happen to share a song position.
+struct KickHit { double ppq; float vel, f0, f1, tau, decay, hp, lp; double wall = 0.0; };
 
 struct KickSlot
 {
     std::atomic<uint32_t> seq;
-    std::atomic<double> ppq;
+    std::atomic<double> ppq, wall;
     std::atomic<float> vel, f0, f1, tau, decay, hp, lp;
 };
 
@@ -59,6 +61,7 @@ struct BusData
 
     std::atomic<uint32_t> kickWrite;
     std::atomic<int64_t> kickSeenMs;
+    std::atomic<float> pocketOffsetMs;      // SF CONTROL calibration: + = pockets later
     KickSlot kicks[kKickRing];
 
     SourceSlot src[kSources];
@@ -71,12 +74,20 @@ class Bus
 public:
     static Bus& get();
     static int64_t nowMs();
+    static double nowSec();
+    static inline double (*testClock)() = nullptr;    // offline tests: simulated time
 
     BusData& d() { return *data; }
     bool shared() const { return isShared; }
 
     void publishKick (const KickHit&);
     int recentKicks (KickHit* out, int max) const;     // newest first
+    // A report is current if the wall time since it was made fits the musical time since it.
+    static bool kickCurrent (const KickHit& h, double dtBeats, double secPerBeat, double lookSec)
+    {
+        const double elapsed = nowSec() - h.wall;
+        return elapsed <= dtBeats * secPerBeat + lookSec + 0.35;
+    }
     bool kickAlive (int64_t withinMs = 4000) const;
 
     int claimSource (uint64_t owner, int role, const char* name);   // -1 if full

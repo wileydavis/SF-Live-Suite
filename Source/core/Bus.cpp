@@ -19,9 +19,16 @@ const float kBandEdges[kBands + 1] = { 20.0f, 60.0f, 100.0f, 150.0f, 220.0f, 320
 const float kBandCentres[kBands] = { 40.0f, 78.0f, 122.0f, 182.0f, 265.0f, 392.0f, 600.0f, 1060.0f, 2450.0f, 8900.0f };
 
 static constexpr uint32_t kMagic = 0x5346424Bu;   // "SFBK"
-static constexpr uint32_t kVersion = 1;
+static constexpr uint32_t kVersion = 2;
 // Short name: macOS limits POSIX shm names to 31 chars. Bump with kVersion.
-static constexpr const char* kShmName = "/sf_live_suite_bus_v1";
+static constexpr const char* kShmName = "/sf_live_suite_bus_v2";
+
+double Bus::nowSec()
+{
+    if (testClock != nullptr) return testClock();
+    using namespace std::chrono;
+    return duration<double> (steady_clock::now().time_since_epoch()).count();
+}
 
 int64_t Bus::nowMs()
 {
@@ -89,7 +96,7 @@ void Bus::publishKick (const KickHit& h)
     const uint32_t q = s.seq.load();
     s.seq.store (q | 1u);                    // odd: being written
     s.ppq = h.ppq; s.vel = h.vel; s.f0 = h.f0; s.f1 = h.f1; s.tau = h.tau;
-    s.decay = h.decay; s.hp = h.hp; s.lp = h.lp;
+    s.decay = h.decay; s.hp = h.hp; s.lp = h.lp; s.wall = nowSec();
     s.seq.store ((q | 1u) + 1u);             // even: stable
     data->kickSeenMs = nowMs();
 }
@@ -104,7 +111,7 @@ int Bus::recentKicks (KickHit* out, int max) const
         const auto& s = data->kicks[(w - (uint32_t) k) % (uint32_t) kKickRing];
         const uint32_t q0 = s.seq.load();
         if (q0 & 1u) continue;
-        KickHit h { s.ppq.load(), s.vel.load(), s.f0.load(), s.f1.load(), s.tau.load(), s.decay.load(), s.hp.load(), s.lp.load() };
+        KickHit h { s.ppq.load(), s.vel.load(), s.f0.load(), s.f1.load(), s.tau.load(), s.decay.load(), s.hp.load(), s.lp.load(), s.wall.load() };
         if (s.seq.load() != q0) continue;
         out[n++] = h;
     }

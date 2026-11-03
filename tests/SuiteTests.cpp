@@ -407,9 +407,10 @@ static void testDeck()
     double ppq = 0.0;
     std::vector<double> onsets;
     float prevEnv = 0.0f, env = 0.0f, pk = 0.0f;
-    const int blocks = (int) (kSr * 16.0 / kBlock);
+    const int blocks = (int) (kSr * 24.0 / kBlock);
     for (int b = 0; b < blocks; ++b)
     {
+        if (b == (int) (kSr * 12.0 / kBlock)) { ppq -= 6.5; std::printf ("   (transport jumps back 6.5 beats)\n"); }
         head.ppq = ppq;
         r.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, b);
         for (int i = 0; i < kBlock; ++i)
@@ -427,7 +428,7 @@ static void testDeck()
     if (counted > 0) std::printf ("   mean signed offset %.4f beat (%.1f ms)\n", meanErr / counted, meanErr / counted * 60000.0 / head.bpm);
     std::printf ("   peak %.1f dB, %d onsets, worst distance from the beat %.3f beat (%.1f ms)\n", gainToDb (pk), (int) onsets.size(), maxErr, maxErr * 60000.0 / head.bpm);
     CHECK (pk > 0.05f, "DECK silent after PLAY A");
-    CHECK (counted >= 20, "DECK produced too few beats (%d)", counted);
+    CHECK (counted >= 34, "DECK produced too few beats (%d)", counted);
     CHECK (maxErr < 0.01, "DECK drifts off the grid (%.3f beat)", maxErr);
 }
 
@@ -728,6 +729,64 @@ static void testStrip()
     CHECK (tail[0] > 0.1f && tail[1] < 0.005f, "STRIP GATE does not close hits");
 }
 
+// Transport jumps (loop braces, stop/restart, relocate) must not break timing.
+static void testTransportJumps()
+{
+    std::printf ("-- transport jumps\n");
+    const double bpsH = 124.0 / 60.0 / kSr;
+    auto kickNotes = [&] (double ppq, juce::MidiBuffer& m)
+    {
+        for (int i = 0; i < kBlock; ++i) if (std::floor (ppq + i * bpsH) != std::floor (ppq + (i - 1) * bpsH)) m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 120), i);
+    };
+    // 1. Stale kick reports: play 1 bar of kick, jump back to 0 with the kick muted: DUCK must not duck.
+    // (Runs on a simulated clock: offline processing is faster than real time.)
+    static double simSec = 1000.0;
+    Bus::testClock = [] { return simSec; };
+    {
+        resetBus();
+        FakeHead head;
+        Rig kick ("KICK", head), duck ("DUCK", head);
+        duck.set ("depth", 1.0f); duck.set ("shape", 0.7f);
+        double ppq = 0.0; float minG = 1.0f;
+        const int bar = (int) (4.0 / bpsH / kBlock);
+        for (int b = 0; b < bar * 2; ++b)
+        {
+            if (b == bar) ppq = 0.0;     // jump back, kick muted from here
+            head.ppq = ppq;
+            const bool kickOn = b < bar;
+            kick.run ([&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (kickOn) kickNotes (ppq, m); }, b);
+            duck.run ([&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer&, int)
+            { for (int i = 0; i < kBlock; ++i) for (int c = 0; c < 2; ++c) buf.setSample (c, i, 0.5f * std::sin (6.2831853f * 70.0f * (float) ((b * kBlock + i) / kSr))); }, b);
+            if (b > bar + 8) minG = std::min (minG, duck.buf.getRMSLevel (0, 0, kBlock) / 0.3536f);
+            ppq += kBlock * bpsH;
+            simSec += kBlock / kSr;
+        }
+        std::printf ("   after jump back with kick muted: lowest duck gain %.2f (expect ~1)\n", minG);
+        CHECK (minG > 0.8f, "stale kick reports duck after a transport jump (%.2f)", minG);
+    }
+    // 2. RUMBLE keeps triggering after a jump back.
+    {
+        resetBus();
+        FakeHead head;
+        Rig kick ("KICK", head), rum ("RUMBLE", head);
+        double ppq = 0.0; float pk = 0.0f;
+        const int bar = (int) (4.0 / bpsH / kBlock);
+        for (int b = 0; b < bar * 3; ++b)
+        {
+            if (b == bar * 2) ppq = 0.0;
+            head.ppq = ppq;
+            kick.run ([&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { kickNotes (ppq, m); }, b);
+            rum.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, b);
+            if (b > bar * 2 + bar / 2) pk = std::max (pk, rum.buf.getMagnitude (0, 0, kBlock));
+            ppq += kBlock * bpsH;
+            simSec += kBlock / kSr;
+        }
+        std::printf ("   RUMBLE after jump back: peak %.1f dB\n", gainToDb (pk));
+        CHECK (pk > 0.05f, "RUMBLE stopped triggering after a transport jump");
+    }
+    Bus::testClock = nullptr;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -736,13 +795,14 @@ int main (int argc, char** argv)
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-') ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
-    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testModels(); testDeck(); }
+    if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
     else if (std::string (argv[1]) == "--filter") { testFilterCrossing(); }
     else if (std::string (argv[1]) == "--gate") { testSampleGate(); }
     else if (std::string (argv[1]) == "--strip") { testStrip(); }
+    else if (std::string (argv[1]) == "--jumps") { testTransportJumps(); testDeck(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

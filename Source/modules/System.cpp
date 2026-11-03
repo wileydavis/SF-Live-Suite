@@ -10,7 +10,7 @@ namespace sf
 class ControlModule : public Module, private juce::Timer
 {
 public:
-    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON };
+    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET };
     ControlModule() { startTimerHz (20); }
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
@@ -30,6 +30,8 @@ public:
         std::vector<std::string> ch; for (int i = 1; i <= 16; ++i) ch.push_back ("CH " + std::to_string (i));
         auto pc = choice ("pc_channel", "PC CHANNEL", ch, 15); pc.song = false; p.push_back (pc);
         auto on = toggle ("pc_enable", "PC ENABLE", true); on.song = false; p.push_back (on);
+        // Calibration for Pocket timing in Live (+ = every pocket later). Set once, by ear.
+        auto off = knob ("pocket_offset", "POCKET OFFSET", -20.0f, 20.0f, 0.0f, "ms"); off.song = false; off.glide = false; p.push_back (off);
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
@@ -47,6 +49,7 @@ public:
     {
         auto& d = c.bus->d();
         d.controlSeenMs = Bus::nowMs();
+        d.pocketOffsetMs = c.v (POFFSET);
         for (int i = 0; i < kMacros; ++i) d.macro[i] = c.v (M1 + i);
         // Program Change selects the song.
         if (c.b (PCON))
