@@ -400,7 +400,8 @@ ModulePtr makeLOWEND() { return std::make_unique<LowEndModule>(); }
 // =====================================================================================  LIMIT
 // Master stage: INPUT (+ AUTO trim) -> soft-knee CLIP at 4x, linear-phase FIR oversampling ->
 // true-peak lookahead limiter -> CEILING.
-//   Detection: 4x interpolated true peak (BS.1770-4 style) of the clipped signal.
+//   Detection: 8x interpolated true peak (32-tap windowed sinc, stricter than BS.1770's 4x)
+//   of the clipped signal.
 //   Gain: min-hold over the 2 ms lookahead, program-dependent release (fast envelope at
 //   RELEASE, held down by a slow envelope during sustained limiting: no pumping on dense
 //   material, quick recovery after a single peak), then a 2 ms moving average, which is

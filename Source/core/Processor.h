@@ -135,6 +135,7 @@ private:
 
     // Safety
     int overSamples = 0;
+    int panicLeft = 0, panicLen = 240;     // PANIC fade-out in progress (samples left / total)
     uint64_t streamPos = 0;
 
     // Presets

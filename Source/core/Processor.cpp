@@ -180,6 +180,8 @@ void SFProcessor::prepareToPlay (double sampleRate, int)
     chunkMidi.ensureSize (8192);
     for (int k = 0; k < kMotions; ++k) motion[(size_t) k].prepare (sr, motionSeed + 0x9E3779B9u * (uint32_t) k);
     overSamples = 0;
+    panicLeft = 0;
+    panicLen = std::max (64, (int) std::lround (0.005 * sr));
     streamPos = 0;
     firstBlock = true;
 }
@@ -499,12 +501,25 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
         fault = true;
         faultCount.fetch_add (1);
     }
-    else if (panicNow)
+    else
     {
-        // PANIC: fade this chunk out, then silence every voice, tail and delay line.
-        for (int ch = 0; ch < mainView.getNumChannels(); ++ch) mainView.applyGainRamp (ch, 0, n, 1.0f, 0.0f);
-        if (extra != nullptr) for (int ch = 0; ch < extra->getNumChannels(); ++ch) extra->applyGainRamp (ch, 0, n, 1.0f, 0.0f);
-        module->reset();
+        // PANIC: a 5 ms fade (however the chunks fall), then every voice, tail and delay line is cleared.
+        if (panicNow) panicLeft = panicLen;
+        if (panicLeft > 0)
+        {
+            auto fade = [&] (juce::AudioBuffer<float>& b)
+            {
+                for (int ch = 0; ch < b.getNumChannels(); ++ch)
+                {
+                    auto* x = b.getWritePointer (ch);
+                    for (int i = 0; i < n; ++i) x[i] *= (float) std::max (0, panicLeft - i) / (float) panicLen;
+                }
+            };
+            fade (mainView);
+            if (extra != nullptr) fade (*extra);
+            panicLeft = std::max (0, panicLeft - n);
+            if (panicLeft == 0) module->reset();
+        }
     }
 
     if (extra != nullptr)

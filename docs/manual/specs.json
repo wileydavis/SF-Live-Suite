@@ -18,9 +18,18 @@
   {"id": "key_track", "name": "KEY TRACK", "type": "toggle", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
   {"id": "res", "name": "FILTER RES", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "10 %", "choices": "", "macro": 0},
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|TUNE|DECAY|PUNCH|CLICK|DRIVE|FILTER|DENSITY|LEVEL|LAYER|PITCH TIME|VEL SENS|ECHO SWING|FILTER RES", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|TUNE|DECAY|PUNCH|CLICK|DRIVE|FILTER|DENSITY|LEVEL|LAYER|PITCH TIME|VEL SENS|ECHO SWING|FILTER RES", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "PERC": {"instrument": true, "latency": 0, "params": [
   {"id": "tune", "name": "TUNE", "type": "knob", "primary": true, "min": "-24.0 st", "max": "24.0 st", "def": "0.0 st", "choices": "", "macro": 0},
@@ -41,7 +50,15 @@
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|TUNE|DECAY|TONE|DENSITY|FILTER|ACCENT|DRIVE|LEVEL|ECHO SWING|ECHO PROB|SPREAD|FILTER RES", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|TUNE|DECAY|TONE|DENSITY|FILTER|ACCENT|DRIVE|LEVEL|ECHO SWING|ECHO PROB|SPREAD|FILTER RES", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "RUMBLE": {"instrument": true, "latency": 512, "params": [
   {"id": "size", "name": "SIZE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "60 %", "choices": "", "macro": 1},
@@ -60,9 +77,18 @@
   {"id": "pocket_shape", "name": "POCKET SHAPE", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
   {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/8", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIZE|DARK|GRIT|PUMP|GATE|DENSITY|FILTER|LEVEL|TUNE|WIDTH|POCKET SHAPE", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIZE|DARK|GRIT|PUMP|GATE|DENSITY|FILTER|LEVEL|TUNE|WIDTH|POCKET SHAPE", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "BASS": {"instrument": true, "latency": 512, "params": [
   {"id": "cutoff", "name": "CUTOFF", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "35 %", "choices": "", "macro": 1},
@@ -90,9 +116,18 @@
   {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
   {"id": "echo_swing", "name": "ECHO SWING", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUTOFF|RES|ENV AMT|GATE|DENSITY|FILTER|DRIVE|LEVEL|DECAY|ATTACK|ACCENT|GLIDE|TUNE|DETUNE|COLOR|LAYER|SPACE|POCKET DEPTH|POCKET SHAPE|ECHO SWING", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUTOFF|RES|ENV AMT|GATE|DENSITY|FILTER|DRIVE|LEVEL|DECAY|ATTACK|ACCENT|GLIDE|TUNE|DETUNE|COLOR|LAYER|SPACE|POCKET DEPTH|POCKET SHAPE|ECHO SWING", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "LEAD": {"instrument": true, "latency": 512, "params": [
   {"id": "cutoff", "name": "CUTOFF", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "40 %", "choices": "", "macro": 1},
@@ -120,9 +155,18 @@
   {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
   {"id": "echo_swing", "name": "ECHO SWING", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUTOFF|RES|ENV AMT|GATE|DENSITY|FILTER|DRIVE|LEVEL|DECAY|ATTACK|ACCENT|GLIDE|TUNE|DETUNE|COLOR|LAYER|SPACE|POCKET DEPTH|POCKET SHAPE|ECHO SWING", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUTOFF|RES|ENV AMT|GATE|DENSITY|FILTER|DRIVE|LEVEL|DECAY|ATTACK|ACCENT|GLIDE|TUNE|DETUNE|COLOR|LAYER|SPACE|POCKET DEPTH|POCKET SHAPE|ECHO SWING", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "PAD": {"instrument": true, "latency": 512, "params": [
   {"id": "cutoff", "name": "CUTOFF", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "55 %", "choices": "", "macro": 1},
@@ -150,9 +194,18 @@
   {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
   {"id": "echo_swing", "name": "ECHO SWING", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUTOFF|RES|ENV AMT|GATE|DENSITY|FILTER|DRIVE|LEVEL|DECAY|ATTACK|ACCENT|GLIDE|TUNE|DETUNE|COLOR|LAYER|SPACE|POCKET DEPTH|POCKET SHAPE|ECHO SWING", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUTOFF|RES|ENV AMT|GATE|DENSITY|FILTER|DRIVE|LEVEL|DECAY|ATTACK|ACCENT|GLIDE|TUNE|DETUNE|COLOR|LAYER|SPACE|POCKET DEPTH|POCKET SHAPE|ECHO SWING", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "VOICE": {"instrument": true, "latency": 512, "params": [
   {"id": "signal", "name": "SIGNAL", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "60 %", "choices": "", "macro": 1},
@@ -172,9 +225,51 @@
   {"id": "pocket_shape", "name": "POCKET SHAPE", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
   {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
   {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIGNAL|TONE|GATE|DENSITY|FILTER|ECHO|DRIVE|LEVEL|TUNE|ECHO FDBK|POCKET DEPTH|POCKET SHAPE", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIGNAL|TONE|GATE|DENSITY|FILTER|ECHO|DRIVE|LEVEL|TUNE|ECHO FDBK|POCKET DEPTH|POCKET SHAPE", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
+]},
+"STRIKE": {"instrument": true, "latency": 0, "params": [
+  {"id": "power", "name": "POWER", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "40 %", "choices": "", "macro": 1},
+  {"id": "distance", "name": "DISTANCE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
+  {"id": "size", "name": "SIZE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "material", "name": "MATERIAL", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "decay", "name": "DECAY", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 1},
+  {"id": "density", "name": "DENSITY", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
+  {"id": "filter", "name": "FILTER", "type": "knob", "primary": true, "min": "LP 100", "max": "HP 100", "def": "OFF", "choices": "", "macro": 0},
+  {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "-6.0 dB", "choices": "", "macro": 0},
+  {"id": "model", "name": "OBJECT", "type": "menu", "primary": false, "min": "", "max": "", "def": "BELL", "choices": "BELL|PLATE|BAR|TUBE|MEMBRANE|GONG", "macro": 0},
+  {"id": "position", "name": "POSITION", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
+  {"id": "spread", "name": "SPREAD", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "tension", "name": "TENSION", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
+  {"id": "tune", "name": "TUNE", "type": "knob", "primary": false, "min": "-24.0 st", "max": "24.0 st", "def": "0.0 st", "choices": "", "macro": 0},
+  {"id": "key_track", "name": "KEY TRACK", "type": "toggle", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
+  {"id": "res", "name": "FILTER RES", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "10 %", "choices": "", "macro": 0},
+  {"id": "echo_space", "name": "ECHO SPACE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1/8", "choices": "1/8|1/16|1/16T|1/32|1/8T|1/8D", "macro": 0},
+  {"id": "echo_swing", "name": "ECHO SWING", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "vel_sens", "name": "VEL SENS", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "alloc", "name": "ALLOC", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "key_follow", "name": "KEY FOLLOW", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|POWER|DISTANCE|SIZE|MATERIAL|DECAY|DENSITY|FILTER|LEVEL|POSITION|SPREAD|TENSION|TUNE|FILTER RES|ECHO SWING|VEL SENS", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|POWER|DISTANCE|SIZE|MATERIAL|DECAY|DENSITY|FILTER|LEVEL|POSITION|SPREAD|TENSION|TUNE|FILTER RES|ECHO SWING|VEL SENS", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "DECK": {"instrument": true, "latency": 0, "params": [
   {"id": "xfade", "name": "XFADE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
@@ -199,7 +294,15 @@
   {"id": "res", "name": "FILTER RES", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "20 %", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|XFADE|FILTER A|FILTER B|LOW A|LOW B|GATE|LEVEL|MID A|HIGH A|MID B|HIGH B|TRIM TARGET|FILTER RES", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|XFADE|FILTER A|FILTER B|LOW A|LOW B|GATE|LEVEL|MID A|HIGH A|MID B|HIGH B|TRIM TARGET|FILTER RES", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "CONTROL": {"instrument": true, "latency": 0, "params": [
   {"id": "macro1", "name": "MACRO 1", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
@@ -213,9 +316,19 @@
   {"id": "pc_channel", "name": "PC CHANNEL", "type": "menu", "primary": false, "min": "", "max": "", "def": "CH 16", "choices": "CH 1|CH 2|CH 3|CH 4|CH 5|CH 6|CH 7|CH 8|CH 9|CH 10|CH 11|CH 12|CH 13|CH 14|CH 15|CH 16", "macro": 0},
   {"id": "pc_enable", "name": "PC ENABLE", "type": "toggle", "primary": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "pocket_offset", "name": "POCKET OFFSET", "type": "knob", "primary": false, "min": "-20.0 ms", "max": "20 ms", "def": "0.0 ms", "choices": "", "macro": 0},
+  {"id": "key", "name": "KEY", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|C|C#|D|D#|E|F|F#|G|G#|A|A#|B", "macro": 0},
+  {"id": "panic", "name": "PANIC", "type": "momentary", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6|POCKET OFFSET", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|NOTES", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6|POCKET OFFSET", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "FILTER": {"instrument": false, "latency": 0, "params": [
   {"id": "filter", "name": "FILTER", "type": "knob", "primary": true, "min": "LP 100", "max": "HP 100", "def": "OFF", "choices": "", "macro": 1},
@@ -229,7 +342,15 @@
   {"id": "throw_to", "name": "THROW TO", "type": "menu", "primary": false, "min": "", "max": "", "def": "HP", "choices": "HP|LP", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|FILTER|RES|DRIVE|ENV AMT|ENV SPEED|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|FILTER|RES|DRIVE|ENV AMT|ENV SPEED|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "GATE": {"instrument": false, "latency": 0, "params": [
   {"id": "depth", "name": "DEPTH", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
@@ -242,7 +363,15 @@
   {"id": "rate", "name": "RATE", "type": "menu", "primary": true, "min": "", "max": "", "def": "1/16", "choices": "1/8|1/16|1/32|1/16T", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DEPTH|LENGTH|SHAPE|SWING|MORPH", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DEPTH|LENGTH|SHAPE|SWING|MORPH", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "DENSITY": {"instrument": false, "latency": 0, "params": [
   {"id": "density", "name": "DENSITY", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
@@ -255,7 +384,15 @@
   {"id": "shorten", "name": "SHORTEN", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DENSITY|DARKEN|SWING|PROB|MIX|LEVEL|SHORTEN", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DENSITY|DARKEN|SWING|PROB|MIX|LEVEL|SHORTEN", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "DELAY": {"instrument": false, "latency": 512, "params": [
   {"id": "time", "name": "TIME", "type": "menu", "primary": true, "min": "", "max": "", "def": "1/8D", "choices": "1 BAR|1/2|1/4|1/4D|1/4T|1/8|1/8D|1/8T|1/16|1/16D|1/16T|1/32", "macro": 0},
@@ -275,7 +412,15 @@
   {"id": "lo_cut", "name": "LO CUT", "type": "knob", "primary": false, "min": "20 Hz", "max": "600 Hz", "def": "80 Hz", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|FEEDBACK|TONE|DRIVE|MIX|WIDTH|SLEW|DUCK|DUCK SHAPE|WOW|LO CUT", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|FEEDBACK|TONE|DRIVE|MIX|WIDTH|SLEW|DUCK|DUCK SHAPE|WOW|LO CUT", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "REVERB": {"instrument": false, "latency": 512, "params": [
   {"id": "size", "name": "SIZE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "60 %", "choices": "", "macro": 1},
@@ -295,7 +440,15 @@
   {"id": "input", "name": "INPUT", "type": "menu", "primary": false, "min": "", "max": "", "def": "ALWAYS", "choices": "ALWAYS|THROW ONLY", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIZE|DECAY|DARK|DUCK|MIX|MOD|WIDTH|LO CUT|DUCK SHAPE", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIZE|DECAY|DARK|DUCK|MIX|MOD|WIDTH|LO CUT|DUCK SHAPE", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "DRIVE": {"instrument": false, "latency": 0, "params": [
   {"id": "drive", "name": "DRIVE", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "20 %", "choices": "", "macro": 1},
@@ -307,7 +460,15 @@
   {"id": "auto_gain", "name": "AUTO GAIN", "type": "toggle", "primary": true, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DRIVE|CHARACTER|TONE|LOW KEEP|MIX|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DRIVE|CHARACTER|TONE|LOW KEEP|MIX|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "RADIO": {"instrument": false, "latency": 0, "params": [
   {"id": "signal", "name": "SIGNAL", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 1},
@@ -322,7 +483,15 @@
   {"id": "rate", "name": "RATE", "type": "knob", "primary": false, "min": "2.00 kHz", "max": "48.00 kHz", "def": "48.00 kHz", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIGNAL|BAND|WIDTH|NOISE|DROPOUT|SQUELCH|RING|MIX|CRUSH|RATE", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SIGNAL|BAND|WIDTH|NOISE|DROPOUT|SQUELCH|RING|MIX|CRUSH|RATE", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "REPEAT": {"instrument": false, "latency": 0, "params": [
   {"id": "roll", "name": "ROLL", "type": "momentary", "primary": true, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
@@ -335,7 +504,15 @@
   {"id": "quant", "name": "QUANT", "type": "menu", "primary": true, "min": "", "max": "", "def": "1/16", "choices": "OFF|1/16|1/8|1/4", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DECAY|PITCH|GATE|FILTER|MIX", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DECAY|PITCH|GATE|FILTER|MIX", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "DUCK": {"instrument": false, "latency": 512, "params": [
   {"id": "depth", "name": "DEPTH", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "60 %", "choices": "", "macro": 1},
@@ -346,7 +523,15 @@
   {"id": "mix", "name": "MIX", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "100 %", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DEPTH|SHAPE|CURVE|MIX", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DEPTH|SHAPE|CURVE|MIX", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "ENERGY": {"instrument": false, "latency": 0, "params": [
   {"id": "energy", "name": "ENERGY", "type": "knob", "primary": true, "min": "LP 100", "max": "HP 100", "def": "OFF", "choices": "", "macro": 1},
@@ -359,7 +544,15 @@
   {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|ENERGY|RES|DRIVE AMT|SPACE AMT|ECHO AMT|GATE AMT|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|ENERGY|RES|DRIVE AMT|SPACE AMT|ECHO AMT|GATE AMT|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "ISOLATOR": {"instrument": false, "latency": 0, "params": [
   {"id": "low", "name": "LOW", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "75 %", "choices": "", "macro": 0},
@@ -372,7 +565,15 @@
   {"id": "xover_hi", "name": "XOVER HI", "type": "knob", "primary": true, "min": "1.00 kHz", "max": "8.00 kHz", "def": "2.50 kHz", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|LOW|MID|HIGH|XOVER LO|XOVER HI", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|LOW|MID|HIGH|XOVER LO|XOVER HI", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "BUILD": {"instrument": false, "latency": 0, "params": [
   {"id": "build", "name": "BUILD", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
@@ -384,7 +585,15 @@
   {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|BUILD|NOISE|SPACE|WIDTH|HP MAX|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|BUILD|NOISE|SPACE|WIDTH|HP MAX|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "GLUE": {"instrument": false, "latency": 0, "params": [
   {"id": "push", "name": "PUSH", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 1},
@@ -396,7 +605,34 @@
   {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|PUSH|SC HPF|MIX|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|PUSH|SC HPF|MIX|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
+]},
+"TONE": {"instrument": false, "latency": 0, "params": [
+  {"id": "low", "name": "LOW", "type": "knob", "primary": true, "min": "-6.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "mud", "name": "MUD", "type": "knob", "primary": true, "min": "0.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "presence", "name": "PRESENCE", "type": "knob", "primary": true, "min": "-4.0 dB", "max": "4.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "air", "name": "AIR", "type": "knob", "primary": true, "min": "-6.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "tilt", "name": "TILT", "type": "knob", "primary": true, "min": "-3.0 dB", "max": "3.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
+  {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|LOW|MUD|PRESENCE|AIR|TILT|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|LOW|MUD|PRESENCE|AIR|TILT|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "LOWEND": {"instrument": false, "latency": 0, "params": [
   {"id": "mono_freq", "name": "MONO FREQ", "type": "knob", "primary": true, "min": "40 Hz", "max": "300 Hz", "def": "120 Hz", "choices": "", "macro": 0},
@@ -407,9 +643,17 @@
   {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MONO FREQ|SUB CLIP|RUMBLE CUT|WIDTH|LOW TRIM|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MONO FREQ|SUB CLIP|RUMBLE CUT|WIDTH|LOW TRIM|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
-"LIMIT": {"instrument": false, "latency": 72, "params": [
+"LIMIT": {"instrument": false, "latency": 111, "params": [
   {"id": "target", "name": "TARGET", "type": "knob", "primary": true, "min": "-16.0 LUFS", "max": "-5.0 LUFS", "def": "-9.0 LUFS", "choices": "", "macro": 0},
   {"id": "ceiling", "name": "CEILING", "type": "knob", "primary": true, "min": "-3.0 dB", "max": "-0.1 dB", "def": "-1.0 dB", "choices": "", "macro": 0},
   {"id": "clip", "name": "CLIP", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "30 %", "choices": "", "macro": 0},
@@ -419,7 +663,15 @@
   {"id": "reset", "name": "RESET", "type": "momentary", "primary": true, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|TARGET|CEILING|CLIP|INPUT|RELEASE", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|TARGET|CEILING|CLIP|INPUT|RELEASE", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "ROOMEQ": {"instrument": false, "latency": 0, "params": [
   {"id": "cut1", "name": "CUT 1", "type": "knob", "primary": true, "min": "0.0 dB", "max": "18.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
@@ -439,7 +691,15 @@
   {"id": "store_venue", "name": "STORE VENUE", "type": "momentary", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUT 1|CUT 2|CUT 3|CUT 4|CUT 5|CUT 6|Q|FREQ 1|FREQ 2|FREQ 3|FREQ 4|FREQ 5|FREQ 6", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|CUT 1|CUT 2|CUT 3|CUT 4|CUT 5|CUT 6|Q|FREQ 1|FREQ 2|FREQ 3|FREQ 4|FREQ 5|FREQ 6", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "ALLOC": {"instrument": false, "latency": 0, "params": [
   {"id": "enable", "name": "ENABLE", "type": "toggle", "primary": true, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
@@ -478,7 +738,15 @@
   {"id": "q10", "name": "Q 10", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MAX CUT|SENSITIVITY", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MAX CUT|SENSITIVITY", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "TAP": {"instrument": false, "latency": 512, "params": [
   {"id": "role", "name": "ROLE", "type": "menu", "primary": true, "min": "", "max": "", "def": "OTHER", "choices": "KICK|BASS|VOICE|LEAD|PERC|RUMBLE|PAD|DECK|OTHER", "macro": 0},
@@ -488,7 +756,15 @@
   {"id": "level", "name": "LEVEL", "type": "knob", "primary": true, "min": "-36.0 dB", "max": "6.0 dB", "def": "0.0 dB", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|POCKET DEPTH|POCKET SHAPE|LEVEL", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|POCKET DEPTH|POCKET SHAPE|LEVEL", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]},
 "STRIP": {"instrument": false, "latency": 512, "params": [
   {"id": "density", "name": "DENSITY", "type": "knob", "primary": true, "min": "0 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 1},
@@ -515,6 +791,14 @@
   {"id": "sensitivity", "name": "SENSITIVITY", "type": "knob", "primary": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
-  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0}
+  {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
+  {"id": "m1_src", "name": "M1 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m1_rate", "name": "M1 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m1_target", "name": "M1 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DENSITY|GATE|FILTER|DRIVE|POCKET|SPACE|LEVEL|ECHO PROB|DARKEN|CHARACTER|FILTER RES|POCKET SHAPE|SPACE SIZE|SENSITIVITY", "macro": 0},
+  {"id": "m1_depth", "name": "M1 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0},
+  {"id": "m2_src", "name": "M2 SOURCE", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|SINE|TRIANGLE|SQUARE|RAMP UP|RAMP DOWN|RANDOM|DRIFT|KICK|INPUT", "macro": 0},
+  {"id": "m2_rate", "name": "M2 RATE", "type": "menu", "primary": false, "min": "", "max": "", "def": "1 BAR", "choices": "1/16|1/8|1/4|1/2|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR", "macro": 0},
+  {"id": "m2_target", "name": "M2 TARGET", "type": "menu", "primary": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|DENSITY|GATE|FILTER|DRIVE|POCKET|SPACE|LEVEL|ECHO PROB|DARKEN|CHARACTER|FILTER RES|POCKET SHAPE|SPACE SIZE|SENSITIVITY", "macro": 0},
+  {"id": "m2_depth", "name": "M2 DEPTH", "type": "knob", "primary": false, "min": "-100 %", "max": "100 %", "def": "0 %", "choices": "", "macro": 0}
 ]}
 }

@@ -96,7 +96,7 @@ class Doc(BaseDocTemplate):
         canv.drawRightString(w - self.rightMargin, h - 0.5 * inch, self.section.upper())
         canv.setStrokeColor(LIGHT); canv.line(self.leftMargin, 0.5 * inch, w - self.rightMargin, 0.5 * inch)
         canv.setFillColor(GREY); canv.setFont("Mono", 7.5)
-        canv.drawString(self.leftMargin, 0.36 * inch, "V0.1  NOV 2026")
+        canv.drawString(self.leftMargin, 0.36 * inch, "V0.2  NOV 2026")
         canv.drawRightString(w - self.rightMargin, 0.36 * inch, str(doc.page))
         canv.restoreState()
     def cover(self, canv, doc):
@@ -110,9 +110,9 @@ class Doc(BaseDocTemplate):
         canv.line(0.8 * inch, h - 3.35 * inch, w - 0.8 * inch, h - 3.35 * inch)
         canv.setFont("Mono", 9); canv.setFillColor(colors.HexColor("#9a9a9a"))
         y = h - 3.7 * inch
-        for line in ["28 PLUGINS FOR PERFORMING HYPNOTIC / DUB TECHNO IN ABLETON LIVE",
-                     "9 INSTRUMENTS   11 EFFECTS   8 MASTER AND MIX TOOLS",
-                     "", "VERSION 0.1   NOVEMBER 2026", "STRANGE FREQUENCIES"]:
+        for line in ["30 PLUGINS FOR PERFORMING HYPNOTIC / DUB TECHNO IN ABLETON LIVE",
+                     "10 INSTRUMENTS   11 EFFECTS   9 MASTER AND MIX TOOLS",
+                     "", "VERSION 0.2   NOVEMBER 2026", "STRANGE FREQUENCIES"]:
             canv.drawString(0.8 * inch, y, line); y -= 14
         canv.setFont("Mono", 7.5)
         canv.drawString(0.8 * inch, 0.8 * inch, "CONTROL RANGES AND DEFAULTS IN THIS MANUAL ARE GENERATED FROM THE PLUGIN CODE.")
@@ -173,19 +173,26 @@ story.append(P("The first eight controls of every plugin are its performance row
 story.append(H2("DENSITY, GATE, FILTER"))
 story.append(P("Three controls cover most of what changes in a track, and they appear wherever they make sense. <b>DENSITY</b> is how many events happen (ghost notes fill the gaps). <b>GATE</b> is how long each event lasts. <b>FILTER</b> is what each event sounds like: a bipolar DJ filter, centre open, left low-pass, right high-pass. Play two against each other: density up with gate down is a tight, nervous build; density down with gate open is spacious dub; density up with the filter closed is tension waiting to be released."))
 story.append(H2("SYSTEM CONTROLS ON EVERY PLUGIN"))
-story.append(table([["CONTROL", "RANGE", "WHAT IT DOES"]] + [[a, b, c] for a, b, c in C.SYSTEM], [0.95 * inch, 1.6 * inch, W - 2.55 * inch]))
-story.append(Spacer(1, 6))
-story.append(P("These three are not repeated in the module tables."))
+story.append(P("Below every plugin's controls: the MOTION row (two modulators) and the SYSTEM row (SLOW, MACRO). They are the same on every plugin and are not repeated in the module tables."))
+story.append(table([["CONTROL", "RANGE", "WHAT IT DOES"]] + [[a, b, c] for a, b, c in C.SYSTEM], [1.1 * inch, 1.75 * inch, W - 2.85 * inch]))
+story.append(H2("MOTION"))
+story.append(P("Two modulators in every plugin, M1 and M2. Pick a SOURCE, a RATE, the TARGET knob and a DEPTH. Everything is locked to Live's song position: every plugin's modulators move together, a 64-bar ramp lands on the 64th bar, and a set replays the same way every time, RANDOM and DRIFT included (each plugin has its own random seed, saved with the set). Modulation adds to the knob, the macro and SLOW, and the knob shows a bar for where the modulation has taken it. Steps (SQUARE, RANDOM, a ramp restarting) are smoothed over 3 ms, so they never click. MOTION is part of songs and presets."))
+story += bullets(["<b>Hypnotic movement:</b> DRIFT on a filter at 8 or 16 BAR, DEPTH 10-20 %. It never repeats, so the loop never sounds like a loop.",
+                  "<b>Long builds:</b> RAMP UP at 32 or 64 BAR on ENERGY or a filter; turn DEPTH to set how far it goes.",
+                  "<b>Kick-driven:</b> KICK on a bass's DRIVE or a pad's CUTOFF: every kick pushes it, RATE sets how fast it falls back.",
+                  "<b>Played:</b> NOTES on an instrument (velocity) or INPUT on an effect (level) makes the sound respond to how hard it is played."])
+story.append(H2("KEY"))
+story.append(P("Write parts in C. SF CONTROL's KEY (stored per song) then plays them in the song's key on every SF instrument: BASS, LEAD, PAD and VOICE transpose by the nearest interval (-6 to +5 semitones); KICK, RUMBLE and STRIKE land their own pitch on the key root, so the low end is always in tune with the track. KEY FOLLOW on each instrument opts out. OFF changes nothing."))
 story.append(H2("NOTHING CAN HURT THE PA"))
-story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Resonance is level-compensated. Feedback above 100 % saturates instead of exploding. Every output is clamped at +12 dBFS, and if anything ever produces an invalid value the plugin outputs silence and resets. Grab any knob in the dark."))
+story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Resonance is level-compensated. Feedback above 100 % saturates instead of exploding. Every output is clamped at +12 dBFS. If a plugin ever produces an invalid value, or sits at the clamp for 250 ms (a runaway), it outputs silence, resets itself and shows <b>FAULT</b> in red in its header; it carries on working. <b>PANIC</b> on SF CONTROL fades every SF plugin out over 5 ms and clears every voice, tail and delay line: for a runaway feedback loop, a stuck note or a wrong recall in front of a crowd. Grab any knob in the dark."))
 _cc_head = [H2("THE COLOUR CODE"), P("The plugins are black, white and grey. Colour only carries information:")]
-cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, fault, missing file."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
+cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, FAULT (the plugin reset itself), missing file, true peak at the ceiling."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
       [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall waiting for the bar, a value gliding (SLOW)."],
       [Swatch(CYAN), "CYAN", "The value of the control you are touching."]]
 story.append(KeepTogether(_cc_head + [table(cc, [0.3 * inch, 0.8 * inch, W - 1.1 * inch])]))
 story.append(PageBreak())
 
-story.append(H1("2  SONGS"))
+story.append(H1("2  SONGS AND PRESETS"))
 story.append(Rule())
 story.append(P("Every SF plugin stores 16 song slots of its own settings, saved with the Live set. SF CONTROL chooses the song; every plugin recalls its slot on the next bar line while Live plays (at once when stopped).", "summary"))
 story.append(H2("SAVING A SONG"))
@@ -200,6 +207,11 @@ story += bullets(["Send Program Change on MIDI channel 16 to SF CONTROL (program
                   "Arrangement automation wins over recalled values, as on any device."])
 story.append(H2("VST3 AND PROGRAM CHANGE"))
 story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTROL therefore lists 16 programs (SONG 01-16) and Live's program change selects them. The AU version reads Program Change directly from MIDI. If song changes don't arrive in the VST3, use the AU."))
+story.append(H2("PRESETS"))
+story += bullets(["The <b>PRESET</b> button in every header opens the menu: factory presets grouped by style (DUB, ACID, HYPNOTIC ...), your own presets, SAVE USER PRESET and SHOW PRESET FOLDER. The button shows the preset that is loaded.",
+                  "A preset sets every sound control of the plugin, MOTION included, and Live is told about every change, so the E16 rings follow. It never touches SLOW, MACRO, ALLOC, ROLE, a source setting or KEY FOLLOW.",
+                  "181 factory presets across 25 plugins. Use them as starting points, then store the result into a song.",
+                  "User presets are files in Music/SF Live Suite/Presets/&lt;PLUGIN&gt;. Copy the folder to take them to another computer."])
 
 story += [CondPageBreak(3 * inch), Spacer(1, 14)]
 story.append(H1("3  POCKET: KICK-AWARE DUCKING"))
@@ -247,15 +259,37 @@ bands = [["BAND", "RANGE"]] + [[str(i + 1), r] for i, r in enumerate(["20-60 Hz"
 story.append(H2("THE BANDS"))
 story.append(table(bands, [0.9 * inch, 2.4 * inch]))
 
+story.append(PageBreak())
+story.append(H1("5  SOUND AND LEVELS"))
+story.append(Rule())
+story.append(P("The sets are the releases, so every plugin is built to release quality: nothing you hear should come from the implementation. These figures are measured by the offline tests on every build.", "summary"))
+story.append(H2("GAIN STAGING"))
+story.append(P("Every model of every instrument is calibrated to its role's loudness at default settings, so switching models never jumps the level and a rig with every LEVEL at its default is already a balanced rough mix with headroom into GLUE and LIMIT. SAMPLE models play the file at its own level."))
+story.append(table([["ROLE", "TARGET (LUFS, INTEGRATED)", "ROLE", "TARGET"],
+                    ["KICK", "-15", "LEAD", "-20"], ["PERC", "-22", "PAD", "-22"], ["RUMBLE", "-20", "VOICE", "-20"], ["BASS", "-18", "STRIKE", "-20"]],
+                   [1.0 * inch, 1.9 * inch, 1.0 * inch, 1.2 * inch]))
+story.append(H2("NO ALIASING"))
+story.append(P("Every stage that distorts runs oversampled: synth voices at 2x (the ladder, MS20-TYPE and SYNC models at 4x), KICK and PERC at 2x, DRIVE and STRIP at 4x, the drive in FILTER, ENERGY and VOICE, the saturation inside the DELAY loop, RUMBLE's GRIT, LOWEND's SUB CLIP, STRIKE's fracture and TONE at 2x, LIMIT's clipper at 4x. The filters reject images and aliases by 112 dB or more and are flat to 20 kHz. Oscillators are band-limited (wavetables per octave, corrected hard sync): measured alias products sit 77 to 105 dB below the note."))
+story.append(H2("THE MASTER"))
+story += bullets(["SF LIMIT measures true peak (the level between samples that a DAC or a codec will produce) at 8x, and its output never exceeds CEILING. Use -1 dB for venues and releases.",
+                  "Its meter follows ITU-R BS.1770-4 / EBU R128 exactly: MOMENTARY (400 ms), SHORT-TERM (3 s), INTEGRATED (gated, over the whole set since RESET).",
+                  "SF TONE voices the whole set (LOW, MUD, PRESENCE, AIR, TILT); SF ROOM EQ corrects the room, per venue. Keep them separate: TONE is the record, ROOM EQ is the venue."])
+story.append(H2("ANY BUFFER SIZE, ANY SAMPLE RATE"))
+story.append(P("Every plugin processes in 64-sample steps on a fixed grid of the audio stream, whatever Live's buffer size, so a set sounds exactly the same at buffer 64 and buffer 2048 (bit for bit) and at 44.1, 48 or 96 kHz. Song recalls land on the exact sample of the bar line."))
+story.append(H2("RECORDING A SET"))
+story += bullets(["Record the master after SF LIMIT, at the session's sample rate, 24-bit or 32-bit float.",
+                  "Press RESET on SF LIMIT before you start: INTEGRATED then reads the loudness of the whole set.",
+                  "MOTION's RANDOM and DRIFT are seeded and the seeds are saved with the set, so they move the same way every time the set is played."])
+
 story += [CondPageBreak(3 * inch), Spacer(1, 14)]
-story.append(H1("5  SETTING UP LIVE"))
+story.append(H1("6  SETTING UP LIVE"))
 story.append(Rule())
 story.append(H2("TRACKS"))
 lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Makes no sound."],
-       ["MIDI tracks", "SF KICK, SF PERC (2-3), SF RUMBLE (no clips needed), SF BASS, SF LEAD (1-2), SF VOICE, SF PAD, SF DECK."],
+       ["MIDI tracks", "SF KICK, SF PERC (2-3), SF RUMBLE (no clips needed), SF BASS, SF LEAD (1-2), SF VOICE, SF PAD, SF STRIKE, SF DECK."],
        ["Groups", "SF ENERGY on each group, PROFILE to match (DRUMS, BASS, MUSIC, VOICE)."],
        ["Returns", "SF DELAY, SF REVERB, SF DENSITY."],
-       ["Master", "SF ISOLATOR > SF BUILD > SF GLUE > SF LOWEND > SF ROOM EQ > SF LIMIT. SF ALLOC anywhere on the master."],
+       ["Master", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF ROOM EQ > SF LIMIT. SF ALLOC anywhere on the master."],
        ["Live instruments / hardware", "SF STRIP last on the track: the suite's performance row, Pocket and ALLOC for any sound."],
        ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
@@ -270,19 +304,22 @@ story += bullets(["SF CONTROL shows <b>BUS SHARED</b>. Play SF KICK: it shows <b
                   "SF KICK + SF BASS with POCKET DEPTH up and SHAPE right: the pump lands exactly on the kick.",
                   "SF ALLOC on the master: every SF source appears in the list; raise DEPTH on a band where two of them overlap and watch the amber.",
                   "Store two songs; switch with Program Change: the E16 rings follow.",
-                  "SF DECK: load a track, PLAY A: it starts on the bar, locked to Live's tempo."])
+                  "SF DECK: load a track, PLAY A: it starts on the bar, locked to Live's tempo.",
+                  "Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune. Hold PANIC with SF DELAY in feedback: silence within 5 ms."])
 story.append(PageBreak())
 
 # ---------------- PART 2: modules
-order = [("INSTRUMENTS", ["KICK", "PERC", "RUMBLE", "BASS", "LEAD", "PAD", "VOICE", "DECK", "CONTROL"]),
+order = [("INSTRUMENTS", ["KICK", "PERC", "RUMBLE", "BASS", "LEAD", "PAD", "VOICE", "STRIKE", "DECK", "CONTROL"]),
          ("EFFECTS", ["STRIP", "FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
-         ("MASTER AND MIX", ["ISOLATOR", "BUILD", "GLUE", "LOWEND", "LIMIT", "ROOMEQ", "ALLOC", "TAP"])]
-chapter = 6
+         ("MASTER AND MIX", ["ISOLATOR", "BUILD", "GLUE", "TONE", "LOWEND", "LIMIT", "ROOMEQ", "ALLOC", "TAP"])]
+SYSTEM_IDS = ("slow", "macro_src", "macro_amt")
+def is_system(pid): return pid in SYSTEM_IDS or pid[:3] in ("m1_", "m2_")
+chapter = 7
 for group, mods in order:
     first = True
     for mid in mods:
         m = C.MODULES[mid]
-        sp = [p for p in specs[mid]["params"] if p["id"] not in ("slow", "macro_src", "macro_amt")]
+        sp = [p for p in specs[mid]["params"] if not is_system(p["id"])]
         title = "SF " + ("ROOM EQ" if mid == "ROOMEQ" else mid)
         if first:
             story.append(H1(f"{chapter}  {group}", 0)); story.append(Rule()); first = False; chapter += 1
@@ -304,7 +341,7 @@ for group, mods in order:
         story.append(H2("USING IT"))
         story += bullets([esc(u) for u in m["use"]])
         if m["models"]:
-            story.append(H2("MODELS" if mid not in ("GATE", "ENERGY") else "REFERENCE"))
+            story.append(H2("OBJECTS" if mid == "STRIKE" else "MODELS" if mid not in ("GATE", "ENERGY") else "REFERENCE"))
             story.append(table([["NAME", "SOUND"]] + [[esc(a), esc(b)] for a, b in m["models"]], [1.55 * inch, W - 1.55 * inch]))
         desc = dict(C.COMMON); desc.update(m["desc"])
         def rng(p):
@@ -336,12 +373,14 @@ story.append(H2("MIDI NOTE MAP"))
 story.append(table([["PLUGIN", "NOTES", "DOES"],
                     ["SF KICK, PERC", "any", "Plays the sound (KICK: KEY TRACK on makes C1 = TUNE)."],
                     ["SF VOICE", "C3, C#3, D3 ...", "Slice 1, 2, 3 ... of the phrase. Below C3: the whole phrase."],
+                    ["SF STRIKE", "any", "Strikes the object (KEY TRACK on: the note sets the pitch, C3 = TUNE)."],
                     ["SF DECK", "C1-D#1", "Deck A hot cues 1-4 (jump on the next beat)."],
                     ["SF DECK", "C2-D#2", "Deck B hot cues 1-4."],
                     ["SF CONTROL", "Program Change ch 16", "Song 01-16 (channel set by PC CHANNEL)."],
                     ["SF LEAD / BASS ACID", "velocity > ~108", "Accent. Overlapping notes slide."]], [1.5 * inch, 1.4 * inch, W - 2.9 * inch]))
 story.append(H2("WHERE THINGS ARE SAVED"))
-story += bullets(["Songs, samples, ALLOC choices, DECK tracklist and venue EQs: inside the Live set (plugin state).",
+story += bullets(["Songs, samples, ALLOC choices, MOTION random seeds, DECK tracklist and venue EQs: inside the Live set (plugin state).",
+                  "User presets: Music/SF Live Suite/Presets/&lt;PLUGIN&gt;, one file per preset.",
                   "DECK track log: Documents/SF Live Suite/tracklog.txt.", "DECK tracks are referenced by file path, not embedded: keep the files where they are."])
 story.append(H2("WHEN SOMETHING ISN'T RIGHT"))
 story.append(table([["SYMPTOM", "CHECK"],
@@ -351,7 +390,12 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["E16 rings don't follow", "Remote on for the E16 output in Live's MIDI preferences; map with Live's MIDI Map."],
                     ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],
-                    ["A knob shows GLIDE", "SLOW is on: the knob is travelling to where you set it."]], [1.7 * inch, W - 1.7 * inch], mono_first=False))
+                    ["A knob shows GLIDE", "SLOW is on: the knob is travelling to where you set it."],
+                    ["A knob moves on its own", "MOTION: check M1 / M2 TARGET in the plugin's MOTION row."],
+                    ["Header shows FAULT (red)", "The plugin caught an invalid value or a runaway and reset itself to silence. It carries on working. If it happens again, note what was playing: it is a bug."],
+                    ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out and clears."],
+                    ["Pitch is wrong after a song change", "KEY on SF CONTROL is stored per song. KEY FOLLOW off on an instrument ignores it."],
+                    ["Levels changed after the update", "Since Nov 3 every model is calibrated to its role's target (chapter 5). Re-balance the faders once."]], [1.7 * inch, W - 1.7 * inch], mono_first=False))
 
 doc = Doc(os.path.join(ROOT, "docs", "SF-Live-Suite-Manual.pdf"))
 doc.multiBuild(story)

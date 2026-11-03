@@ -16,6 +16,7 @@ COMMON = {
     "model": "The sound engine. Choose from the header menu. All models share the same performance row.",
     "gate": "Note length. 0 = clipped staccato, 50 % = as played, 100 % = held long (release up to 8x).",
     "tune": "Pitch offset in semitones.",
+    "key_follow": "On: follows the KEY set on SF CONTROL (parts written in C play in the song's key). Off: ignores KEY.",
 }
 
 SYNTH = {
@@ -47,6 +48,7 @@ MODULES["KICK"] = dict(
         "DECAY is your GATE: short and tight for driving sections, long and boomy for breakdowns. RUMBLE and the bass pockets follow the change automatically.",
         "Ride DENSITY with ECHO SPACE at 1/16 or 1/8D to thicken the kick into a drop. Ghost kicks get smaller pockets.",
         "High-passing the kick with FILTER hands the sub to the bass and rumble: their pockets close as the kick thins.",
+        "Set the song's KEY on SF CONTROL and the kick tunes itself to the key root (KEY FOLLOW).",
     ],
     models=[
         ("KICK 909-TYPE", "Fast pitch drop, noise click, short body. The default techno kick."),
@@ -69,6 +71,7 @@ MODULES["KICK"] = dict(
         "vel_sens": "How much velocity changes the level. 0 = every hit equal.",
         "key_track": "On: the note number sets the pitch (C1 = TUNE). Off: every note plays the same kick.",
         "res": "Resonance of the output FILTER.",
+        "key_follow": "On: with a KEY set on SF CONTROL, the model's fundamental lands on the nearest key root and TUNE moves from there (TUNE 0 = on the root). Off: ignores KEY.",
     },
 )
 
@@ -137,6 +140,7 @@ MODULES["RUMBLE"] = dict(
         "width": "Stereo width of the bed.",
         "pocket_shape": "Pocket SHAPE (see Pocket chapter).",
         "echo_space": "Spacing of DENSITY thumps.",
+        "key_follow": "On: with a KEY set on SF CONTROL, the thump lands on the nearest key root. Off: it follows the kick's pitch.",
     },
 )
 
@@ -216,6 +220,43 @@ MODULES["VOICE"] = dict(
         "tune": "Playback pitch (varispeed) in semitones.",
         "echo_time": "Echo time, synced (1 BAR to 1/16). Default 1/4 dotted.",
         "echo_fb": "Echo feedback.",
+        "key_follow": "On: playback and carriers follow the KEY set on SF CONTROL (phrases written in C play in the song's key). Off: ignores KEY.",
+    },
+)
+
+MODULES["STRIKE"] = dict(
+    group="INSTRUMENTS",
+    summary="Blast-excited resonant objects. A pressure wave from a charge of POWER at DISTANCE strikes a bell, plate, bar, tube, membrane or gong, modelled as up to 16 resonant modes. Industrial impacts, distant detonations, metal that rings for bars.",
+    use=[
+        "Put it on a MIDI track. Any note strikes the object (KEY TRACK on: the note sets the pitch, C3 = TUNE).",
+        "POWER is the charge: low is a tap, high a blast. Above about 70 % the object FRACTURES: its modes split and detune, debris rattles and it distorts. The display shows FRACTURE in amber.",
+        "DISTANCE moves the blast away: quieter, longer and darker, exciting the low modes. Close and small is a sharp crack; far and big is a deep push.",
+        "SIZE sets the pitch (bigger = lower). MATERIAL sets how long the high modes ring (wood to glass). DECAY sets the overall ring.",
+        "DENSITY adds ghost strikes like on the other instruments; each ghost is a smaller charge.",
+        "With a KEY set on SF CONTROL the object's main partial lands on the key root; SIZE then picks the octave.",
+    ],
+    models=[
+        ("BELL", "Church-bell partials (hum, prime, tierce, quint, nominal). Long ring; the nominal is the pitch you hear."),
+        ("PLATE", "Sheet metal: dense pairs of close modes that beat. Thunder sheet, industrial clang."),
+        ("BAR", "Free bar (anvil, xylophone ratios). Short and pure."),
+        ("TUBE", "Pipe or tubular bell. Bright and long."),
+        ("MEMBRANE", "Drum head (circular membrane ratios). Short, thuddy."),
+        ("GONG", "Sixteen dense modes, the longest ring, and the strongest pitch glide after a hard hit (TENSION)."),
+    ],
+    desc={
+        "power": "Size of the charge. Velocity scales it (VEL SENS). Above about 70 % the object fractures.",
+        "distance": "Stand-off. Further = quieter, longer, darker blast that excites fewer high modes.",
+        "size": "Object size, which sets the pitch: the fundamental goes from about 1.4 kHz (small) to 45 Hz (large).",
+        "material": "Wood (0) to glass (100 %): how long the high modes ring compared with the low ones.",
+        "decay": "Ring time, 0.15 to 9 s, times the object's own (a gong rings longer than a bar).",
+        "position": "Strike point. Striking near a node mutes the modes that have one there, so it changes the colour.",
+        "spread": "Spreads the modes across the stereo field.",
+        "tension": "How sharp a hard hit sounds before it settles (the pitch glides down after the blast).",
+        "tune": "Pitch in semitones (-24 to +24).",
+        "key_track": "On: the note number sets the pitch (C3 = TUNE). Off: every note strikes the same pitch.",
+        "res": "Resonance of the output FILTER.",
+        "vel_sens": "How much velocity scales the charge. 0 = every strike the same.",
+        "key_follow": "On: with a KEY set on SF CONTROL, the main partial lands on the nearest key root and TUNE moves from there. Off: ignores KEY.",
     },
 )
 
@@ -260,7 +301,9 @@ MODULES["CONTROL"] = dict(
         "Put it on its own MIDI track receiving the OXI One.",
         "Program Change on channel 16 selects the song (VST3: Live delivers it as a program change; SF CONTROL lists SONG 01-16).",
         "To save a song: set every plugin, choose the song number, press STORE ALL.",
-        "The display shows macro levels, the song, and whether the bus is shared, SF KICK is reporting and SF ALLOC is running.",
+        "The display shows macro levels, the song, the key, and whether the bus is shared, SF KICK is reporting and SF ALLOC is running.",
+        "KEY: write parts in C and set each song's key here. Every pitched SF instrument follows; KICK, RUMBLE and STRIKE tune themselves to the key root.",
+        "PANIC: map it to a button you can find in the dark. Every SF plugin fades out over 5 ms and clears every voice, tail and delay line.",
     ],
     models=[],
     desc={
@@ -271,6 +314,8 @@ MODULES["CONTROL"] = dict(
         "pc_channel": "MIDI channel that Program Change is read from (default 16).",
         "pc_enable": "Turns Program Change song select on or off.",
         "pocket_offset": "Timing calibration for Pocket and RUMBLE, -20 to +20 ms (+ = later). Set once, by ear, if the pump lands early or late in your Live setup; leave at 0 otherwise.",
+        "key": "Key of the song: OFF, C ... B. Parts written in C play in this key on every SF instrument with KEY FOLLOW on (nearest transposition, -6 to +5 semitones). Stored per song.",
+        "panic": "Hold: every SF plugin fades out over 5 ms and clears every voice, tail and delay line. Nothing restarts until new notes or audio arrive.",
     },
 )
 
@@ -315,8 +360,8 @@ MODULES["DELAY"] = dict(group="EFFECTS", summary="Tape-style dub delay. Changing
     models=[], desc={
         "time": "Delay time, synced: 1 BAR to 1/32. Changing it slews the head (pitch bend).",
         "feedback": "Repeats, up to 115 %. Above 100 % the loop saturates instead of growing.",
-        "tone": "Bipolar filter on the repeats: left darker, right thinner.",
-        "drive": "Saturation inside the feedback loop.",
+        "tone": "Bipolar filter inside the feedback loop: left darker, right thinner. Each repeat goes further than the last.",
+        "drive": "Saturation inside the feedback loop (2x oversampled): each repeat dirtier than the last.",
         "throw": "Hold to send into the delay (louder send in INPUT ALWAYS, the only send in THROW ONLY).",
         "freeze": "Loops the current repeats forever; input muted.",
         "mix": "Wet level.",
@@ -332,7 +377,7 @@ MODULES["DELAY"] = dict(group="EFFECTS", summary="Tape-style dub delay. Changing
 MODULES["REVERB"] = dict(group="EFFECTS", summary="Dark feedback-network reverb with freeze, throw, gated mode and ducking (kick pocket plus dry-follow, so tails bloom in the gaps).",
     use=["DUCK at 30-60 % keeps big spaces from washing out the groove.", "FREEZE holds the space as a drone; THROW sends a single hit."],
     models=[], desc={
-        "size": "Room size.", "decay": "Decay time, 0.3 to 30 s.", "dark": "Damping: more = darker tail.",
+        "size": "Room size.", "decay": "Decay time of the lows, 0.3 to 30 s (measured: DECAY is the real RT60).", "dark": "Damping: shortens the decay of the highs only, so the tail gets darker without getting shorter.",
         "predelay": "Synced predelay: 0, 1/64, 1/32, 1/16, 1/8, 1/4.",
         "duck": "Ducks the tail under the kick and while the dry signal plays.",
         "freeze": "Infinite hold; input muted.", "throw": "Hold to send (or the only send in INPUT THROW ONLY).",
@@ -391,17 +436,27 @@ MODULES["BUILD"] = dict(group="MASTER AND MIX", summary="One knob for a whole-mi
     models=[], desc={
         "build": "The build amount.", "drop": "Arms the reset for the next bar line.", "noise": "Noise riser level.",
         "space": "Reverb wash.", "width": "Stereo widening.", "hp_max": "How high the high-pass goes at full build."})
-MODULES["GLUE"] = dict(group="MASTER AND MIX", summary="Bus compressor with one PUSH knob (threshold and makeup together).", use=["PUSH 20-40 % for glue; more for audible pump."], models=[], desc={
+MODULES["GLUE"] = dict(group="MASTER AND MIX", summary="Bus compressor with one PUSH knob (threshold and makeup together). 6 dB soft knee.", use=["PUSH 20-40 % for glue; more for audible pump."], models=[], desc={
     "push": "Compression and makeup together.", "attack": "0.1 to 30 ms.", "release": "0.1 to 1.2 s or AUTO (dual-stage).",
     "ratio": "2:1, 4:1, 10:1.", "sc_hpf": "High-pass on the detector so the kick doesn't drive it.", "mix": "Parallel compression."})
-MODULES["LOWEND"] = dict(group="MASTER AND MIX", summary="Low-end safety: mono below a frequency, sub clip, rumble cut, width above.", use=["Last-but-one on the master, before LIMIT."], models=[], desc={
-    "mono_freq": "Everything below this is mono.", "sub_clip": "Soft clip on the mono low band (louder sub, same peak).",
-    "rumble_cut": "24 dB/oct high-pass for DC and rumble.", "width": "Stereo width above MONO FREQ.", "low_trim": "Level of the low band."})
-MODULES["LIMIT"] = dict(group="MASTER AND MIX", summary="Clipper and lookahead limiter with true-peak ceiling and a LUFS meter. AUTO trims the input so short-term loudness sits at TARGET.",
-    use=["Last on the master. CEILING -1 dB for venues.", "AUTO moves the input by at most 1 dB per second, so a whole set sits at TARGET without anyone riding the master."],
+MODULES["TONE"] = dict(group="MASTER AND MIX", summary="Master voicing EQ: five broad moves on one row (low shelf, mud cut, presence, air, tilt). The ranges stop before damage. Runs at 2x, so the air shelf keeps its shape up to 20 kHz.",
+    use=["After GLUE, before LOWEND and LIMIT.", "MUD 1-3 dB cleans a dense mix without thinning it. LOW and AIR at +1-2 dB open up a big system. TILT darkens or brightens everything in one move.",
+         "For the room or PA itself use SF ROOM EQ (stored per venue); TONE is the sound of the set."],
     models=[], desc={
-        "target": "Loudness AUTO aims for (LUFS short-term).", "ceiling": "True-peak ceiling (dBTP).", "clip": "Soft clip before the limiter.",
-        "input": "Input gain.", "release": "Limiter release.", "auto": "Automatic input trim toward TARGET (+/-12 dB).",
+        "low": "Low shelf at 70 Hz, +/-6 dB.", "mud": "Broad cut at 280 Hz, 0 to 6 dB.", "presence": "Bell at 3.2 kHz, +/-4 dB.",
+        "air": "High shelf at 12 kHz, +/-6 dB.", "tilt": "Tilts the whole spectrum around 900 Hz: right brighter, left darker (+/-3 dB at the ends)."})
+MODULES["LOWEND"] = dict(group="MASTER AND MIX", summary="Low-end safety: mono below a frequency, sub clip, rumble cut, width above.", use=["Last-but-one on the master, before LIMIT."], models=[], desc={
+    "mono_freq": "Everything below this is mono.", "sub_clip": "Soft clip on the mono low band (louder sub, same peak), 2x oversampled.",
+    "rumble_cut": "24 dB/oct high-pass for DC and rumble.", "width": "Stereo width above MONO FREQ.", "low_trim": "Level of the low band."})
+MODULES["LIMIT"] = dict(group="MASTER AND MIX", summary="Clipper and true-peak lookahead limiter with a BS.1770 loudness meter. The clipper runs at 4x through linear-phase oversampling; the limiter detects true peaks at 8x and never lets the output past CEILING. AUTO trims the input so short-term loudness sits at TARGET.",
+    use=["Last on the master. CEILING -1 dB for venues and releases.",
+         "AUTO moves the input by at most 1 dB per second, so a whole set sits at TARGET without anyone riding the master.",
+         "CLIP takes the first few dB off the peaks transparently (kick transients) so the limiter works less.",
+         "Recording a set: RESET at the start; INTEGRATED then reads the loudness of the whole set.",
+         "Latency 174 samples at 48 kHz, compensated by Live."],
+    models=[], desc={
+        "target": "Loudness AUTO aims for (LUFS short-term).", "ceiling": "True-peak ceiling (dBTP). The output never exceeds it, including between samples.", "clip": "Soft clip before the limiter, 4x oversampled, linear phase. The knee starts up to 6 dB below CEILING.",
+        "input": "Input gain.", "release": "Limiter release. Under sustained limiting a slower envelope holds the gain, so dense passages don't pump.", "auto": "Automatic input trim toward TARGET (+/-12 dB).",
         "reset": "Resets the integrated loudness and true-peak hold."})
 MODULES["ROOMEQ"] = dict(group="MASTER AND MIX", summary="Cut-only correction for the room or PA, stored per venue (16 venues). Not part of songs.",
     use=["Find the boomy and harsh frequencies at soundcheck, cut them, STORE VENUE.", "Next time at that venue, choose it from VENUE."],
@@ -431,6 +486,10 @@ SYSTEM = [
     ("SLOW", "OFF / 1 / 2 / 4 / 8 / 16 / 32 / 64 BAR", "Slow mode. Every performance-row knob travels to where you set it over exactly this many bars, however far you moved it. Song recalls glide too. While travelling the knob shows GLIDE now>target in green."),
     ("MACRO SRC", "OFF, MACRO 1-6", "Which SF CONTROL macro this plugin follows."),
     ("MACRO AMT", "-100 to +100 %", "How strongly and in which direction. Each plugin decides which of its knobs respond (the ones marked M in the tables)."),
+    ("M1 / M2 SOURCE", "OFF, SINE, TRIANGLE, SQUARE, RAMP UP, RAMP DOWN, RANDOM, DRIFT, KICK, NOTES or INPUT", "Two modulators (MOTION). Waves, RANDOM (stepped) and DRIFT (smooth) move around the knob; ramps rise or fall from it and restart every RATE; KICK follows SF KICK's hits; NOTES (instruments) follows velocity; INPUT (effects) follows the input level."),
+    ("M1 / M2 RATE", "1/16 to 64 BAR", "Cycle length, locked to Live's song position. For KICK, NOTES and INPUT: the release time."),
+    ("M1 / M2 TARGET", "OFF or any knob", "The control the modulator moves."),
+    ("M1 / M2 DEPTH", "-100 to +100 %", "How far, as a share of the target's whole range. Negative turns it upside down."),
 ]
 
 MODULES["STRIP"] = dict(group="EFFECTS", summary="The suite's performance row for any track. Put it after any Live instrument, sampler, drum rack or hardware input: the track gets DENSITY, GATE, FILTER, DRIVE, POCKET and a SPACE send, joins ALLOC, and follows SLOW, macros and songs like every SF plugin.",

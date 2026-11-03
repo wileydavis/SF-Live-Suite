@@ -4,3 +4,4 @@ JUCE/
 .DS_Store
 *.wav
 JUCE
+__pycache__/

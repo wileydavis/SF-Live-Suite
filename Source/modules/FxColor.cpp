@@ -21,12 +21,23 @@ public:
                  levelParam().prim(),
                  toggle ("auto_gain", "AUTO GAIN", true).prim() };
     }
-    int latency() const override { return os ? (int) std::lround (os->getLatencyInSamples()) : 0; }
+    int latency() const override { return lat; }
     void prepare (double rate, int mb) override
     {
         sr = rate;
-        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
-        os->initProcessing ((size_t) mb);
+        os.prepare (rate, 4);
+        // Low-frequency group delay of the 4x path (impulse centroid = group delay at DC): the dry
+        // path for MIX and LOW KEEP is delayed by the same amount, and it is reported to the host.
+        os.reset();
+        double num = 0.0, den = 0.0;
+        for (int b = 0, idx = 0; b < 16; ++b)
+        {
+            float x[Oversampler::kBlock] {};
+            if (b == 0) x[0] = 1.0f;
+            os.process (0, x, Oversampler::kBlock, [] (float v) { return v; });
+            for (int i = 0; i < Oversampler::kBlock; ++i, ++idx) { num += (double) idx * x[i]; den += x[i]; }
+        }
+        lat = den > 1e-6 ? juce::jlimit (0, 32, (int) std::lround (num / den)) : 0;
         dryDelay.setSize (2, mb);
         for (auto& d : dryLine) d.prepare (64);
         inF.set (0.05f, 0.4f, rate); outF.set (0.05f, 0.4f, rate);
@@ -34,7 +45,7 @@ public:
     }
     void reset() override
     {
-        if (os) os->reset();
+        os.reset();
         for (auto& d : dryLine) d.clear();
         for (auto& x : xo) x.reset();
         for (auto& x : xoDry) x.reset();
@@ -62,7 +73,6 @@ public:
         const float lowKeep = c.v (LOWKEEP);
         // Keep a dry copy (delayed by the oversampler latency) for MIX and LOW KEEP.
         dryDelay.setSize (2, n, false, false, true);
-        const int lat = latency();
         for (int k = 0; k < 2; ++k)
             for (int i = 0; i < n; ++i)
             {
@@ -70,15 +80,9 @@ public:
                 dryLine[k].push (x);
                 dryDelay.setSample (k, i, dryLine[k].tap (lat));
             }
-        juce::dsp::AudioBlock<float> block (io);
-        auto up = os->processSamplesUp (block);
         const float bias = ch > 0.5f ? 0.15f * (ch - 0.5f) * 2.0f : 0.0f;
-        for (size_t k = 0; k < up.getNumChannels(); ++k)
-        {
-            auto* x = up.getChannelPointer (k);
-            for (size_t i = 0; i < up.getNumSamples(); ++i) x[i] = shape (x[i] * pre, ch, bias);
-        }
-        os->processSamplesDown (block);
+        for (int k = 0; k < 2; ++k)
+            os.process (k, io.getWritePointer (k), n, [=] (float x) { return shape (x * pre, ch, bias); });
         // Tone tilt around 800 Hz.
         const float t = c.v (TONE);
         for (int k = 0; k < 2; ++k)
@@ -126,7 +130,8 @@ public:
     }
 private:
     double sr = 48000.0;
-    std::unique_ptr<juce::dsp::Oversampling<float>> os;
+    Oversampler os;
+    int lat = 0;
     juce::AudioBuffer<float> dryDelay;
     DelayLine dryLine[2];
     Biquad tilt[2][2];
