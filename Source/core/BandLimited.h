@@ -13,6 +13,12 @@
 
 namespace sf
 {
+// Phase wrap that holds for any increment (an extreme note can step more than a cycle per sample).
+inline void wrap01 (double& p)
+{
+    if (p >= 1.0) { p -= 1.0; if (p >= 1.0) p -= std::floor (p); }
+}
+
 class Mipmap
 {
 public:
@@ -30,19 +36,23 @@ public:
             h = std::max (1, std::min ({ h, kSize / 4, (int) amp.size(), maxHarm }));
             synth (k, amp, phase, h);
         }
+        tab[kOct].assign ((size_t) kSize + 4, 0.0f);       // silent
         rate = osr;
     }
 
-    // Table for a fundamental of f Hz.
+    // Table for a fundamental of f Hz. At or above 0.45 x the oversampled rate there is no
+    // harmonic left that can be played without folding: the silent table.
     int octaveFor (float f) const
     {
+        if (rate > 0.0 && (double) f >= 0.45 * rate) return kOct;
         int e;
         std::frexp (std::max (1.0f, f * 1.03f) / kLowestTop, &e);   // f/27.5 in [2^(e-1), 2^e)
         return std::max (0, std::min (kOct - 1, e));
     }
-    // p: phase 0..1
+    // p: phase 0..1 (anything else is wrapped: never reads outside the table)
     float read (int oct, double p) const
     {
+        if (p >= 1.0 || p < 0.0) p -= std::floor (p);
         const float* t = tab[oct].data() + 1;
         const double x = p * kSize;
         const int i = (int) x;
@@ -101,7 +111,7 @@ private:
             }
         }
     }
-    std::vector<float> tab[kOct];
+    std::vector<float> tab[kOct + 1];
     double rate = 0.0;
 };
 
@@ -180,5 +190,60 @@ inline float hermiteAt (const float* x, int len, double pos)
     const float xm1 = at (i - 1), x0 = at (i), x1 = at (i + 1), x2 = at (i + 2);
     const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
     return ((c3 * f + c2) * f + c1) * f + x0;
+}
+
+// Band-limited sample read for any playback rate (input samples per output sample).
+// rate <= 1: Hermite (the content already fits under the output's Nyquist).
+// rate  > 1: a Kaiser-windowed sinc low-pass at 0.9 / rate of the input's Nyquist, so content that
+// would land above the output's Nyquist is removed instead of folding back (a sample read an
+// octave up used to alias at full level). 8 zero crossings a side: about 18 x rate taps.
+class SincKernel
+{
+public:
+    static constexpr int kZero = 8, kRes = 512;
+    static const SincKernel& get() { static const SincKernel k; return k; }
+    // Window-weighted sinc at u zero crossings from the centre (|u| < kZero), table-interpolated.
+    float at (float u) const
+    {
+        u = std::fabs (u) * (float) kRes;
+        const int i = (int) u;
+        if (i >= kZero * kRes) return 0.0f;
+        const float f = u - (float) i;
+        return t[(size_t) i] + f * (t[(size_t) i + 1] - t[(size_t) i]);
+    }
+private:
+    SincKernel()
+    {
+        const double beta = 8.0, pi = 3.14159265358979323846;
+        auto i0 = [] (double x) { double s = 1.0, term = 1.0; for (int k = 1; k < 40; ++k) { term *= (x / (2.0 * k)) * (x / (2.0 * k)); s += term; } return s; };
+        t.resize ((size_t) kZero * kRes + 2);
+        for (size_t i = 0; i < t.size(); ++i)
+        {
+            const double u = (double) i / kRes;
+            const double sinc = u < 1e-12 ? 1.0 : std::sin (pi * u) / (pi * u);
+            const double r = u / kZero;
+            t[i] = r >= 1.0 ? 0.0f : (float) (sinc * i0 (beta * std::sqrt (1.0 - r * r)) / i0 (beta));
+        }
+    }
+    std::vector<float> t;
+};
+
+inline float sampleAt (const float* x, int len, double pos, double rate)
+{
+    if (rate <= 1.0) return hermiteAt (x, len, pos);
+    const auto& K = SincKernel::get();
+    const double fc = 0.9 / rate;                          // cutoff, in units of the input's Nyquist
+    const double half = SincKernel::kZero / fc;            // kernel half-width in input samples
+    const int lo = std::max (0, (int) std::ceil (pos - half)), hi = std::min (len - 1, (int) std::floor (pos + half));
+    double acc = 0.0, wsum = 0.0;
+    for (int k = lo; k <= hi; ++k)
+    {
+        const float w = K.at ((float) ((k - pos) * fc));
+        acc += (double) w * x[k];
+        wsum += w;
+    }
+    // Normalised by the kernel's own sum: unity gain at DC whatever the fraction (and taper at the edges).
+    const double full = 1.0 / fc;                           // the sum a complete kernel has (sum of sinc = 1/fc)
+    return (float) (acc / std::max (wsum, full * 0.25));
 }
 } // namespace sf

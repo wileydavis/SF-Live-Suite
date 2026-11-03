@@ -1,6 +1,8 @@
 // CONTROL, ALLOC, TAP
 #include "Kit.h"
+#include <cstdio>
 #include <map>
+#include <mutex>
 
 namespace sf
 {
@@ -41,11 +43,11 @@ public:
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
     int numPrograms() const override { return kSongs; }
     int currentProgram() const override { return std::max (0, (int) Bus::get().d().song.load()); }
+    // (Host thread: published from the next audio block, which knows the song position.)
     void setProgram (int p) override
     {
-        auto& d = Bus::get().d();
         const int s = juce::jlimit (0, kSongs - 1, p);
-        if (d.song.load() != s) { d.song = s; d.songSeq.fetch_add (1); }
+        if (Bus::get().d().song.load() != s) programRequest.store (s);
         pcSong = s;
     }
     void prepare (double, int) override {}
@@ -57,7 +59,20 @@ public:
         d.keyRoot = c.ci (KEY) - 1;
         const bool pn = c.b (PANIC);
         if (pn && ! panicWas) d.panicSeq.fetch_add (1);
+        d.panicHeld = pn ? 1 : 0;
         panicWas = pn;
+        // Song changes carry the bar line they land on, decided here once for every plugin, so
+        // the order Live processes the tracks in can't split a transition across two bars.
+        auto publishSong = [&] (int s, int offset)
+        {
+            // The key the song brings switches on the same bar in every plugin (-2: no change).
+            const float k = getSongValue ? getSongValue (s, KEY) : NAN;
+            d.songKey = std::isnan (k) ? -2 : (int) std::lround (k) - 1;
+            d.songAtPpq = songTarget (c, c.ppqAt (offset));
+            d.song = s;
+            d.songSeq.fetch_add (1);
+        };
+
         for (int i = 0; i < kMacros; ++i) d.macro[i] = c.v (M1 + i);
         // Program Change selects the song.
         if (c.b (PCON))
@@ -67,7 +82,7 @@ public:
                 if (m.isProgramChange() && m.getChannel() == c.ci (PCCH) + 1)
                 {
                     const int s = juce::jlimit (0, kSongs - 1, m.getProgramChangeNumber());
-                    d.song = s; d.songSeq.fetch_add (1);
+                    publishSong (s, juce::jlimit (0, std::max (0, c.n - 1), meta.samplePosition));
                     pcSong = s;
                 }
             }
@@ -77,12 +92,14 @@ public:
         if (sp != lastSongParam)
         {
             lastSongParam = sp;
-            if (sp != d.song.load()) { d.song = sp; d.songSeq.fetch_add (1); }
+            if (sp != d.song.load()) publishSong (sp, 0);
         }
+        // A host program change (VST3), last: it is the newest request.
+        if (const int pr = programRequest.exchange (-1); pr >= 0) publishSong (pr, 0);
         const bool st = c.b (STOREALL);
         if (st && ! storeWas)
         {
-            if (d.song.load() < 0) { d.song = sp; d.songSeq.fetch_add (1); }
+            if (d.song.load() < 0) publishSong (sp, 0);
             d.storeSeq.fetch_add (1);
         }
         storeWas = st;
@@ -138,7 +155,20 @@ private:
         const int pc = pcSong.exchange (-1);
         if (pc >= 0 && setParam) setParam (SONG, (float) pc);
     }
-    std::atomic<int> pcSong { -1 };
+    std::atomic<int> pcSong { -1 }, programRequest { -1 };
+
+    // The bar line a song change lands on. Stopped: at once (-1). Within 30 ms after a bar line
+    // (a Program Change sent on the downbeat, plus MIDI and buffer latency): that bar, and plugins
+    // that see it a block late catch up at once. Later in the bar: the next bar line.
+    static double songTarget (const Ctx& c, double reqPpq)
+    {
+        if (! c.playing) return -1.0;
+        const double bpb = c.beatsPerBar;
+        double since = std::fmod (reqPpq - c.barPhase, bpb);
+        if (since < 0.0) since += bpb;
+        const double barStart = reqPpq - since;
+        return since * c.samplesPerBeat() < 0.030 * c.sr ? barStart : barStart + bpb;
+    }
     int lastSongParam = -1;
     bool storeWas = false, panicWas = false;
 };
@@ -234,9 +264,13 @@ public:
         dispFloor = floorDb;
     }
 
-    // ---- state: global order + per-band orders (by name)
+    // ---- state: global order + per-band orders. Entries are source keys ("#" + the plugin
+    // instance's id, saved with its set), so a source keeps its place across sessions, track
+    // renames and other sources of the same name. A plain name (sets saved before Nov 3) names
+    // the source with that label and is replaced by its key when the source appears.
     void save (juce::ValueTree& t) const override
     {
+        const std::lock_guard<std::mutex> lk (orderLock);
         auto join = [] (const std::vector<std::string>& v) { juce::String s; for (auto& nm : v) s << nm << "\n"; return s; };
         t.setProperty ("order", join (globalOrder), nullptr);
         for (int b = 0; b < kBands; ++b)
@@ -247,6 +281,7 @@ public:
     }
     void load (const juce::ValueTree& t) override
     {
+        const std::lock_guard<std::mutex> lk (orderLock);
         auto split = [] (const juce::var& v) { std::vector<std::string> out; for (auto& l : juce::StringArray::fromLines (v.toString())) if (l.isNotEmpty()) out.push_back (l.toStdString()); return out; };
         globalOrder = split (t.getProperty ("order"));
         for (int b = 0; b < kBands; ++b)
@@ -261,6 +296,7 @@ public:
     int displayHeight() const override { return 470; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
+        const std::lock_guard<std::mutex> lk (orderLock);
         area = r;
         const float rh = rowH();
         // List: global order, or the selected band's order.
@@ -347,6 +383,7 @@ public:
     }
     void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
     {
+        const std::lock_guard<std::mutex> lk (orderLock);
         area = r;
         if (down)
         {
@@ -376,9 +413,9 @@ public:
             if (target != dragRow)
             {
                 auto& ord = orderFor (selBand, true);
-                // Make sure every visible row is in the stored order, then move the dragged name.
-                for (auto& row : rows) if (std::find (ord.begin(), ord.end(), row.label) == ord.end()) ord.push_back (row.label);
-                const std::string moving = rows[(size_t) dragRow].label, anchor = rows[(size_t) target].label;
+                // Make sure every visible row is in the stored order, then move the dragged source.
+                for (auto& row : rows) if (std::find (ord.begin(), ord.end(), row.key) == ord.end()) ord.push_back (row.key);
+                const std::string moving = rows[(size_t) dragRow].key, anchor = rows[(size_t) target].key;
                 ord.erase (std::remove (ord.begin(), ord.end(), moving), ord.end());
                 auto it = std::find (ord.begin(), ord.end(), anchor);
                 if (target > dragRow && it != ord.end()) ++it;
@@ -391,7 +428,11 @@ public:
     void displayMouseUp() override { dragParam = -1; dragRow = -1; }
 
 private:
-    struct Row { std::string label; int slot; };
+    struct Row { std::string label, key; int slot; };
+    static std::string keyFor (uint64_t uid) { char b[24]; std::snprintf (b, sizeof (b), "#%016llx", (unsigned long long) uid); return b; }
+    // Does an order entry name this row? A key names one plugin instance; a plain name (older
+    // sets) names the source carrying that label.
+    static bool names (const std::string& e, const Row& r) { return e == r.key || (! e.empty() && e[0] != '#' && e == r.label); }
 
     static const char* bandName (int b) { static const char* n[kBands] = { "40", "80", "120", "180", "270", "390", "600", "1K", "2.5K", "9K" }; return n[b]; }
     static juce::String shortName (const std::string& s) { juce::String n (s); if (n.startsWith ("TAP ")) n = n.substring (4); if (n.startsWith ("STRIP ")) n = n.substring (6); return n.substring (0, 9); }
@@ -446,7 +487,8 @@ private:
             std::string label = nm;
             const int k = ++seen[label];
             if (k > 1) label += " " + std::to_string (k);
-            out.push_back ({ label, rs.second });
+            const uint64_t uid = d.src[rs.second].uid.load();
+            out.push_back ({ label, uid != 0 ? keyFor (uid) : label, rs.second });
         }
         return out;
     }
@@ -456,8 +498,11 @@ private:
         const auto alive = aliveRows();
         const auto& ord = orderView (band);
         std::vector<Row> rows;
-        for (auto& nm : ord) for (auto& a : alive) if (a.label == nm) rows.push_back (a);
-        for (auto& a : alive) if (std::find (ord.begin(), ord.end(), a.label) == ord.end()) rows.push_back (a);
+        std::vector<char> placed (alive.size(), 0);
+        for (auto& e : ord)
+            for (size_t i = 0; i < alive.size(); ++i)
+                if (! placed[i] && names (e, alive[i])) { rows.push_back (alive[i]); placed[i] = 1; break; }
+        for (size_t i = 0; i < alive.size(); ++i) if (! placed[i]) rows.push_back (alive[i]);
         return rows;
     }
     void updateRanks()
@@ -472,17 +517,28 @@ private:
     }
     void timerCallback() override
     {
-        // Newcomers join the end of every order, so lists only change when you drag them.
-        for (auto& row : aliveRows())
+        const std::lock_guard<std::mutex> lk (orderLock);
+        // Newcomers join the end of every order, so lists only change when you drag them. A plain
+        // name from an older set becomes the key of the source carrying it, in place.
+        const auto alive = aliveRows();
+        auto adopt = [&] (std::vector<std::string>& ord)
         {
-            if (std::find (globalOrder.begin(), globalOrder.end(), row.label) == globalOrder.end()) globalOrder.push_back (row.label);
-            for (int b = 0; b < kBands; ++b)
-                if (! linked[b] && std::find (bandOrder[b].begin(), bandOrder[b].end(), row.label) == bandOrder[b].end()) bandOrder[b].push_back (row.label);
-        }
+            for (auto& row : alive)
+            {
+                if (std::find (ord.begin(), ord.end(), row.key) != ord.end()) continue;
+                auto it = std::find_if (ord.begin(), ord.end(), [&] (const std::string& e) { return ! e.empty() && e[0] != '#' && e == row.label; });
+                if (it != ord.end()) *it = row.key; else ord.push_back (row.key);
+            }
+        };
+        adopt (globalOrder);
+        for (int b = 0; b < kBands; ++b) if (! linked[b]) adopt (bandOrder[b]);
         updateRanks();
     }
 
     double sr = 48000.0;
+    // The orders are touched by the message thread (timer, editor) and the host's state calls,
+    // never by the audio thread (it reads rank[]).
+    mutable std::mutex orderLock;
     std::vector<std::string> globalOrder, bandOrder[kBands];
     bool linked[kBands];
     std::atomic<int> rank[kBands][kSources];

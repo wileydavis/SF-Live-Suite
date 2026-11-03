@@ -218,7 +218,9 @@ public:
             d.synced = false;
             d.filter.prepare (rate);
             for (auto& row : d.xo) for (auto& x : row) x.reset();
-            d.scratchIn.setSize (2, 65536);
+            // Room for a full seek at the most extreme tempo ratio (Live 400 BPM over a 50 BPM
+            // track) at any sample rate: the seek length grows with both.
+            d.scratchIn.setSize (2, std::max (65536, d.stretch.outputSeekLength (8.0f) + 8 * 64 + 1024));
             d.scratchOut.setSize (2, std::max (mb, 4096));
             d.deck.setSize (2, std::max (mb, 4096));
             primeStretch (d);
@@ -321,7 +323,7 @@ public:
             auto* dl = d.deck.getWritePointer (0); auto* dr = d.deck.getWritePointer (1);
             if (c.b (KEYLOCK))
             {
-                const int L = d.stretch.outputSeekLength ((float) rate);
+                const int L = std::min (d.stretch.outputSeekLength ((float) rate), d.scratchIn.getNumSamples());
                 if (! d.synced || std::abs (desired + L - d.fedPos) > 0.05 * c.sr)
                 {
                     fillInput (t, desired, L, d.scratchIn);
@@ -331,7 +333,7 @@ public:
                     d.synced = true;
                 }
                 const double err = desired + L - d.fedPos;
-                const int need = std::max (0, (int) std::lround (n * rate + err * 0.1));
+                const int need = juce::jlimit (0, d.scratchIn.getNumSamples(), (int) std::lround (n * rate + err * 0.1));
                 fillInput (t, d.fedPos, need, d.scratchIn);
                 float* ins[2] = { d.scratchIn.getWritePointer (0), d.scratchIn.getWritePointer (1) };
                 float* outs[2] = { dl, dr };
@@ -341,7 +343,7 @@ public:
             else
             {
                 d.synced = false;
-                for (int i = 0; i < n; ++i) { const double p = desired + i * rate; dl[i] = readAt (t, 0, p); dr[i] = readAt (t, 1, p); }
+                for (int i = 0; i < n; ++i) { const double p = desired + i * rate; dl[i] = readAt (t, 0, p, rate); dr[i] = readAt (t, 1, p, rate); }
             }
             // Loop roll (slip): plays the rolled segment over the running track.
             const bool rollOn = rollLen > 0.0;
@@ -357,8 +359,8 @@ public:
                 const double inLoop = std::fmod (std::max (0.0, b - d.rollStart), len);
                 const double p = t.firstBeat + (d.rollStart + inLoop) * trackSpb;
                 const float edge = (float) std::min (1.0, std::min (inLoop, len - inLoop) * c.samplesPerBeat() / (0.002 * c.sr));
-                dl[i] = lerp (dl[i], readAt (t, 0, p) * edge, d.rollMix);
-                dr[i] = lerp (dr[i], readAt (t, 1, p) * edge, d.rollMix);
+                dl[i] = lerp (dl[i], readAt (t, 0, p, rate) * edge, d.rollMix);
+                dr[i] = lerp (dr[i], readAt (t, 1, p, rate) * edge, d.rollMix);
             }
             // Fades on start / stop.
             const float trim = dbToGain (juce::jlimit (-12.0f, 12.0f, target - t.lufs));
@@ -446,7 +448,8 @@ public:
             if (v.getType().toString() != "TRACK") continue;
             Entry e; e.path = v.getProperty ("path").toString(); e.name = juce::File (e.path).getFileNameWithoutExtension();
             e.bpm = (double) v.getProperty ("bpm", 0.0); e.firstBeat = (double) v.getProperty ("firstSec", 0.0);
-            if (! v.hasProperty ("firstSec")) e.bpm = 0.0;   // older sets stored samples: re-analyse e.lufs = (float) (double) v.getProperty ("lufs", -14.0);
+            if (! v.hasProperty ("firstSec")) e.bpm = 0.0;   // older sets stored samples: re-analyse
+            e.lufs = (float) (double) v.getProperty ("lufs", -14.0);
             auto toks = juce::StringArray::fromTokens (v.getProperty ("cues").toString(), ",", "");
             for (int i = 0; i < 4 && i < toks.size(); ++i) e.cues[(size_t) i] = toks[i].getDoubleValue();
             e.missing = ! juce::File (e.path).existsAsFile();
@@ -529,11 +532,11 @@ private:
             for (int i = 0; i < count; ++i) { const int s = start + i; d[i] = (s >= 0 && s < n) ? t.buf.getSample (c, s) : 0.0f; }
         }
     }
-    static float readAt (const TrackData& t, int c, double p)
+    static float readAt (const TrackData& t, int c, double p, double rate)
     {
         const int n = t.buf.getNumSamples();
         if (p < 0.0 || (int) p + 2 >= n) return 0.0f;
-        return hermiteAt (t.buf.getReadPointer (c), n, p);
+        return sampleAt (t.buf.getReadPointer (c), n, p, rate);
     }
     // Run the stretcher once on noise (message thread) so every internal buffer reaches its
     // working size before the audio thread uses it.

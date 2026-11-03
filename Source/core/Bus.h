@@ -38,6 +38,7 @@ struct SourceSlot
     std::atomic<int32_t> role;
     std::atomic<int32_t> enabled;
     std::atomic<uint64_t> name[3];            // up to 24 chars, packed
+    std::atomic<uint64_t> uid;                // the plugin instance's id, saved with the set (0 = not yet)
     std::atomic<float> energy[kBands];        // dBFS, smoothed
     std::atomic<float> cut[kBands];           // dB of cut ALLOC asks for (>= 0)
 };
@@ -53,12 +54,16 @@ struct BusData
 {
     std::atomic<uint32_t> magic;
     std::atomic<uint32_t> version;
+    std::atomic<uint32_t> layoutSize;         // sizeof (BusData) of the build that made it
     std::atomic<float> macro[kMacros];
     std::atomic<int32_t> song;                // -1 = none chosen yet
     std::atomic<uint32_t> songSeq;
+    std::atomic<double> songAtPpq;            // the bar line every plugin recalls on (-1 = at once / own next bar)
+    std::atomic<int32_t> songKey;             // the KEY that song brings (-1 = OFF, -2 = no change), switched on that bar
     std::atomic<uint32_t> storeSeq;
     std::atomic<int64_t> controlSeenMs;
-    std::atomic<uint32_t> panicSeq;           // SF CONTROL PANIC: every SF plugin resets
+    std::atomic<uint32_t> panicSeq;           // SF CONTROL PANIC pressed: every SF plugin fades out and resets
+    std::atomic<int32_t> panicHeld;           // ... and stays silent while it is held
     std::atomic<int32_t> keyRoot;             // SF CONTROL KEY: 0..11 = C..B, -1 = not set
 
     std::atomic<uint32_t> kickWrite;

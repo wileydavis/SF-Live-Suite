@@ -73,7 +73,7 @@ public:
 
     void prepare (double rate, int mb) override
     {
-        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
+        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate, s->flacGain));
         sr = rate;
         osr = 2.0 * rate;
         dec.set (HalfbandDesign::forStage (rate, 0));
@@ -109,17 +109,26 @@ public:
         for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.003f * (float) osr);
     }
 
-    void trigger (Ctx& c, int model, float vel, int gen, int note, float layerGain, bool publish, int offset, const SampleData* smp)
+    void trigger (Ctx& c, int model, float vel, int gen, int note, float layerGain, bool publish, int offset, const SampleData* smp, float fade)
     {
-        // A free voice; else the most faded one (never a voice that is not fading, e.g. the main
-        // voice of this same hit when the layer starts).
+        // A free voice; else the quietest one that is already fading; else the quietest (never a
+        // voice that is not fading while a fading one exists, e.g. the main voice of this same
+        // hit when the layer starts).
         int idx = -1;
-        for (int i = 0; i < 4; ++i) if (! voices[(size_t) i].active) { idx = i; break; }
+        for (int i = 0; i < kVoices; ++i) if (! voices[(size_t) i].active) { idx = i; break; }
         if (idx < 0)
         {
-            float lowest = 2.0f;
-            for (int i = 0; i < 4; ++i)
-                if (voices[(size_t) i].fadeStep > 0.0f && voices[(size_t) i].fade < lowest) { lowest = voices[(size_t) i].fade; idx = i; }
+            float lowest = 1.0e9f;
+            for (int i = 0; i < kVoices; ++i)
+            {
+                const auto& w = voices[(size_t) i];
+                if (w.fadeStep > 0.0f && w.fade * w.level() * w.mix < lowest) { lowest = w.fade * w.level() * w.mix; idx = i; }
+            }
+        }
+        if (idx < 0)
+        {
+            float lowest = 1.0e9f;
+            for (int i = 0; i < kVoices; ++i) if (voices[(size_t) i].level() * voices[(size_t) i].mix < lowest) { lowest = voices[(size_t) i].level() * voices[(size_t) i].mix; idx = i; }
         }
         if (idx < 0) idx = 0;
         auto& v = voices[(size_t) idx];
@@ -157,7 +166,7 @@ public:
             if (model == kNumKickModels - 1)
                 if (auto s = smp) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate)); }
             // The hit's velocity (not the voice's mix gain): layering must not make pockets shallower.
-            c.bus->publishKick ({ c.ppqAt (offset), std::min (1.0f, vel), f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
+            c.bus->publishKick ({ c.ppqAt (offset), std::min (1.0f, vel * fade), f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
         }
     }
 
@@ -169,8 +178,8 @@ public:
         if (v.model == kNumKickModels - 1)
         {
             if (s == nullptr || (int) v.phase + 2 >= s->length()) { v.active = false; return 0.0f; }
-            const int len = s->length();
-            y = 0.5f * (hermiteAt (s->buf.getReadPointer (0), len, v.phase) + hermiteAt (s->buf.getReadPointer (1), len, v.phase)) * v.vel;
+            const double rate = v.srate * 0.5;               // input samples per output (2x) sample
+            y = 0.5f * (s->read (0, v.phase, rate) + s->read (1, v.phase, rate)) * v.vel;
             const float g = sampleGateGain (t, v.gate);
             if (g <= 0.0f) { v.active = false; return 0.0f; }
             y *= g;
@@ -227,11 +236,13 @@ public:
                 const auto& ev = events[e++];
                 if (! ev.on) continue;
                 const float vel = ev.gen == 0 ? lerp (1.0f, ev.vel, velSens) : ev.vel;
-                fadeRinging();      // not inside trigger(): the layer voice must not fade the main voice
+                // A hit cuts the ringing kick (3 ms fade), like retriggering a drum; a quiet DENSITY
+                // ghost plays over it instead. Not inside trigger(): the layer must not fade the main voice.
+                if (ev.gen == 0 || ev.gain >= 0.5f) fadeRinging();
                 // Main and layer start together and are largely in phase: gains sum to 1, so the
                 // layered kick never peaks above the single one.
-                trigger (c, model, vel, ev.gen, ev.note, 1.0f / (1.0f + layer), true, i, smp);
-                if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, layer / (1.0f + layer), false, i, smp);
+                trigger (c, model, vel, ev.gen, ev.note, ev.gain / (1.0f + layer), true, i, smp, ev.gain);
+                if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, ev.gain * layer / (1.0f + layer), false, i, smp, ev.gain);
                 lastHit = 1.0f;
             }
             float y0 = 0.0f, y1 = 0.0f;
@@ -264,7 +275,8 @@ private:
     struct DecimHist { std::atomic<float> v[512] {}; int w = 0, k = 0; float acc = 0; void push (float x) { acc = std::max (acc, x); if (++k >= 512) { v[w].store (std::min (1.0f, acc)); w = (w + 1) % 512; k = 0; acc = 0; } } };
     double sr = 48000.0, osr = 96000.0;
     Halfband dec;
-    std::array<Voice, 4> voices;
+    static constexpr int kVoices = 8;
+    std::array<Voice, kVoices> voices;
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
     RoleOutput out;
@@ -327,7 +339,7 @@ public:
     void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); }
     void prepare (double rate, int mb) override
     {
-        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
+        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate, s->flacGain));
         sr = rate; osr = 2.0 * rate;
         waves = WaveSet::get (osr);
         for (auto& d : dec) d.set (HalfbandDesign::forStage (rate, 0));
@@ -360,14 +372,16 @@ public:
 
     void trigger (Ctx& c, int model, const NoteEvent& ev)
     {
-        if (c.b (CHOKE)) for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.004f * (float) osr);
+        // CHOKE: a hit cuts the previous one; a quiet DENSITY ghost doesn't.
+        if (c.b (CHOKE) && (ev.gen == 0 || ev.gain >= 0.5f))
+            for (auto& v : voices) if (v.active && v.fadeStep == 0.0f) v.fadeStep = 1.0f / (0.004f * (float) osr);
         int idx = pickVoice (voices);
         auto& v = voices[(size_t) idx];
         const auto& m = kPercModels[model];
         v = Voice();
         v.active = true; v.type = m.type;
         const float acc = c.v (ACCENT);
-        v.vel = lerp (0.7f, ev.vel, acc) * (ev.gen > 0 ? 1.0f : 1.0f);
+        v.vel = lerp (0.7f, ev.vel, acc) * ev.gain;         // ACCENT shapes the velocity; the DENSITY fade comes after it
         v.tune = semis (c.v (TUNE));
         v.tone = c.v (TONE);
         v.decay = m.decay * std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.65f, (float) ev.gen);
@@ -416,7 +430,7 @@ public:
             case P_METAL:
             {
                 float sq = 0.0f;
-                for (int k = 0; k < 6; ++k) { sq += W.square.read (v.oct[k], v.ph[k]); v.ph[k] += v.freqs[k] / osr; if (v.ph[k] >= 1.0) v.ph[k] -= 1.0; }
+                for (int k = 0; k < 6; ++k) { sq += W.square.read (v.oct[k], v.ph[k]); v.ph[k] += v.freqs[k] / osr; wrap01 (v.ph[k]); }
                 const float src = sq / 6.0f * (1.0f - v.noise) + rng.next() * v.noise;
                 y = v.hp.tickHP (v.bp.tickBP (src) * 2.0f) * std::exp (-t / v.decay) * std::min (1.0f, t / 0.0003f);
                 break;
@@ -436,7 +450,7 @@ public:
             case P_BELL:
             {
                 const float sq = W.square.read (v.oct[0], v.ph[0]) + W.square.read (v.oct[1], v.ph[1]);
-                for (int k = 0; k < 2; ++k) { v.ph[k] += v.freqs[k] / osr; if (v.ph[k] >= 1.0) v.ph[k] -= 1.0; }
+                for (int k = 0; k < 2; ++k) { v.ph[k] += v.freqs[k] / osr; wrap01 (v.ph[k]); }
                 const float env = 0.6f * std::exp (-t / 0.012f) + 0.4f * std::exp (-t / v.decay);
                 y = v.bp.tickBP (sq) * env * 0.6f;
                 break;
@@ -461,10 +475,9 @@ public:
             case P_SAMPLE:
             {
                 if (s == nullptr || (int) v.spos + 2 >= s->length()) { v.active = false; return 0.0f; }
-                const int len = s->length();
                 const float g = sampleGateGain (t, v.gate);
                 if (g <= 0.0f) { v.active = false; return 0.0f; }
-                y = 0.5f * (hermiteAt (s->buf.getReadPointer (0), len, v.spos) + hermiteAt (s->buf.getReadPointer (1), len, v.spos)) * g;
+                y = 0.5f * (s->read (0, v.spos, v.tune * 0.5) + s->read (1, v.spos, v.tune * 0.5)) * g;
                 v.spos += v.tune * 0.5;
                 break;
             }
@@ -558,7 +571,7 @@ public:
     void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); }
     void prepare (double rate, int mb) override
     {
-        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
+        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate, s->flacGain));
         sr = rate;
         out.prepare (rate, mb, ROLE_RUMBLE, "RUMBLE", true);
         fdn.prepare (rate);
@@ -644,7 +657,7 @@ public:
                 if (model == 5 && smp != nullptr)
                 {
                     const int len = smp->length();
-                    if ((int) sPos + 2 < len) x = 0.5f * (hermiteAt (smp->buf.getReadPointer (0), len, sPos) + hermiteAt (smp->buf.getReadPointer (1), len, sPos)) * thumpVel;
+                    if ((int) sPos + 2 < len) x = 0.5f * (smp->read (0, sPos, tune) + smp->read (1, sPos, tune)) * thumpVel;
                     sPos += tune;
                 }
                 else

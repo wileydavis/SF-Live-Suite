@@ -252,7 +252,7 @@ public:
                  knob ("tilt", "TILT", -3.0f, 3.0f, 0.0f, "dB").prim(),
                  levelParam().prim() };
     }
-    void prepare (double rate, int) override { sr = rate; os.prepare (rate, 2); reset(); }
+    void prepare (double rate, int) override { sr = rate; os.prepare (rate, 2); designed = false; reset(); }   // new rate: new coefficients
     void reset() override { os.reset(); for (auto& c : eq) for (auto& b : c) b.reset(); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
@@ -406,11 +406,12 @@ ModulePtr makeLOWEND() { return std::make_unique<LowEndModule>(); }
 //   material, quick recovery after a single peak), then a 2 ms moving average, which is
 //   guaranteed to have reached every peak's gain when that peak leaves the delay line.
 //   Meters (output, BS.1770): momentary, short-term, integrated (gated), true peak.
-// AUTO trims the input slowly (<= 1 dB/s) so short-term loudness before the limiter sits at TARGET.
+// AUTO trims the input slowly (<= 1 dB/s) so the loudest short-term loudness of the last minute
+// sits at TARGET; breakdowns are held, not lifted.
 class LimitModule : public Module
 {
 public:
-    enum { TARGET, CEILING, CLIP, INPUT, RELEASE, AUTO, RESET };
+    enum { TARGET, CEILING, CLIP, INPUT, RELEASE, AUTO, RESET, AUTOMODE };
     std::string id() const override { return "LIMIT"; }
     std::vector<ParamSpec> params() const override
     {
@@ -420,7 +421,8 @@ public:
                  knob ("input", "INPUT", -12.0f, 24.0f, 0.0f, "dB").prim(),
                  knob ("release", "RELEASE", 20.0f, 500.0f, 120.0f, "ms", 120.0f).prim(),
                  toggle ("auto", "AUTO").prim(),
-                 momentary ("reset", "RESET").prim() };
+                 momentary ("reset", "RESET").prim(),
+                 choice ("auto_mode", "AUTO MODE", { "DOWN ONLY", "UP AND DOWN" }, 0) };
     }
     int latency() const override { return (int) std::lround (os.latency() + TruePeak::kDelay + look - 1); }
     double tailSeconds() const override { return 0.1; }
@@ -433,6 +435,8 @@ public:
         outMeter.prepare (rate);
         preMeter.prepare (rate);
         autoGainDb = 0.0f; tpMax = 0.0f;
+        for (auto& h : hist) h = -100.0f;
+        histPos = 0; secMax = -100.0f; secLeft = (int) rate; liftWait = (int) (3.0 * rate);
         reset();
     }
     void reset() override
@@ -465,14 +469,28 @@ public:
         const float relSlow = std::exp (-1.0f / (relT * 4.0f * (float) sr));
         const float attSlow = std::exp (-1.0f / (0.08f * (float) sr));
         // Auto input. preMeter measures the raw input (before INPUT and AUTO), so the gain AUTO
-        // needs is known directly: TARGET - (input loudness + INPUT). The trim follows it at
-        // <= 1 dB/s (proportional over the last dB, so it settles without overshoot; there is no
-        // loop around the 3 s meter that could ring). Only while there is programme (> -40 LUFS).
-        const float inLufs = preMeter.shortTerm + c.v (INPUT);
+        // needs is known directly; there is no loop around the 3 s meter that could ring. AUTO
+        // aims the LOUDEST short-term loudness of the last minute at TARGET, so a breakdown isn't
+        // taken for the set getting quieter: the trim holds through it and the drop comes back
+        // where it was. The trim moves down at <= 1 dB/s and up at <= 0.5 dB/s (proportional
+        // over the last dB, so it settles without overshoot), and up only after 3 s of music within
+        // 6 dB of TARGET (a breakdown longer than the minute is held too, and the meter has seen
+        // only the new level when a drop comes back), and only while there is programme (> -40 LUFS). DOWN ONLY (default) never lifts above unity: AUTO only
+        // stops the set running above TARGET. UP AND DOWN also lifts a quieter set.
+        const float rawSt = preMeter.shortTerm;
+        secMax = std::max (secMax, rawSt);
+        if ((secLeft -= c.n) <= 0) { hist[histPos] = secMax; histPos = (histPos + 1) % kHist; secMax = -100.0f; secLeft += (int) sr; }
+        float loud = secMax;
+        for (const float h : hist) loud = std::max (loud, h);
+        const float inLufs = rawSt + c.v (INPUT), loudLufs = loud + c.v (INPUT);
         if (c.b (AUTO) && inLufs > -40.0f)
         {
-            const float want = juce::jlimit (-12.0f, 12.0f, c.v (TARGET) - inLufs);
-            autoGainDb += juce::jlimit (-1.0f, 1.0f, want - autoGainDb) * (float) c.n / (float) sr;
+            float want = juce::jlimit (-12.0f, 12.0f, c.v (TARGET) - loudLufs);
+            if (c.ci (AUTOMODE) == 0) want = std::min (0.0f, want);
+            float step = want - autoGainDb;
+            liftWait = inLufs + autoGainDb < c.v (TARGET) - 6.0f ? (int) (3.0 * sr) : std::max (0, liftWait - c.n);
+            if (step > 0.0f && liftWait > 0) step = 0.0f;
+            autoGainDb += juce::jlimit (-1.0f, 0.5f, step) * (float) c.n / (float) sr;
         }
         const float g0 = gIn, g1 = dbToGain (c.v (INPUT) + (c.b (AUTO) ? autoGainDb : 0.0f));
         gIn = g1;
@@ -550,6 +568,9 @@ private:
     float minVal[kMaxLook] {}, boxRing[kMaxLook] {};
     double boxSum = 96.0;
     float gFast = 1.0f, gSlow = 1.0f, gIn = 1.0f, autoGainDb = 0, tpMax = 0;
+    static constexpr int kHist = 60;                 // AUTO's memory: loudest raw short-term per second
+    float hist[kHist] {}, secMax = -100.0f;
+    int histPos = 0, secLeft = 48000, liftWait = 144000;
     bool resetWas = false;
     std::atomic<float> dShort { -70 }, dInt { -70 }, dMom { -70 }, dTp { -70 }, dGr { 0 }, dIn { 0 };
 };

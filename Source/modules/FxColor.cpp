@@ -22,12 +22,13 @@ public:
                  toggle ("auto_gain", "AUTO GAIN", true).prim() };
     }
     int latency() const override { return lat; }
-    void prepare (double rate, int mb) override
+    void prepare (double rate, int) override
     {
         sr = rate;
         os.prepare (rate, 4);
-        // Low-frequency group delay of the 4x path (impulse centroid = group delay at DC): the dry
-        // path for MIX and LOW KEEP is delayed by the same amount, and it is reported to the host.
+        osDry.prepare (rate, 4);
+        // Low-frequency group delay of the 4x path (impulse centroid = group delay at DC),
+        // reported to the host.
         os.reset();
         double num = 0.0, den = 0.0;
         for (int b = 0, idx = 0; b < 16; ++b)
@@ -38,15 +39,12 @@ public:
             for (int i = 0; i < Oversampler::kBlock; ++i, ++idx) { num += (double) idx * x[i]; den += x[i]; }
         }
         lat = den > 1e-6 ? juce::jlimit (0, 32, (int) std::lround (num / den)) : 0;
-        dryDelay.setSize (2, mb);
-        for (auto& d : dryLine) d.prepare (64);
         inF.set (0.05f, 0.4f, rate); outF.set (0.05f, 0.4f, rate);
         reset();
     }
     void reset() override
     {
-        os.reset();
-        for (auto& d : dryLine) d.clear();
+        os.reset(); osDry.reset();
         for (auto& x : xo) x.reset();
         for (auto& x : xoDry) x.reset();
         for (auto& t : tilt) for (auto& b : t) b.reset();
@@ -67,23 +65,23 @@ public:
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
-        const int n = c.n;
+        const int n = std::min (c.n, Oversampler::kBlock);
         const float drive = c.v (DRIVE), ch = c.v (CHAR), mix = c.v (MIX);
         const float pre = dbToGain (drive * 36.0f);
         const float lowKeep = c.v (LOWKEEP);
-        // Keep a dry copy (delayed by the oversampler latency) for MIX and LOW KEEP.
-        dryDelay.setSize (2, n, false, false, true);
+        // The dry signal runs through an identical 4x up/down pair (no shaping), so dry and driven
+        // have exactly the same phase: MIX and LOW KEEP blend without combing in the highs, and
+        // MIX 0 is the clean input (only the oversampler's filters, flat to 20 kHz).
+        float dry[2][Oversampler::kBlock];
         for (int k = 0; k < 2; ++k)
-            for (int i = 0; i < n; ++i)
-            {
-                const float x = io.getSample (k, i);
-                dryLine[k].push (x);
-                dryDelay.setSample (k, i, dryLine[k].tap (lat));
-            }
+        {
+            std::copy (io.getReadPointer (k), io.getReadPointer (k) + n, dry[k]);
+            osDry.process (k, dry[k], n, [] (float x) { return x; });
+        }
         const float bias = ch > 0.5f ? 0.15f * (ch - 0.5f) * 2.0f : 0.0f;
         for (int k = 0; k < 2; ++k)
             os.process (k, io.getWritePointer (k), n, [=] (float x) { return shape (x * pre, ch, bias); });
-        // Tone tilt around 800 Hz.
+        // Tone tilt around 800 Hz (on the driven signal).
         const float t = c.v (TONE);
         for (int k = 0; k < 2; ++k)
         {
@@ -91,32 +89,36 @@ public:
             tilt[k][1].highShelf (800.0f, 0.6f, t * 6.0f, sr);
         }
         if (lowKeep > 20.0f) { for (auto& x : xo) x.set (lowKeep, sr); for (auto& x : xoDry) x.set (lowKeep, sr); }
-        // Auto gain, per sample: hold output loudness near input loudness (followers on the
-        // stereo peak of the dry and the driven signal; ~30 ms gain smoothing).
+        // AUTO GAIN, per sample: the driven signal is brought back to the dry signal's level
+        // (stereo peak followers, ~30 ms smoothing). It applies to the driven signal only; the
+        // dry part of MIX and the clean lows of LOW KEEP are never touched.
         const bool autoOn = c.b (AUTO);
         const float sm = std::exp (-1.0f / (0.03f * (float) sr));
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         auto* xl = io.getWritePointer (0); auto* xr = io.getWritePointer (1);
-        const auto* dl = dryDelay.getReadPointer (0); const auto* dr = dryDelay.getReadPointer (1);
         for (int i = 0; i < n; ++i)
         {
             float y[2] = { tilt[0][1].tick (tilt[0][0].tick (xl[i])), tilt[1][1].tick (tilt[1][0].tick (xr[i])) };
-            const float d[2] = { dl[i], dr[i] };
-            if (lowKeep > 20.0f)
-                for (int k = 0; k < 2; ++k)
-                {
-                    float lo, hi, dlo, dhi;
-                    xo[k].split (y[k], lo, hi);
-                    xoDry[k].split (d[k], dlo, dhi);
-                    y[k] = hi + dlo;
-                }
+            const float d[2] = { dry[0][i], dry[1][i] };
             const float inLvl = inF.tick (std::max (std::fabs (d[0]), std::fabs (d[1])));
             const float outLvl = outF.tick (std::max (std::fabs (y[0]), std::fabs (y[1])));
             const float target = autoOn && outLvl > 1e-4f && inLvl > 1e-4f ? juce::jlimit (0.1f, 2.0f, inLvl / outLvl) : 1.0f;
             autoG = target + sm * (autoG - target);
-            const float g = (g0 + (g1 - g0) * (float) i / (float) n) * autoG;
-            xl[i] = (d[0] * (1.0f - mix) + y[0] * mix) * g;
-            xr[i] = (d[1] * (1.0f - mix) + y[1] * mix) * g;
+            for (int k = 0; k < 2; ++k)
+            {
+                float wet = y[k] * autoG;
+                if (lowKeep > 20.0f)
+                {
+                    float lo, hi, dlo, dhi;
+                    xo[k].split (wet, lo, hi);
+                    xoDry[k].split (d[k], dlo, dhi);
+                    wet = hi + dlo;
+                }
+                y[k] = d[k] * (1.0f - mix) + wet * mix;
+            }
+            const float g = g0 + (g1 - g0) * (float) i / (float) n;
+            xl[i] = y[0] * g;
+            xr[i] = y[1] * g;
         }
         dispCh = ch;
     }
@@ -130,10 +132,8 @@ public:
     }
 private:
     double sr = 48000.0;
-    Oversampler os;
+    Oversampler os, osDry;
     int lat = 0;
-    juce::AudioBuffer<float> dryDelay;
-    DelayLine dryLine[2];
     Biquad tilt[2][2];
     Crossover xo[2], xoDry[2];
     Follower inF, outF;

@@ -93,6 +93,17 @@ void SFLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& l)
 class SFCell : public juce::Component, private juce::Timer
 {
 public:
+    // A momentary button held while its window closes is released (PANIC must never stay held).
+    ~SFCell() override
+    {
+        if (wasDown)
+            if (auto* prm = proc.param (idx))
+            {
+                prm->beginChangeGesture();
+                prm->setValueNotifyingHost (0.0f);
+                prm->endChangeGesture();
+            }
+    }
     SFCell (SFProcessor& p, int index, bool big) : proc (p), idx (index), large (big)
     {
         const auto& s = p.allSpecs()[(size_t) idx];
@@ -300,8 +311,9 @@ void SFEditor::paint (juce::Graphics& g)
     juce::Rectangle<float> m ((float) getWidth() - 132.0f, 15.0f, 80.0f, 8.0f);
     ui::levelBar (g, m, proc.outMeter.peak);
     const bool flt = proc.fault.load();
-    ui::label (g, flt ? "FAULT" : "OUT", m.withX (m.getRight() + 5).withWidth (44).withHeight (8),
-               flt || proc.clipped.load() ? ui::kRed : ui::kFaint, 9.0f);
+    const bool held = sf::Bus::get().d().panicHeld.load() != 0 && sf::Bus::get().controlAlive();
+    ui::label (g, held ? "PANIC" : flt ? "FAULT" : "OUT", m.withX (m.getRight() + 5).withWidth (44).withHeight (8),
+               held || flt || proc.clipped.load() ? ui::kRed : ui::kFaint, 9.0f);
 
     // Primary row frame.
     g.setColour (ui::kLine);

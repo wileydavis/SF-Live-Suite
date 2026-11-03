@@ -178,7 +178,7 @@ ModulePtr makeGATE() { return std::make_unique<GateModule>(); }
 class DensityModule : public Module
 {
 public:
-    enum { DENS, SPACE, DARKEN, SWING, PROB, MIX, LEVEL, SHORTEN };
+    enum { DENS, SPACE, DARKEN, SWING, PROB, MIX, LEVEL, SHORTEN, DRYON };
     std::string id() const override { return "DENSITY"; }
     std::vector<ParamSpec> params() const override
     {
@@ -189,7 +189,8 @@ public:
                  pct ("prob", "PROB", 1.0f).prim(),
                  pct ("mix", "MIX", 1.0f).prim(),
                  levelParam().prim(),
-                 pct ("shorten", "SHORTEN", 0.3f) };
+                 pct ("shorten", "SHORTEN", 0.3f),
+                 dryParam() };
     }
     void prepare (double rate, int) override
     {
@@ -197,6 +198,7 @@ public:
         for (auto& d : line) d.prepare ((int) (rate * 4.5));
         for (auto& d : gateLine) d.prepare ((int) (rate * 4.5));
         fast.set (0.0005f, 0.01f, sr); slow.set (0.01f, 0.25f, sr);
+        dryRamp.prepare (rate);
         reset();
     }
     void reset() override
@@ -213,6 +215,7 @@ public:
         const float d = c.v (DENS), sw = (float) (c.v (SWING) * space / 3.0);
         const float t1 = clamp01 (d * 2.0f), t2 = clamp01 ((d - 0.5f) * 2.0f);
         const float dark = c.v (DARKEN), mix = c.v (MIX), prob = c.v (PROB), shorten = c.v (SHORTEN);
+        const float dryT = c.b (DRYON) ? 1.0f : 0.0f;
         const float delays[3] = { (float) space + sw, (float) (space * 0.5), (float) (space * 1.5) + sw };
         const float levels[3] = { 0.62f * t1, 0.38f * t2, 0.32f * t2 };
         const int tiers[3] = { 1, 2, 2 };
@@ -248,8 +251,9 @@ public:
                 wl += taps[k].lp[0].tickLP (line[0].read (delays[k])) * a;
                 wr += taps[k].lp[1].tickLP (line[1].read (delays[k])) * a;
             }
-            io.getWritePointer (0)[i] = l + wl * mix;
-            io.getWritePointer (1)[i] = r + wr * mix;
+            const float dg = dryRamp.tick (dryT);
+            io.getWritePointer (0)[i] = l * dg + wl * mix;
+            io.getWritePointer (1)[i] = r * dg + wr * mix;
         }
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
@@ -279,6 +283,7 @@ private:
     Noise rng;
     int sinceOnset = 1 << 20, envAtOnset = 0;
     float pass1 = 1.0f, pass2 = 1.0f;
+    DryRamp dryRamp;
     std::atomic<float> dens { 0.0f };
 };
 ModulePtr makeDENSITY() { return std::make_unique<DensityModule>(); }
@@ -291,7 +296,7 @@ ModulePtr makeDENSITY() { return std::make_unique<DensityModule>(); }
 class DelayModule : public Module
 {
 public:
-    enum { TIME, FDBK, TONE, DRIVE, THROW, FREEZE, MIX, WIDTH, SLEW, MODE, INPUT, DUCK, DUCKSHAPE, WOW, LOCUT };
+    enum { TIME, FDBK, TONE, DRIVE, THROW, FREEZE, MIX, WIDTH, SLEW, MODE, INPUT, DUCK, DUCKSHAPE, WOW, LOCUT, DRYON };
     std::string id() const override { return "DELAY"; }
     std::vector<ParamSpec> params() const override
     {
@@ -309,7 +314,8 @@ public:
                  pct ("duck", "DUCK", 0.0f),
                  pct ("duck_shape", "DUCK SHAPE", 0.6f),
                  pct ("wow", "WOW", 0.1f),
-                 knob ("lo_cut", "LO CUT", 20.0f, 600.0f, 80.0f, "Hz", 120.0f) };
+                 knob ("lo_cut", "LO CUT", 20.0f, 600.0f, 80.0f, "Hz", 120.0f),
+                 dryParam() };
     }
     int latency() const override { return Pocket::kLatency; }
     double tailSeconds() const override { return 20.0; }
@@ -325,6 +331,7 @@ public:
         for (int k = 0; k < 2; ++k) { upF[k].set (hb); dnF[k].set (hb); }
         osDelay = measureOsDelay (hb);
         curDelay = -1;
+        dryRamp.prepare (rate);
         reset();
     }
     void reset() override
@@ -369,10 +376,19 @@ public:
         {
             inGain += 0.002f * (inGainTarget - inGain);
             if (std::abs (target - curDelay) > 0.5f) curDelay += juce::jlimit (-slewRate, slewRate, target - curDelay) + 0.0f;
-            wowPhase += (float) (0.6 / sr); if (wowPhase > 1.0f) wowPhase -= 1.0f;
             freezeX += freezeK * (freezeTarget - freezeX);
             const float fz = freezeX < 1.0e-6f ? 0.0f : (freezeX > 0.999999f ? 1.0f : freezeX);
-            const float d = curDelay * (1.0f + wow * 0.004f * std::sin (kTwoPi * wowPhase)) - osDelay;
+            // Frozen, wow stops where it is and the head moves onto a whole sample, so the loop
+            // reads without interpolation loss (no darkening, no fade).
+            wowPhase += (float) (0.6 / sr) * (1.0f - fz); if (wowPhase > 1.0f) wowPhase -= 1.0f;
+            const float dLive = curDelay * (1.0f + wow * 0.004f * std::sin (kTwoPi * wowPhase)) - osDelay;
+            // Onto the whole sample only once the head has settled: while TIME is still moving,
+            // whole-sample reads would zipper. The snap fades out (and back in) over ~10 ms.
+            const bool settled = std::abs (target - curDelay) <= 0.5f;
+            snapX += freezeK * ((settled ? fz : 0.0f) - snapX);
+            if (snapX > 0.999999f) snapX = 1.0f;
+            if (settled) snapTo = std::round (dLive);
+            const float d = snapX > 1.0e-6f ? dLive + snapX * (snapTo - dLive) : dLive;
             const float yl = line[0].read (d), yr = line[1].read (d);
             const float fbk = fbkSet + fz * (1.0f - fbkSet);
             float fl = yl * fbk, fr = yr * fbk;
@@ -399,11 +415,13 @@ public:
             wl[i] = mid + side; wr[i] = mid - side;
         }
         pocket.process (c, wet.getArrayOfWritePointers(), 2, n, c.v (DUCK), c.v (DUCKSHAPE), nullptr, c.v (DUCK) > 0.001f);
+        const float dryT = c.b (DRYON) ? 1.0f : 0.0f;
         for (int i = 0; i < n; ++i)
         {
+            const float dg = dryRamp.tick (dryT);
             dry[0].push (L[i]); dry[1].push (R[i]);
-            L[i] = dry[0].tap (Pocket::kLatency) + wl[i] * mix * 1.2f;
-            R[i] = dry[1].tap (Pocket::kLatency) + wr[i] * mix * 1.2f;
+            L[i] = dry[0].tap (Pocket::kLatency) * dg + wl[i] * mix * 1.2f;
+            R[i] = dry[1].tap (Pocket::kLatency) * dg + wr[i] * mix * 1.2f;
         }
         disp = curDelay / (float) c.samplesPerBeat();
     }
@@ -437,7 +455,8 @@ private:
     Halfband upF[2], dnF[2];
     Pocket pocket;
     juce::AudioBuffer<float> wet;
-    float curDelay = -1, inGain = 1.0f, wowPhase = 0, osDelay = 0.0f, freezeX = 0.0f;
+    float curDelay = -1, inGain = 1.0f, wowPhase = 0, osDelay = 0.0f, freezeX = 0.0f, snapX = 0.0f, snapTo = 0.0f;
+    DryRamp dryRamp;
     std::atomic<float> disp { 0 };
 };
 ModulePtr makeDELAY() { return std::make_unique<DelayModule>(); }
@@ -446,7 +465,7 @@ ModulePtr makeDELAY() { return std::make_unique<DelayModule>(); }
 class ReverbModule : public Module
 {
 public:
-    enum { SIZE, DECAY, DARK, PREDELAY, DUCK, FREEZE, THROW, MIX, MOD, WIDTH, GATED, GATETIME, LOCUT, DUCKSHAPE, INPUT };
+    enum { SIZE, DECAY, DARK, PREDELAY, DUCK, FREEZE, THROW, MIX, MOD, WIDTH, GATED, GATETIME, LOCUT, DUCKSHAPE, INPUT, DRYON };
     std::string id() const override { return "REVERB"; }
     std::vector<ParamSpec> params() const override
     {
@@ -464,7 +483,8 @@ public:
                  choice ("gate_time", "GATE TIME", { "1/16", "1/8", "1/4", "1/2" }, 1),
                  knob ("lo_cut", "LO CUT", 20.0f, 800.0f, 120.0f, "Hz", 160.0f),
                  pct ("duck_shape", "DUCK SHAPE", 0.5f),
-                 choice ("input", "INPUT", { "ALWAYS", "THROW ONLY" }, 0) };
+                 choice ("input", "INPUT", { "ALWAYS", "THROW ONLY" }, 0),
+                 dryParam() };
     }
     int latency() const override { return Pocket::kLatency; }
     double tailSeconds() const override { return 30.0; }
@@ -478,6 +498,7 @@ public:
         wet.setSize (2, mb);
         dryFol.set (0.002f, 0.25f, rate);
         onsetFast.set (0.0005f, 0.01f, rate); onsetSlow.set (0.01f, 0.3f, rate);
+        dryRamp.prepare (rate);
         reset();
     }
     void reset() override
@@ -527,14 +548,16 @@ public:
         const float duck = c.v (DUCK);
         pocket.process (c, wet.getArrayOfWritePointers(), 2, n, duck, c.v (DUCKSHAPE), nullptr, duck > 0.001f);
         const float mix = c.v (MIX);
+        const float dryT = c.b (DRYON) ? 1.0f : 0.0f;
         for (int i = 0; i < n; ++i)
         {
             dry[0].push (L[i]); dry[1].push (R[i]);
             const float dl = dry[0].tap (Pocket::kLatency), dr = dry[1].tap (Pocket::kLatency);
             const float env = dryFol.tick (0.5f * (dl + dr));
             const float dg = 1.0f - duck * 0.6f * clamp01 (env * 4.0f);
-            L[i] = dl + wl[i] * mix * dg;
-            R[i] = dr + wr[i] * mix * dg;
+            const float dryG = dryRamp.tick (dryT);
+            L[i] = dl * dryG + wl[i] * mix * dg;
+            R[i] = dr * dryG + wr[i] * mix * dg;
         }
     }
     int displayHeight() const override { return 70; }
@@ -542,6 +565,7 @@ public:
 private:
     double sr = 48000.0;
     Fdn fdn;
+    DryRamp dryRamp;
     DelayLine pre[2], dry[2];
     OnePole lo[2];
     Pocket pocket;
@@ -554,7 +578,10 @@ ModulePtr makeREVERB() { return std::make_unique<ReverbModule>(); }
 
 // =====================================================================================  REPEAT
 // Beat repeat. ROLL captures LENGTH of audio from the (quantised) start and loops it, each pass
-// quieter / lower / darker / shorter. Release returns to the input.
+// quieter / lower / darker / shorter. Release crossfades back to the input.
+// The capture is its own buffer, recorded from the roll's start for up to 4 s and then protected:
+// the loop never picks up later input, however long it is held (LENGTH can still grow mid-roll
+// into audio recorded after the start, as the record position always runs ahead of the loop).
 class RepeatModule : public Module
 {
 public:
@@ -574,22 +601,22 @@ public:
     void prepare (double rate, int) override
     {
         sr = rate;
-        for (auto& d : ring) d.assign ((size_t) (rate * 4), 0.0f);
+        for (auto& d : cap) d.assign ((size_t) (rate * 4) + 4, 0.0f);
         reset();
     }
     void reset() override
     {
-        for (auto& d : ring) std::fill (d.begin(), d.end(), 0.0f);
-        w = 0; state = Idle; x = 0.0f;
+        for (auto& d : cap) std::fill (d.begin(), d.end(), 0.0f);
+        state = Idle; x = 0.0f; rec = 0;
         for (auto& f : lp) f.reset();
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         static const double lenB[] = { 1.0, 0.5, 0.25, 0.125, 1.0 / 3.0, 1.0 / 6.0 };
         static const double qB[] = { 0.0, 0.25, 0.5, 1.0 };
-        const int segLen = std::max (64, (int) (lenB[juce::jlimit (0, 5, c.ci (LENGTH))] * c.samplesPerBeat()));
+        const int capSize = (int) cap[0].size() - 4;
+        const int segLen = juce::jlimit (64, capSize, (int) (lenB[juce::jlimit (0, 5, c.ci (LENGTH))] * c.samplesPerBeat()));
         const bool want = c.b (ROLL);
-        const int size = (int) ring[0].size();
         int startAt = -1;
         if (want && state == Idle)
         {
@@ -597,48 +624,46 @@ public:
             startAt = q <= 0.0 ? 0 : c.nextGrid (q);
             if (startAt >= 0) state = Armed;
         }
-        if (! want && state != Idle) state = Releasing;
+        if (! want && (state == Rolling || state == Armed)) state = state == Armed ? Idle : Releasing;
         const float mix = c.v (MIX), decay = c.v (DECAY), pitch = c.v (PITCH), gate = 0.1f + 0.9f * c.v (GATEP), filt = c.v (FILT);
         for (int i = 0; i < c.n; ++i)
         {
             const float inL = io.getSample (0, i), inR = io.getSample (1, i);
-            ring[0][(size_t) w] = inL; ring[1][(size_t) w] = inR;
-            if (state == Armed && i >= startAt) { state = Rolling; capStart = w; pos = 0.0; pass = 0; passRate = 1.0f; passGain = 1.0f; }
-            float target = 0.0f;
+            if (state == Armed && i >= startAt) { state = Rolling; rec = 0; pos = 0.0; pass = 0; passRate = 1.0f; passGain = 1.0f; }
+            // Record from the roll's start until the capture is full; then it is protected.
+            if ((state == Rolling || state == Releasing) && rec < capSize) { cap[0][(size_t) rec] = inL; cap[1][(size_t) rec] = inR; ++rec; }
             float oL = inL, oR = inR;
-            if (state == Rolling)
+            if (state == Rolling || state == Releasing)
             {
-                target = 1.0f;
+                // The loop keeps playing while the release crossfades back to the input.
                 if (pass > 0)
                 {
-                    const float rate = passRate;
                     const int ip = (int) pos;
                     const float fr = (float) (pos - ip);
-                    auto at = [&] (int ch, int k) { return ring[(size_t) ch][(size_t) (((capStart + k) % size + size) % size)]; };
+                    auto at = [&] (int ch, int k) { return cap[(size_t) ch][(size_t) ((k % segLen + segLen) % segLen)]; };
                     auto herm = [&] (int ch)
                     {
                         const float xm1 = at (ch, ip - 1), x0 = at (ch, ip), x1 = at (ch, ip + 1), x2 = at (ch, ip + 2);
                         const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
                         return ((c3 * fr + c2) * fr + c1) * fr + x0;
                     };
-                    float l = herm (0), r = herm (1);
-                    const float g = passGain;
+                    const float l = herm (0), r = herm (1);
                     const float within = (float) (pos / segLen);
                     const float gt = within < gate ? std::min (1.0f, (gate - within) * 60.0f) * std::min (1.0f, within * 400.0f + 0.05f) : 0.0f;
                     const float cut = expMap (1.0f - filt * std::min (1.0f, pass / 8.0f), 300.0f, 20000.0f);
                     if (((c.samplePos + i) & 15) == 0) for (auto& f : lp) f.set (cut, 0.7071f, sr);
-                    oL = lp[0].tickLP (l * g * gt); oR = lp[1].tickLP (r * g * gt);
-                    pos += rate;
+                    oL = lp[0].tickLP (l * passGain * gt); oR = lp[1].tickLP (r * passGain * gt);
+                    pos += passRate;
                 }
                 else pos += 1.0;
                 if (pos >= segLen) { pos -= segLen; ++pass; passRate = semis (pitch * (float) pass / 4.0f); passGain = std::pow (1.0f - decay * 0.5f, (float) pass); }
             }
-            else if (state == Releasing) { target = 0.0f; if (x < 0.001f) state = Idle; }
+            const float target = state == Rolling ? 1.0f : 0.0f;
             x += 0.004f * (target - x);
+            if (state == Releasing && x < 0.001f) { state = Idle; x = 0.0f; }
             const float m = x * mix;
             io.getWritePointer (0)[i] = inL * (1.0f - m) + oL * m;
             io.getWritePointer (1)[i] = inR * (1.0f - m) + oR * m;
-            w = (w + 1) % size;
         }
         dispPass = state == Rolling ? pass : -1;
     }
@@ -652,8 +677,8 @@ public:
 private:
     enum State { Idle, Armed, Rolling, Releasing };
     double sr = 48000.0;
-    std::vector<float> ring[2];
-    int w = 0, capStart = 0, pass = 0;
+    std::vector<float> cap[2];
+    int rec = 0, pass = 0;
     double pos = 0;
     State state = Idle;
     float x = 0, passRate = 1.0f, passGain = 1.0f;

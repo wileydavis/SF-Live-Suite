@@ -81,6 +81,59 @@ static void analyse (SampleData& s)
     }
 }
 
+void Mips::build (const juce::AudioBuffer<float>& b)
+{
+    // Half-band low-pass (Kaiser-windowed sinc, cutoff at half the band, 79 taps, every second
+    // tap zero): flat to 0.43 of the band (-0.1 dB at 0.45), more than 90 dB down from 0.58. The
+    // reader's own low-pass (0.9 / rate, rate under 2 on the chosen level) removes what lies between.
+    static const std::vector<float> h = []
+    {
+        constexpr int half = 39;
+        const double beta = 9.0, pi = 3.14159265358979323846;
+        auto i0 = [] (double x) { double s = 1.0, t = 1.0; for (int k = 1; k < 40; ++k) { t *= (x / (2.0 * k)) * (x / (2.0 * k)); s += t; } return s; };
+        std::vector<float> c ((size_t) half + 1);
+        double sum = 0.0;
+        for (int k = 0; k <= half; ++k)
+        {
+            const double x = 0.5 * k, sinc = k == 0 ? 1.0 : std::sin (pi * x) / (pi * x);
+            const double r = (double) k / (half + 1);
+            c[(size_t) k] = (float) (0.5 * sinc * i0 (beta * std::sqrt (1.0 - r * r)) / i0 (beta));
+            sum += k == 0 ? c[0] : 2.0 * c[(size_t) k];
+        }
+        for (auto& v : c) v = (float) (v / sum);
+        return c;
+    }();
+    const int half = (int) h.size() - 1;
+    lv.clear();
+    lv.reserve ((size_t) kMax);
+    for (int k = 0; k < kMax; ++k)
+    {
+        const auto& src = k == 0 ? b : lv.back();
+        const int n = src.getNumSamples();
+        if (n < 64) break;
+        const int m = (n + 1) / 2;
+        juce::AudioBuffer<float> d (src.getNumChannels(), m);
+        for (int c = 0; c < src.getNumChannels(); ++c)
+        {
+            const float* x = src.getReadPointer (c);
+            float* y = d.getWritePointer (c);
+            for (int j = 0; j < m; ++j)
+            {
+                // Centred on source sample 2j (zero phase: position p at this level is 2p below).
+                const int i = 2 * j;
+                double acc = h[0] * x[i];
+                for (int t = 1; t <= half; t += 2)
+                {
+                    const float a = i - t >= 0 ? x[i - t] : 0.0f, b2 = i + t < n ? x[i + t] : 0.0f;
+                    acc += h[(size_t) t] * (a + b2);
+                }
+                y[j] = (float) acc;
+            }
+        }
+        lv.push_back (std::move (d));
+    }
+}
+
 SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double targetSr, const juce::String& name, bool encode)
 {
     auto s = std::make_shared<SampleData>();
@@ -92,10 +145,23 @@ SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double ta
 
     if (encode)
     {
+        // FLAC is integer: a floating-point file that peaks above full scale is stored scaled
+        // down, with the gain to restore it, so it reopens exactly as loaded.
+        float pk = 0.0f;
+        for (int c = 0; c < inCh; ++c) pk = std::max (pk, audio.getMagnitude (c, 0, inN));
+        juce::AudioBuffer<float> scaled;
+        const juce::AudioBuffer<float>* src = &audio;
+        if (pk > 0.999f)
+        {
+            s->flacGain = pk / 0.999f;
+            scaled.makeCopyOf (audio);
+            scaled.applyGain (1.0f / s->flacGain);
+            src = &scaled;
+        }
         juce::FlacAudioFormat flacFmt;
         auto* mos = new juce::MemoryOutputStream (s->flac, false);
         std::unique_ptr<juce::AudioFormatWriter> w (flacFmt.createWriterFor (mos, fileSr, (unsigned int) std::min (inCh, 2), 24, {}, 0));
-        if (w != nullptr) w->writeFromAudioSampleBuffer (audio, 0, inN);
+        if (w != nullptr) w->writeFromAudioSampleBuffer (*src, 0, inN);
         else delete mos;
     }
 
@@ -113,16 +179,18 @@ SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double ta
             SincResampler::process (audio.getReadPointer (src), inN, s->buf.getWritePointer (c), outN, fileSr, targetSr);
     }
     analyse (*s);
+    s->mips.build (s->buf);
     return s;
 }
 
-static SamplePtr readFrom (juce::AudioFormatReader* r, double targetSr, const juce::String& name, bool encode, double maxSeconds)
+static SamplePtr readFrom (juce::AudioFormatReader* r, double targetSr, const juce::String& name, bool encode, double maxSeconds, float gain = 1.0f)
 {
     std::unique_ptr<juce::AudioFormatReader> reader (r);
     if (reader == nullptr || reader->lengthInSamples <= 0) return nullptr;
     const int len = (int) std::min<juce::int64> (reader->lengthInSamples, (juce::int64) (reader->sampleRate * maxSeconds));
     juce::AudioBuffer<float> b ((int) std::max (1u, std::min (2u, reader->numChannels)), len);
     reader->read (&b, 0, len, 0, true, true);
+    if (gain != 1.0f) b.applyGain (gain);
     return makeSample (std::move (b), reader->sampleRate, targetSr, name, encode);
 }
 
@@ -131,13 +199,13 @@ SamplePtr loadSampleFile (const juce::File& f, double targetSr, double maxSecond
     return readFrom (formats().createReaderFor (f), targetSr, f.getFileNameWithoutExtension(), true, maxSeconds);
 }
 
-SamplePtr loadSampleFlac (const juce::MemoryBlock& mb, const juce::String& name, double targetSr)
+SamplePtr loadSampleFlac (const juce::MemoryBlock& mb, const juce::String& name, double targetSr, float gain)
 {
     juce::FlacAudioFormat flacFmt;
     auto* r = flacFmt.createReaderFor (new juce::MemoryInputStream (mb, true), true);
     if (r == nullptr) return nullptr;
-    auto s = readFrom (r, targetSr, name, false, 60.0 * 20.0);
-    if (s != nullptr) const_cast<SampleData&> (*s).flac = mb;
+    auto s = readFrom (r, targetSr, name, false, 60.0 * 20.0, gain);
+    if (s != nullptr) { const_cast<SampleData&> (*s).flac = mb; const_cast<SampleData&> (*s).flacGain = gain; }
     return s;
 }
 
@@ -159,6 +227,7 @@ void SampleSlot::save (juce::ValueTree& t, const juce::Identifier& key) const
             juce::ValueTree c (key);
             c.setProperty ("name", s->name, nullptr);
             c.setProperty ("flac", s->flac, nullptr);
+            if (s->flacGain != 1.0f) c.setProperty ("gain", s->flacGain, nullptr);
             t.appendChild (c, nullptr);
         }
 }
@@ -168,6 +237,6 @@ void SampleSlot::load (const juce::ValueTree& t, const juce::Identifier& key, do
     auto c = t.getChildWithName (key);
     if (! c.isValid()) { set (nullptr); return; }
     if (auto* mb = c.getProperty ("flac").getBinaryData())
-        set (loadSampleFlac (*mb, c.getProperty ("name").toString(), sr));
+        set (loadSampleFlac (*mb, c.getProperty ("name").toString(), sr, (float) (double) c.getProperty ("gain", 1.0)));
 }
 } // namespace sf

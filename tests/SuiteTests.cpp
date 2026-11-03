@@ -43,9 +43,11 @@ static void resetBus()
 {
     auto& d = Bus::get().d();
     d.kickWrite = 0; d.kickSeenMs = 0; d.allocSeenMs = 0; d.controlSeenMs = 0; d.song = -1;
-    for (auto& s : d.src) { s.owner = 0; s.seenMs = 0; }
+    for (auto& s : d.src) { s.owner = 0; s.seenMs = 0; s.uid = 0; }
     for (auto& m : d.macro) m = 0.0f;
     d.keyRoot = -1;
+    d.songAtPpq = -1.0;
+    d.panicHeld = 0;
 }
 
 struct Rig
@@ -179,6 +181,8 @@ static void testModule (const std::string& id)
     {
         const float a = q.param ((int) k)->convertFrom0to1 (q.param ((int) k)->getValue());
         const float b = r.p->param ((int) k)->convertFrom0to1 (r.p->param ((int) k)->getValue());
+        // Momentary buttons (PANIC, STORE ALL, RESET ...) always come back released.
+        if (specs[k].type == PType::Momentary) { CHECK (a < 0.5f, "%s reopened with %s pressed", id.c_str(), specs[k].id.c_str()); continue; }
         const bool same = specs[k].type == PType::Float ? std::abs (a - b) < 1e-4f * (1.0f + std::abs (b)) : (a > 0.5f) == (b > 0.5f) || std::lround (a) == std::lround (b);
         CHECK (same, "%s state round trip lost %s", id.c_str(), specs[k].id.c_str());
     }
@@ -581,6 +585,7 @@ static void testRegressions()
         FakeHead head;
         Rig ctl ("CONTROL", head);
         ctl.p->setCurrentProgram (5);
+        ctl.run ([] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {}, 0);   // published by the next audio block
         std::printf ("   CONTROL program 6 -> bus song %d\n", (int) Bus::get().d().song.load() + 1);
         CHECK (Bus::get().d().song.load() == 5, "program change did not select the song");
         CHECK (ctl.p->getNumPrograms() == 16, "CONTROL should expose 16 programs");
@@ -812,7 +817,7 @@ int main (int argc, char** argv)
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
-                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); }
+                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -830,7 +835,9 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--panic") { testPanic(); }
     else if (std::string (argv[1]) == "--rates") { testRates(); }
     else if (std::string (argv[1]) == "--cpu") { testCpu(); }
-    else if (std::string (argv[1]) == "--review") { testReviewFixes(); }
+    else if (std::string (argv[1]) == "--review") { testReviewFixes(); testAuditFixes(); testSecondReview(); }
+    else if (std::string (argv[1]) == "--audit") { testAuditFixes(); testSecondReview(); }
+    else if (std::string (argv[1]) == "--second") { testSecondReview(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

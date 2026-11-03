@@ -106,16 +106,18 @@ private:
     void applySong (int s);
     void updateParams (const sf::Ctx&, int n, float motionInput);
     void processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
-                       int start, int n, sf::Ctx& c, const juce::MidiBuffer& midi, bool panicNow, bool lastChunk);
+                       int start, int n, sf::Ctx& c, const juce::MidiBuffer& midi, bool panicNow, bool panicHold, bool lastChunk);
 
     std::vector<juce::RangedAudioParameter*> params;
     std::vector<std::atomic<float>*> raw;
-    std::vector<float> cur, prev, ovr, base, macroOff, glideFrom, glideTo, modAmt;
+    std::vector<float> cur, prev, base, macroOff, glideFrom, glideTo, modAmt, ovrFrom;
+    std::unique_ptr<std::atomic<float>[]> ovr;     // read by the message thread (host notification)
     std::vector<double> glideElapsed;
     std::vector<int> ovrAge;
     double internalPpq = 0.0, barPhase = 0.0;
     char trackName[24] {};
     std::atomic<uint32_t> trackNameSeq { 0 };
+    std::atomic<uint64_t> instanceUid { 1 };   // saved with the set; a duplicated track's copy takes a new one (AllocTap)
     bool clockAnchored = false;    // ovr: recalled value in force until Live reports it back (NaN = none)
     bool firstBlock = true;
     double sr = 48000.0;
@@ -136,7 +138,14 @@ private:
 
     // Safety
     int overSamples = 0;
-    int panicLeft = 0, panicLen = 240;     // PANIC fade-out in progress (samples left / total)
+    // PANIC: output gain (fades 5 ms), a press still to complete (fade out, then reset).
+    int panicPos = 240, panicInPos = 240;   // PANIC output / input gain, in samples of the 5 ms ramp
+    bool panicDown = false;
+    int panicLen = 240;
+    double pendingAt = -1.0;               // ppq of the bar line the pending song lands on (-1 = own)
+    double pendingFrom = 0.0;              // where the transport was when the request arrived
+    int pendingKey = -2;                   // the KEY the pending song brings (-2 = no change)
+    int keyUsed = -1, keyHold = 0;         // the key in force here; samples it holds against the bus
     uint64_t streamPos = 0;
 
     // Presets

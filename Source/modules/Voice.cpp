@@ -48,7 +48,7 @@ public:
 
     void prepare (double rate, int mb) override
     {
-        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
+        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate, s->flacGain));
         sr = rate;
         out.prepare (rate, mb, ROLE_VOICE, "VOICE", true);
         events.reserve (2048);
@@ -118,7 +118,7 @@ public:
             {
                 const auto& ev = events[e++];
                 if (ev.on) noteOn (ev, smp, c.ci (SLICEMODE), autoOff, relMul);
-                else if (ev.gen == 0 || ev.note < 0) noteOff (ev.note);
+                else noteOff (ev.note, ev.gen);
             }
             float x = 0.0f;
             if (smp != nullptr)
@@ -130,7 +130,7 @@ public:
                     if (ip + 2 >= play.end || ip + 2 >= len) play.active = false;
                     else
                     {
-                        const float a = 0.5f * (hermiteAt (smp->buf.getReadPointer (0), len, play.pos) + hermiteAt (smp->buf.getReadPointer (1), len, play.pos));
+                        const float a = 0.5f * (smp->read (0, play.pos, rate) + smp->read (1, play.pos, rate));
                         float env = std::min (1.0f, (float) (play.pos - play.start) / (0.003f * (float) sr) + 0.001f);
                         if (play.releasing) { play.rel *= play.relCoef; env *= play.rel; if (play.rel < 1e-4f) play.active = false; }
                         if (play.autoOff > 0 && --play.autoOff == 0) startRelease (relMul);
@@ -206,7 +206,7 @@ public:
 private:
     static constexpr int kVb = 16;
     struct Play { bool active = false, releasing = false; double pos = 0, start = 0; int end = 0, slice = -1, autoOff = -1; float vel = 1, rel = 1, relCoef = 0.999f; };
-    struct ChoirVoice { bool active = false; int note = 0; float f = 220, a = 0, target = 0; Osc osc; Svf fm[3]; };
+    struct ChoirVoice { bool active = false; int note = 0, gen = 0; float f = 220, a = 0, target = 0; Osc osc; Svf fm[3]; };
 
     // Slice layout without allocation (audio thread): count, and the start of slice k.
     static int sliceCount (const SampleData& s, int mode)
@@ -230,8 +230,8 @@ private:
         {
             ChoirVoice* v = nullptr;
             for (auto& x : choir) if (! x.active) { v = &x; break; }
-            if (v == nullptr) v = &choir[0];
-            v->active = true; v->note = ev.note; v->f = noteHz ((float) ev.note + keyShift); v->target = ev.vel; v->osc = Osc();
+            if (v == nullptr) { v = &choir[0]; for (auto& x : choir) if (x.a < v->a) v = &x; }     // steal the quietest
+            v->active = true; v->note = ev.note; v->gen = ev.gen; v->f = noteHz ((float) ev.note + keyShift); v->target = ev.vel * ev.gain; v->osc = Osc();
             for (int k = 0; k < 3; ++k) v->fm[k].set (formant[k], 8.0f, sr);
             return;
         }
@@ -242,15 +242,17 @@ private:
         play.end = play.slice >= 0 && play.slice + 1 < count ? sliceStart (*s, sliceMode, play.slice + 1) : s->length();
         play.pos = play.start;
         play.active = true; play.releasing = false; play.rel = 1.0f;
-        play.vel = 0.5f + 0.5f * ev.vel;
+        play.vel = (0.5f + 0.5f * ev.vel) * ev.gain;      // velocity response, then the DENSITY fade
         play.autoOff = autoOff;
         play.relCoef = std::exp (-1.0f / (0.02f * relMul * (float) sr));
     }
     void startRelease (float relMul) { play.releasing = true; play.relCoef = std::exp (-1.0f / (0.02f * relMul * (float) sr)); }
-    void noteOff (int note)
+    // A played note's release ends every choir voice on that note; a DENSITY ghost's release ends
+    // that ghost (ghosts that start after their note was released used to sound forever).
+    void noteOff (int note, int gen)
     {
-        for (auto& v : choir) if (v.active && (note < 0 || v.note == note)) v.target = 0.0f;
-        juce::ignoreUnused (note);
+        for (auto& v : choir)
+            if (v.active && (note < 0 || (v.note == note && (gen == 0 || v.gen == gen)))) v.target = 0.0f;
     }
 
     float radioChain (float x, float sig)

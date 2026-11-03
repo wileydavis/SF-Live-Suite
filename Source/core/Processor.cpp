@@ -1,4 +1,5 @@
 #include "Processor.h"
+#include "BandLimited.h"
 #include "Editor.h"
 #include "Registry.h"
 #include <chrono>
@@ -78,7 +79,9 @@ SFProcessor::SFProcessor (ModulePtr m)
     base.resize (specs.size());
     macroOff.assign (specs.size(), 0.0f);
     modAmt.assign (specs.size(), 0.0f);
-    ovr.assign (specs.size(), NAN);
+    ovr = std::make_unique<std::atomic<float>[]> (specs.size());
+    for (size_t i = 0; i < specs.size(); ++i) ovr[i] = NAN;
+    ovrFrom.assign (specs.size(), 0.0f);
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
@@ -93,12 +96,18 @@ SFProcessor::SFProcessor (ModulePtr m)
         p->endChangeGesture();
     };
     module->getParam = [this] (int i) { return i >= 0 && i < (int) raw.size() ? raw[(size_t) i]->load() : 0.0f; };
+    module->getSongValue = [this] (int s, int i)
+    {
+        return s >= 0 && s < kSongs && i >= 0 && i < (int) specs.size() && songHas[(size_t) s].load() ? songVals[(size_t) s][(size_t) i] : NAN;
+    };
     glideFrom.assign (specs.size(), 0.0f); glideTo.assign (specs.size(), NAN); glideElapsed.assign (specs.size(), 0.0);
     std::random_device rd;
     motionSeed = (uint32_t) rd() | 1u;
+    instanceUid = (((uint64_t) rd() << 32) ^ (uint64_t) rd() ^ (uint64_t) (uintptr_t) this) | 1u;
     factory = sf::factoryPresets (module->id());
     chunkMidi.ensureSize (65536);
     sf::Bus::get();     // map the shared bus here, not on the audio thread
+    sf::SincKernel::get();   // build the band-limited sample reader's table here, not on the audio thread
     startTimerHz (30);
 }
 
@@ -181,8 +190,9 @@ void SFProcessor::prepareToPlay (double sampleRate, int)
     chunkMidi.ensureSize (65536);
     for (int k = 0; k < kMotions; ++k) motion[(size_t) k].prepare (sr, motionSeed + 0x9E3779B9u * (uint32_t) k);
     overSamples = 0;
-    panicLeft = 0;
+    panicDown = false;
     panicLen = std::max (64, (int) std::lround (0.005 * sr));
+    panicPos = panicInPos = panicLen;
     streamPos = 0;
     firstBlock = true;
 }
@@ -201,6 +211,7 @@ void SFProcessor::applySong (int s)
     {
         if (! specs[i].song) continue;
         ovr[i] = songVals[(size_t) s][i];
+        ovrFrom[i] = raw[i]->load();          // the host's value at the recall
         ovrAge[i] = 0;
     }
     songIndex = s;
@@ -233,6 +244,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     Ctx c;
     c.sr = sr; c.bus = &bus;
     c.trackName = trackName; c.trackNameSeq = trackNameSeq.load();
+    c.uid = &instanceUid;
     c.bpm = lastBpm;
     bool havePos = false;
     double ppq0 = 0.0;
@@ -265,10 +277,10 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const double bps = c.beatsPerSample();
     internalPpq = ppq0 + total * bps;
     clockAnchored = true;
+    c.barPhase = barPhase;
     // KEY only while SF CONTROL is running: the shared bus outlives sets and Live sessions, so a
     // key left there by a deleted CONTROL (or the last set) must not transpose anything.
-    const int key = d.keyRoot.load();
-    c.keyRoot = key >= 0 && key < 12 && bus.controlAlive() ? key : -1;
+    const bool controlOn = bus.controlAlive();
 
     // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
     if (! seqInit)
@@ -281,6 +293,9 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     {
         lastSongSeq = d.songSeq.load();
         pendingSong = d.song.load();
+        pendingAt = d.songAtPpq.load();
+        pendingKey = d.songKey.load();
+        pendingFrom = ppq0;
     }
     if (d.storeSeq.load() != lastStoreSeq) { lastStoreSeq = d.storeSeq.load(); storeRequested = true; }
     if (storeRequested.exchange (false))
@@ -289,11 +304,14 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         int s = d.song.load();
         if (s < 0) s = std::max (0, songIndex.load());
         songIndex = s;
-        for (size_t i = 0; i < specs.size(); ++i) songVals[(size_t) s][i] = raw[i]->load();
+        // What is in force: a value just recalled that Live hasn't reported back yet counts.
+        for (size_t i = 0; i < specs.size(); ++i) { const float o = ovr[i].load(); songVals[(size_t) s][i] = std::isnan (o) ? raw[i]->load() : o; }
         songHas[(size_t) s] = true;
     }
     bool panicNow = localPanic.exchange (false);
     if (const uint32_t ps = d.panicSeq.load(); ps != lastPanicSeq) { lastPanicSeq = ps; panicNow = true; }
+    // While PANIC is held on SF CONTROL every plugin stays silent (and takes no new input).
+    const bool panicHold = d.panicHeld.load() != 0 && bus.controlAlive();
 
     auto mainOut = getBusBuffer (buffer, false, 0);
     juce::AudioBuffer<float> sideAll;
@@ -311,27 +329,54 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         // same performance renders bit-identically at any host buffer size.
         int n = std::min (kChunk - (int) (streamPos % (uint64_t) kChunk), total - start);
         c.ppq = ppq0 + start * bps;
+        bool recalled = false;
         if (const int ps = pendingSong.load(); ps >= 0)
         {
             // Recall exactly on the bar line while playing (the chunk is cut there), at once when stopped.
-            if (! c.playing) { applySong (ps); pendingSong = -1; }
+            const double spb = c.samplesPerBeat();
+            // The transport went back to before the request (an Arrangement loop, a relocate):
+            // the bar SF CONTROL chose may never come, so this plugin's next bar line instead.
+            if (pendingAt >= 0.0 && c.ppq < pendingFrom - 1e-6) pendingAt = -1.0;
+            if (! c.playing) { applySong (ps); pendingSong = -1; recalled = true; }
+            else if (pendingAt >= 0.0 && pendingAt - c.ppq < 2.0 * c.beatsPerBar)
+            {
+                // SF CONTROL's bar line: one target for every plugin, whatever order Live
+                // processes them in. Seen late (a plugin processed before CONTROL in that
+                // cycle): at once, a block late at most, still on the same bar.
+                const double toBar = (pendingAt - c.ppq) * spb;
+                if (toBar < 1e-3) { applySong (ps); pendingSong = -1; recalled = true; }
+                else n = std::max (1, std::min (n, (int) std::ceil (toBar - 1e-3)));
+            }
             else
             {
+                // No target (or the transport jumped back past it): this plugin's next bar line.
                 // Positions in samples relative to the bar line, with a 1e-3 sample tolerance for
                 // the rounding of ppq (which grows with the song position): a bar line that falls
                 // within the tolerance of a sample boundary is taken to be on it, so the recall can
                 // never slip to the following bar.
-                const double spb = c.samplesPerBeat();
                 const double inBar = posMod (c.ppq - barPhase, c.beatsPerBar);
                 const double sinceBar = inBar * spb, toBar = (c.beatsPerBar - inBar) * spb;
                 constexpr double tol = 1e-3;
-                if (sinceBar < 1.0 + tol || toBar < tol) { applySong (ps); pendingSong = -1; }
+                if (sinceBar < 1.0 + tol || toBar < tol) { applySong (ps); pendingSong = -1; recalled = true; }
                 else n = std::max (1, std::min (n, (int) std::ceil (toBar - tol)));
             }
         }
+        // KEY. A song's key switches on the song's bar here too (CONTROL writes it to the bus in
+        // its own bar chunk, which Live may process before or after this plugin): until then the
+        // key in force stays, from then on the song's, until the bus agrees (1 s at most).
+        // Otherwise (KEY turned by hand) the bus.
+        if (recalled)
+        {
+            if (pendingKey != -2) { keyUsed = pendingKey; keyHold = (int) sr; }
+            pendingKey = -2;
+        }
+        if (pendingSong.load() >= 0 && pendingKey != -2) {}
+        else if (keyHold > 0) { if (d.keyRoot.load() == keyUsed) keyHold = 0; else keyHold -= n; }
+        else keyUsed = d.keyRoot.load();
+        c.keyRoot = keyUsed >= 0 && keyUsed < 12 && controlOn ? keyUsed : -1;
         c.n = n;
         c.samplePos = (int64_t) streamPos;
-        processChunk (buffer, mainOut, side, start, n, c, midi, panicNow && start == 0, start + n >= total);
+        processChunk (buffer, mainOut, side, start, n, c, midi, panicNow && start == 0, panicHold, start + n >= total);
         start += n;
         streamPos += (uint64_t) n;
     }
@@ -376,11 +421,14 @@ void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
         const auto& s = specs[i];
         prev[i] = cur[i];
         float t = raw[i]->load();
-        if (! std::isnan (ovr[i]))
+        if (const float o = ovr[i].load(); ! std::isnan (o))
         {
-            // Live has caught up, or 3 s passed without it (automation wins): drop the override.
-            if (std::abs (t - ovr[i]) < 1e-4f * (1.0f + std::abs (t)) || (ovrAge[i] += n) > (int) (3.0 * sr)) ovr[i] = NAN;
-            else t = ovr[i];
+            // The recalled value holds until Live reports it back. It gives way at once when the
+            // host's value moves away from what it was at the recall (the performer turned the
+            // knob, or automation), and after 3 s if Live never catches up.
+            const float eps = 1e-4f * (1.0f + std::abs (t));
+            if (std::abs (t - o) < eps || std::abs (t - ovrFrom[i]) > eps || (ovrAge[i] += n) > (int) (3.0 * sr)) ovr[i] = NAN;
+            else t = o;
         }
         if (s.type != PType::Float) { cur[i] = t; base[i] = t; continue; }
         const float range = s.max - s.min;
@@ -423,8 +471,12 @@ void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
 }
 
 void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
-                                int start, int n, Ctx& c, const juce::MidiBuffer& midi, bool panicNow, bool lastChunk)
+                                int start, int n, Ctx& c, const juce::MidiBuffer& midi, bool panicNow, bool panicHold, bool lastChunk)
 {
+    // PANIC: once silent (after the 5 ms fade) and while held, the plugin takes no new input:
+    // effects get silence, instruments no new notes. Nothing builds up behind the mute.
+    if (panicNow) panicDown = true;
+    const bool muteIn = panicPos <= 0 && (panicDown || panicHold);
     const int numMain = std::min (2, mainOut.getNumChannels());
     if (numMain == 0) return;
 
@@ -458,8 +510,10 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
     {
         const auto m = *it;
         if (m.samplePosition >= start + n && ! lastChunk) break;
+        const bool noteOn = m.numBytes >= 3 && (m.data[0] & 0xf0) == 0x90 && m.data[2] > 0;
+        if (noteOn && muteIn) continue;
         chunkMidi.addEvent (m.data, m.numBytes, juce::jlimit (0, n - 1, m.samplePosition - start));
-        if (m.numBytes >= 3 && (m.data[0] & 0xf0) == 0x90 && m.data[2] > 0) noteIn = std::max (noteIn, m.data[2] / 127.0f);
+        if (noteOn) noteIn = std::max (noteIn, m.data[2] / 127.0f);
     }
 
     // MOTION input: effects follow their input level, instruments their note velocities.
@@ -476,6 +530,18 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
     c.p = cur.data();
     c.p0 = prev.data();
     if (module->instrument()) mainView.clear();
+    else if (muteIn) { mainView.clear(); panicInPos = 0; }
+    else if (panicInPos < panicLen)
+    {
+        // After PANIC the input comes back over 5 ms too: an effect with latency (DELAY's dry
+        // path, LIMIT's lookahead) would otherwise play a hard step after the output ramp ended.
+        for (int ch = 0; ch < numMain; ++ch)
+        {
+            auto* x = mainView.getWritePointer (ch);
+            for (int i = 0; i < n; ++i) x[i] *= (float) std::min (panicLen, panicInPos + i + 1) / (float) panicLen;
+        }
+        panicInPos = std::min (panicLen, panicInPos + n);
+    }
 
     module->process (c, mainView, side, extra, chunkMidi);
 
@@ -512,23 +578,32 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
     }
     else
     {
-        // PANIC: a 5 ms fade (however the chunks fall), then every voice, tail and delay line is cleared.
-        if (panicNow && panicLeft == 0) panicLeft = panicLen;     // a second PANIC mid-fade doesn't restart it
-        if (panicLeft > 0)
+        // PANIC: fade out over 5 ms (however the chunks fall; a second press mid-fade carries
+        // on), then clear every voice, tail and delay line. Silent while held; fades back in
+        // over 5 ms on release.
+        // (Integer sample counts: the ramp is the same however the chunks fall.)
+        const int target = (panicDown || panicHold) ? 0 : panicLen;
+        if (panicPos != target)
         {
-            auto fade = [&] (juce::AudioBuffer<float>& b)
+            const int dir = target > panicPos ? 1 : -1;
+            auto ramp = [&] (juce::AudioBuffer<float>& b)
             {
                 for (int ch = 0; ch < b.getNumChannels(); ++ch)
                 {
                     auto* x = b.getWritePointer (ch);
-                    for (int i = 0; i < n; ++i) x[i] *= (float) std::max (0, panicLeft - i) / (float) panicLen;
+                    for (int i = 0; i < n; ++i) x[i] *= (float) juce::jlimit (0, panicLen, panicPos + dir * (i + 1)) / (float) panicLen;
                 }
             };
-            fade (mainView);
-            if (extra != nullptr) fade (*extra);
-            panicLeft = std::max (0, panicLeft - n);
-            if (panicLeft == 0) module->reset();
+            ramp (mainView);
+            if (extra != nullptr) ramp (*extra);
+            panicPos = juce::jlimit (0, panicLen, panicPos + dir * n);
         }
+        else if (panicPos <= 0)
+        {
+            mainView.clear();
+            if (extra != nullptr) extra->clear();
+        }
+        if (panicDown && panicPos <= 0) { module->reset(); panicDown = false; }
     }
 
     if (extra != nullptr)
@@ -637,6 +712,7 @@ void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
     root.setProperty ("module", juce::String (module->id()), nullptr);
     root.setProperty ("version", 2, nullptr);
     root.setProperty ("motionSeed", (int) motionSeed, nullptr);
+    root.setProperty ("uid", juce::String::toHexString ((juce::int64) instanceUid.load()), nullptr);
     root.setProperty ("preset", currentPreset, nullptr);
     root.appendChild (apvts.copyState(), nullptr);
     juce::ValueTree songs ("SONGS");
@@ -663,12 +739,25 @@ void SFProcessor::setStateInformation (const void* data, int size)
     auto root = juce::ValueTree::readFromData (data, (size_t) size);
     if (! root.isValid() || root.getType().toString() != "SFSTATE") return;
     auto p = root.getChildWithName ("PARAMS");
-    if (p.isValid()) apvts.replaceState (p);
+    if (p.isValid())
+    {
+        // Momentary buttons (PANIC, STORE ALL, THROW ...) never come back pressed: a set saved
+        // with PANIC held would otherwise open silent.
+        auto pc = p.createCopy();
+        for (auto child : pc)
+        {
+            const auto id = child.getProperty ("id").toString().toStdString();
+            for (const auto& s : specs) if (s.type == PType::Momentary && s.id == id) child.setProperty ("value", 0.0f, nullptr);
+        }
+        apvts.replaceState (pc);
+    }
     if (root.hasProperty ("motionSeed"))
     {
         motionSeed = (uint32_t) (int) root.getProperty ("motionSeed");
         for (int k = 0; k < kMotions; ++k) motion[(size_t) k].setSeed (motionSeed + 0x9E3779B9u * (uint32_t) k);
     }
+    if (root.hasProperty ("uid"))
+        if (const auto u = (uint64_t) root.getProperty ("uid").toString().getHexValue64(); u != 0) instanceUid = u;
     currentPreset = root.getProperty ("preset", "").toString();
     auto songs = root.getChildWithName ("SONGS");
     for (auto& h : songHas) h = false;

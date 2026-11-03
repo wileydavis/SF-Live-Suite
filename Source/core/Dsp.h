@@ -211,13 +211,20 @@ struct DJFilter
     int counter = 0;
     double sr = 48000.0;
     float wCoef = 0.999f;
+    // Resonance guard: a stereo-linked gain that rides resonant peaks down to 0.9 (0.5 ms attack,
+    // 80 ms release). A smooth gain, not a waveshaper: it makes no harmonics to alias at the base
+    // rate. It only exists while resonance is in effect (fully from 20 % of it); a centred or
+    // unresonant filter is untouched, so instruments' own peaks keep their shape.
+    float guardG = 1.0f, guardAtt = 0.9f, guardRel = 0.999f;
     void prepare (double rate)
     {
         sr = rate;
         wCoef = std::exp (-1.0f / (float) (0.004 * rate));
+        guardAtt = std::exp (-1.0f / (float) (0.0005 * rate));
+        guardRel = std::exp (-1.0f / (float) (0.08 * rate));
         reset();
     }
-    void reset() { for (auto& c : lp) for (auto& f : c) f.reset(); for (auto& c : hp) for (auto& f : c) f.reset(); }
+    void reset() { for (auto& c : lp) for (auto& f : c) f.reset(); for (auto& c : hp) for (auto& f : c) f.reset(); guardG = 1.0f; }
     static float lpHz (float k) { return expMap (k / 0.5f, 60.0f, 22000.0f); }           // k in [0, .5]
     static float hpHz (float k) { return expMap ((k - 0.5f) / 0.5f, 18.0f, 12000.0f); }  // k in [.5, 1]
     static float lpWeight (float k) { return smoothstep (0.5f, 0.465f, k); }
@@ -260,16 +267,24 @@ struct DJFilter
         const float gL = 1.0f / (1.0f + res * 0.9f * wLp), gH = 1.0f / (1.0f + res * 0.9f * wHp);
         const float wDry = std::max (0.0f, 1.0f - wLp - wHp);
         float* xs[2] = { &l, &r };
+        float y[2];
         for (int c = 0; c < 2; ++c)
         {
             const float x = *xs[c];
             const float yl = lp[c][1].tickLP (lp[c][0].tickLP (x)) * gL;
             const float yh = hp[c][1].tickHP (hp[c][0].tickHP (x)) * gH;
-            // Transparent below 0.9; a soft knee above catches resonant peaks.
-            const float y = x * wDry + yl * wLp + yh * wHp;
-            const float a = std::fabs (y);
-            *xs[c] = a <= 0.9f || ! knee ? y : std::copysign (0.9f + 0.1f * fastTanh ((a - 0.9f) * 10.0f), y);
+            y[c] = x * wDry + yl * wLp + yh * wHp;
         }
+        if (knee)
+        {
+            const float resEff = res * std::max (wLp, wHp);
+            const float thresh = 0.9f + 10.0f * (1.0f - std::min (1.0f, resEff * 5.0f));
+            const float pk = std::max (std::fabs (y[0]), std::fabs (y[1]));
+            const float want = pk > thresh ? thresh / pk : 1.0f;
+            guardG = want + (want < guardG ? guardAtt : guardRel) * (guardG - want);
+            y[0] *= guardG; y[1] *= guardG;
+        }
+        l = y[0]; r = y[1];
     }
 };
 
@@ -340,7 +355,7 @@ struct Osc
             default: y = std::sin (kTwoPi * (float) t); break;
         }
         phase += dt;
-        if (phase >= 1.0) phase -= 1.0;
+        if (phase >= 1.0) { phase -= 1.0; if (phase >= 1.0) phase -= std::floor (phase); }
         return y;
     }
 };
@@ -407,7 +422,10 @@ struct Fdn
     // once per chunk, the targets ramp linearly across the chunk and the values follow them
     // through a 30 ms one-pole. No read-head jumps, no gain zipper, no kinks in the read-head
     // speed when SIZE, DECAY, DARK or MOD are turned, automated or modulated.
-    float len[N] {}, lenT[N] {}, lenD[N] {}, gLo[N] {}, gLoT[N] {}, gLoD[N] {}, gHi[N] {}, gHiT[N] {}, gHiD[N] {}, z[N] {}, lfo = 0.0f;
+    // Lengths in double: a float glide stalls a fraction of a sample short of its target (the step
+    // drops under half a float ulp), which a FREEZE would hear as interpolation loss every pass.
+    double len[N] {}, lenT[N] {}, lenD[N] {}, lenEnd[N] {};
+    float gLo[N] {}, gLoT[N] {}, gLoD[N] {}, gHi[N] {}, gHiT[N] {}, gHiD[N] {}, z[N] {}, lfo = 0.0f;
     float lpA = 0.3f, lpAT = 0.3f, lpAD = 0.0f, lenA = 0.001f;
     float modDepthD = 0.0f;
     int rampLeft = 0;
@@ -444,7 +462,7 @@ struct Fdn
     // rampSamples: the number of tick() calls until the next set() (the chunk length).
     void set (float size, float decaySeconds, float dark, float mod, bool freeze, int rampSamples = 0)
     {
-        float nLen[N], nLo[N], nHi[N];
+        double nLen[N]; float nLo[N], nHi[N];
         static const float base[N] = { 0.0297f, 0.0371f, 0.0411f, 0.0437f, 0.0533f, 0.0617f, 0.0683f, 0.0751f };
         const float scale = 0.35f + size * 2.4f;
         const float rtLow = std::max (0.1f, decaySeconds);
@@ -454,19 +472,21 @@ struct Fdn
         frozen = freeze;
         for (int i = 0; i < N; ++i)
         {
-            nLen[i] = base[i] * scale * (float) sr;
-            if (freeze) { nLo[i] = nHi[i] = 1.0f; }
+            nLen[i] = (double) base[i] * scale * sr;
+            // FREEZE: whole-sample line lengths and no modulation, so the loop reads without
+            // interpolation loss and the held sound doesn't darken or fade.
+            if (freeze) { nLen[i] = std::round (nLen[i]); nLo[i] = nHi[i] = 1.0f; }
             else
             {
-                const float secs = nLen[i] / (float) sr;
+                const float secs = (float) (nLen[i] / sr);
                 nLo[i] = std::min (0.9995f, std::pow (10.0f, -3.0f * secs / rtLow));
                 nHi[i] = std::min (nLo[i], std::pow (10.0f, -3.0f * secs / rtHigh));
             }
         }
-        const float nMod = mod * 0.0025f * (float) sr;
+        const float nMod = freeze ? 0.0f : mod * 0.0025f * (float) sr;
         if (! lenInit)
         {
-            for (int i = 0; i < N; ++i) { len[i] = lenT[i] = nLen[i]; gLo[i] = gLoT[i] = nLo[i]; gHi[i] = gHiT[i] = nHi[i]; lenD[i] = gLoD[i] = gHiD[i] = 0.0f; }
+            for (int i = 0; i < N; ++i) { len[i] = lenT[i] = lenEnd[i] = nLen[i]; gLo[i] = gLoT[i] = nLo[i]; gHi[i] = gHiT[i] = nHi[i]; lenD[i] = 0.0; gLoD[i] = gHiD[i] = 0.0f; }
             lpA = lpAT = nLpA; modDepth = modDepthT = nMod; lpAD = modDepthD = 0.0f;
             rampLeft = 0;
             lenInit = true;
@@ -476,9 +496,10 @@ struct Fdn
         if (rampLeft > 0)
         {
             const float k = (float) rampLeft;
-            for (int i = 0; i < N; ++i) { lenT[i] += lenD[i] * k; gLoT[i] += gLoD[i] * k; gHiT[i] += gHiD[i] * k; }
+            for (int i = 0; i < N; ++i) { lenT[i] = lenEnd[i]; gLoT[i] += gLoD[i] * k; gHiT[i] += gHiD[i] * k; }
             lpAT += lpAD * k; modDepthT += modDepthD * k;
         }
+        for (int i = 0; i < N; ++i) lenEnd[i] = nLen[i];
         if (rampSamples <= 0)
         {
             for (int i = 0; i < N; ++i) { lenT[i] = nLen[i]; gLoT[i] = nLo[i]; gHiT[i] = nHi[i]; }
@@ -486,7 +507,7 @@ struct Fdn
             return;
         }
         const float inv = 1.0f / (float) rampSamples;
-        for (int i = 0; i < N; ++i) { lenD[i] = (nLen[i] - lenT[i]) * inv; gLoD[i] = (nLo[i] - gLoT[i]) * inv; gHiD[i] = (nHi[i] - gHiT[i]) * inv; }
+        for (int i = 0; i < N; ++i) { lenD[i] = (nLen[i] - lenT[i]) / (double) rampSamples; gLoD[i] = (nLo[i] - gLoT[i]) * inv; gHiD[i] = (nHi[i] - gHiT[i]) * inv; }
         lpAD = (nLpA - lpAT) * inv; modDepthD = (nMod - modDepthT) * inv;
         rampLeft = rampSamples;
     }
@@ -497,18 +518,20 @@ struct Fdn
         if (rampLeft > 0)
         {
             --rampLeft;
-            for (int i = 0; i < N; ++i) { lenT[i] += lenD[i]; gLoT[i] += gLoD[i]; gHiT[i] += gHiD[i]; }
+            for (int i = 0; i < N; ++i) { lenT[i] = rampLeft == 0 ? lenEnd[i] : lenT[i] + lenD[i]; gLoT[i] += gLoD[i]; gHiT[i] += gHiD[i]; }
             lpAT += lpAD; modDepthT += modDepthD;
         }
         lpA += lenA * (lpAT - lpA);
         modDepth += lenA * (modDepthT - modDepth);
+        if (std::fabs (modDepth) < 1.0e-6f && std::fabs (modDepthT) < 1.0e-6f) modDepth = 0.0f;
         for (int i = 0; i < N; ++i)
         {
-            len[i] += lenA * (lenT[i] - len[i]);
+            len[i] += (double) lenA * (lenT[i] - len[i]);
+            if (std::fabs (lenT[i] - len[i]) < 1.0e-6) len[i] = lenT[i];       // arrive exactly (FREEZE: whole samples)
             gLo[i] += lenA * (gLoT[i] - gLo[i]);
             gHi[i] += lenA * (gHiT[i] - gHi[i]);
             const float m = modDepth * std::sin (kTwoPi * (lfo + (float) i * 0.125f));
-            const float y = line[i].read (len[i] + m);
+            const float y = line[i].read ((float) len[i] + m);
             z[i] += lpA * (y - z[i]);                     // absorption: per-line RT60, two bands
             x[i] = gHi[i] * y + (gLo[i] - gHi[i]) * z[i];
         }
@@ -518,17 +541,18 @@ struct Fdn
         for (int h = 1; h < N; h <<= 1)
             for (int i = 0; i < N; i += h << 1)
                 for (int j = i; j < i + h; ++j) { const float u = x[j], v = x[j + h]; x[j] = u + v; x[j + h] = u - v; }
-        float dl = 0.0f, dr = 0.0f;
-        if (! freeze)
-        {
-            dl = inL; dr = inR;
-            for (int k = 0; k < 4; ++k) { dl = diff[0][k].tick (dl); dr = diff[1][k].tick (dr); }
-        }
+        // The input keeps flowing while frozen: the caller fades it out (REVERB: 10 ms), so the
+        // loop closes on a smooth edge instead of a cut that would circulate for the whole hold.
+        float dl = inL, dr = inR;
+        for (int k = 0; k < 4; ++k) { dl = diff[0][k].tick (dl); dr = diff[1][k].tick (dr); }
         for (int i = 0; i < N; ++i)
         {
             const float in = (i & 1) ? dr : dl;
-            // Soft limit in the loop: never runs away, transparent at normal levels.
-            line[i].push (fastTanh ((x[i] * 0.35355339f + in) * 0.5f) * 2.0f);
+            // Soft limit in the loop: never runs away, transparent at normal levels. Frozen, the
+            // loop is linear (the limiter's slight compression would make it fade) with a loss
+            // of 0.0001 dB per pass, far below hearing but enough that it can never creep up.
+            if (freeze) line[i].push (std::max (-4.0f, std::min (4.0f, x[i] * (0.35355339f * 0.99999f) + in)));
+            else line[i].push (fastTanh ((x[i] * 0.35355339f + in) * 0.5f) * 2.0f);
         }
     }
 };

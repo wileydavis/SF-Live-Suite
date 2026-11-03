@@ -182,9 +182,10 @@ story += bullets(["<b>Hypnotic movement:</b> DRIFT on a filter at 8 or 16 BAR, D
                   "<b>Kick-driven:</b> KICK on a bass's DRIVE or a pad's CUTOFF: every kick pushes it, RATE sets how fast it falls back.",
                   "<b>Played:</b> NOTES on an instrument (velocity) or INPUT on an effect (level) makes the sound respond to how hard it is played."])
 story.append(H2("KEY"))
-story.append(P("Write parts in C. SF CONTROL's KEY (stored per song) then plays them in the song's key on every SF instrument: BASS, LEAD, PAD and VOICE transpose by the nearest interval (-6 to +5 semitones); KICK, RUMBLE and STRIKE land their own pitch on the key root, so the low end is always in tune with the track. KEY FOLLOW on each instrument opts out. OFF changes nothing, and without SF CONTROL running every instrument plays in C."))
+story.append(P("Write parts in C. SF CONTROL's KEY (stored per song) then plays them in the song's key on every SF instrument: BASS, LEAD, PAD and VOICE transpose by the nearest interval (-6 to +5 semitones); KICK, RUMBLE and STRIKE land their own pitch on the key root, so the low end is always in tune with the track. Notes already sounding follow a KEY change. KEY FOLLOW on each instrument opts out. OFF changes nothing, and without SF CONTROL running every instrument plays in C."))
+story.append(P("Mind the low register. KEY moves parts by up to 6 semitones either way, and KICK, RUMBLE and STRIKE snap to the nearest root, so the low end can land high or very low: a kick body at 50 Hz becomes 69 Hz in C# and 37 Hz in D. Check every song's KEY on a sub. TUNE moves the kick from the snapped root and is stored per song: -12 takes the 69 Hz kick to the root an octave down, +7 or -5 puts it on the fifth. Where a bass goes too deep, move the part up an octave on the OXI."))
 story.append(H2("NOTHING CAN HURT THE PA"))
-story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Resonance is level-compensated. Feedback above 100 % saturates instead of exploding. Every output is clamped at +12 dBFS. If a plugin ever produces an invalid value, or sits at the clamp for 250 ms (a runaway), it outputs silence, resets itself and shows <b>FAULT</b> in red in its header; it carries on working. <b>PANIC</b> on SF CONTROL fades every SF plugin out over 5 ms and clears every voice, tail and delay line: for a runaway feedback loop, a stuck note or a wrong recall in front of a crowd. Grab any knob in the dark."))
+story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Resonance is level-compensated. Feedback above 100 % saturates instead of exploding. Every output is clamped at +12 dBFS. If a plugin ever produces an invalid value, or sits at the clamp for 250 ms (a runaway), it outputs silence, resets itself and shows <b>FAULT</b> in red in its header; it carries on working. <b>PANIC</b> on SF CONTROL fades every SF plugin out over 5 ms and clears every voice, tail and delay line: for a runaway feedback loop, a stuck note or a wrong recall in front of a crowd. Everything stays silent while you hold it (no input, no new notes; DECK keeps its place in time; every header shows PANIC in red) and fades back in over 5 ms when you let go. A set never reopens with PANIC held. Grab any knob in the dark."))
 _cc_head = [H2("THE COLOUR CODE"), P("The plugins are black, white and grey. Colour only carries information:")]
 cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, FAULT (the plugin reset itself), missing file, true peak at the ceiling."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
       [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall waiting for the bar, a value gliding (SLOW)."],
@@ -194,19 +195,20 @@ story.append(PageBreak())
 
 story.append(H1("2  SONGS AND PRESETS"))
 story.append(Rule())
-story.append(P("Every SF plugin stores 16 song slots of its own settings, saved with the Live set. SF CONTROL chooses the song; every plugin recalls its slot on the next bar line while Live plays (at once when stopped).", "summary"))
+story.append(P("Every SF plugin stores 16 song slots of its own settings, saved with the Live set. SF CONTROL chooses the song; every plugin recalls its slot on the same bar line while Live plays (at once when stopped).", "summary"))
 story.append(H2("SAVING A SONG"))
 story += bullets(["Set every plugin how the song should start.", "Choose the song number on SF CONTROL (SONG).", "Press <b>STORE ALL</b> on SF CONTROL. Every SF plugin stores its current values into that song.",
                   "STORE in any plugin's header stores just that plugin into the selected song."])
 story.append(H2("RECALLING A SONG"))
 story += bullets(["Send Program Change on MIDI channel 16 to SF CONTROL (program 1 = song 01). Or turn SF CONTROL's SONG.",
+                  "SF CONTROL decides the bar line and sends it with the song (and the song's KEY), so every plugin changes on the same bar whatever order Live processes the tracks in. A change sent within 30 ms after a bar line (on the downbeat) counts for that bar; later in the bar, for the next one. Inside an Arrangement loop that never reaches that bar, every plugin changes on the next bar line after the loop jumps back.",
                   "The header of every plugin shows SONG nn, and WAIT BAR in green while the recall is waiting for the bar line.",
-                  "Recalled values are reported to Live, so the E16 rings jump to the new song's settings.",
+                  "Recalled values are reported to Live, so the E16 rings jump to the new song's settings. A recalled knob is yours again the moment you turn it.",
                   "A plugin with nothing stored in that song stays as it is.",
                   "With SLOW on, the recall glides instead of jumping: a song change becomes an 8- or 16-bar transition.",
                   "Arrangement automation wins over recalled values, as on any device."])
 story.append(H2("VST3 AND PROGRAM CHANGE"))
-story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTROL therefore lists 16 programs (SONG 01-16) and Live's program change selects them. The AU version reads Program Change directly from MIDI. If song changes don't arrive in the VST3, use the AU."))
+story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTROL therefore lists 16 programs (SONG 01-16); Live 12.2 and later turn a Program Change on the track into a program change for the VST3, older versions don't. The AU version reads Program Change directly from MIDI in any version. If song changes don't arrive in the VST3, use the AU."))
 story.append(H2("PRESETS"))
 story += bullets(["The <b>PRESET</b> button in every header opens the menu: factory presets grouped by style (DUB, ACID, HYPNOTIC ...), your own presets, SAVE USER PRESET and SHOW PRESET FOLDER. The button shows the preset that is loaded.",
                   "A preset sets every sound control of the plugin, MOTION included, and Live is told about every change, so the E16 rings follow. It never touches SLOW, MACRO, ALLOC, ROLE, a source setting or KEY FOLLOW.",
@@ -272,12 +274,14 @@ story.append(H2("NO ALIASING"))
 story.append(P("Every stage that distorts runs oversampled, all the time (switching an oversampler in and out would click), and every drive knob fades in from exactly clean: synth voices at 2x (the ladder, MS20-TYPE and SYNC models at 4x), KICK and PERC at 2x, DRIVE and STRIP at 4x, the drive in FILTER, ENERGY and VOICE, the saturation inside the DELAY loop, RUMBLE's GRIT, LOWEND's SUB CLIP, STRIKE's fracture and TONE at 2x, LIMIT's clipper at 4x. The filters reject images and aliases by 112 dB or more and are flat to 20 kHz. Oscillators are band-limited (wavetables per octave, corrected hard sync): measured alias products sit 77 to 105 dB below the note."))
 story.append(H2("THE MASTER"))
 story += bullets(["SF LIMIT measures true peak (the level between samples that a DAC or a codec will produce) at 8x, and its output never exceeds CEILING. Use -1 dB for venues and releases.",
-                  "Its meter follows ITU-R BS.1770-4 / EBU R128 exactly: MOMENTARY (400 ms), SHORT-TERM (3 s), INTEGRATED (gated, over the whole set since RESET).",
-                  "SF TONE voices the whole set (LOW, MUD, PRESENCE, AIR, TILT); SF ROOM EQ corrects the room, per venue. Keep them separate: TONE is the record, ROOM EQ is the venue."])
+                  "Its meter follows ITU-R BS.1770-4 / EBU R128 exactly: MOMENTARY (400 ms), SHORT-TERM (3 s), INTEGRATED (gated, over the whole set since RESET). It passes the EBU Tech 3341 level, gating and short-term cases within 0.02 LU.",
+                  "SF LIMIT AUTO keeps the loudest moments of the last minute at TARGET and holds through breakdowns, so the drop comes back where it was. AUTO MODE DOWN ONLY (the default) never lifts the set above unity.",
+                  "SF TONE voices the whole set (LOW, MUD, PRESENCE, AIR, TILT); SF ROOM EQ corrects the room, per venue. Keep them separate: TONE is the record, ROOM EQ is the venue, and only the venue hears ROOM EQ (below)."])
 story.append(H2("ANY BUFFER SIZE, ANY SAMPLE RATE"))
 story.append(P("Every plugin processes in 64-sample steps on a fixed grid of the audio stream, whatever Live's buffer size, so a set sounds exactly the same at buffer 64 and buffer 2048 (bit for bit) and at 44.1, 48 or 96 kHz. Song recalls land on the exact sample of the bar line."))
 story.append(H2("RECORDING A SET"))
-story += bullets(["Record the master after SF LIMIT, at the session's sample rate, 24-bit or 32-bit float.",
+story += bullets(["Record the Main output (after SF LIMIT, before SF ROOM EQ) at the session's sample rate, 24-bit or 32-bit float: an audio track REC with Audio From = Resampling, Monitor Off, armed. Live records what comes into a track, before its devices.",
+                  "The room's correction stays out of the release: SF ROOM EQ sits on the PA track (see Setting up Live), or do the venue EQ in the audio interface's own mixer, after Live.",
                   "Press RESET on SF LIMIT before you start: INTEGRATED then reads the loudness of the whole set.",
                   "MOTION's RANDOM and DRIFT are seeded and the seeds are saved with the set, so they move the same way every time the set is played."])
 
@@ -288,8 +292,10 @@ story.append(H2("TRACKS"))
 lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Makes no sound."],
        ["MIDI tracks", "SF KICK, SF PERC (2-3), SF RUMBLE (no clips needed), SF BASS, SF LEAD (1-2), SF VOICE, SF PAD, SF STRIKE, SF DECK."],
        ["Groups", "SF ENERGY on each group, PROFILE to match (DRUMS, BASS, MUSIC, VOICE)."],
-       ["Returns", "SF DELAY, SF REVERB, SF DENSITY."],
-       ["Master", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF ROOM EQ > SF LIMIT. SF ALLOC anywhere on the master."],
+       ["Returns", "SF DELAY, SF REVERB, SF DENSITY, each with DRY off (the return gives only the effect)."],
+       ["Main (master)", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT. SF ALLOC anywhere on it. Its output to an output pair you don't use."],
+       ["Audio track PA", "Audio From = Resampling (the Main output), Monitor In, SF ROOM EQ, Audio To = the PA outputs. The venue hears ROOM EQ."],
+       ["Audio track REC", "Audio From = Resampling, Monitor Off, armed: records the set without ROOM EQ."],
        ["Live instruments / hardware", "SF STRIP last on the track: the suite's performance row, Pocket and ALLOC for any sound."],
        ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
@@ -303,9 +309,10 @@ story.append(H2("FIRST SESSION CHECKS"))
 story += bullets(["SF CONTROL shows <b>BUS SHARED</b>. Play SF KICK: it shows <b>KICK REPORTING</b>.",
                   "SF KICK + SF BASS with POCKET DEPTH up and SHAPE right: the pump lands exactly on the kick.",
                   "SF ALLOC on the master: every SF source appears in the list; raise DEPTH on a band where two of them overlap and watch the amber.",
-                  "Store two songs; switch with Program Change: the E16 rings follow.",
+                  "Store two songs; switch with Program Change: the E16 rings follow. With SF FILTER on tracks above and below SF CONTROL, every track changes on the same bar.",
                   "SF DECK: load a track, PLAY A: it starts on the bar, locked to Live's tempo.",
-                  "Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune. Hold PANIC with SF DELAY in feedback: silence within 5 ms."])
+                  "Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune. Hold PANIC with SF DELAY in feedback: silence within 5 ms, for as long as you hold it.",
+                  "Record a minute on REC with a deep cut on ROOM EQ: the PA has the cut, the recording doesn't."])
 story.append(PageBreak())
 
 # ---------------- PART 2: modules

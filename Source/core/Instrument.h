@@ -4,6 +4,9 @@
 //   0-50%  : one echo one ECHO SPACE later (1/8 hats become 1/16 hats)
 //   50-100%: two more ghosts at half spacing (1/32 rolls)
 // Echo generation (gen) is passed to the voice: each generation is darker and shorter.
+// A ghost carries two levels: `vel` (played softer: the instrument's velocity response, accent,
+// timbre) and `gain` (the DENSITY fade-in, applied by the instrument after its velocity response,
+// so a ghost really rises from silence: at DENSITY 1 % it is 34 dB down, not just a softer hit).
 #include "Dsp.h"
 #include "Module.h"
 
@@ -16,6 +19,7 @@ struct NoteEvent
     float vel = 1.0f;   // 0..1
     int gen = 0;        // 0 = played note, 1.. = echoes
     bool on = true;
+    float gain = 1.0f;  // DENSITY fade (post velocity response); 1 for played notes
 };
 
 class EchoScheduler
@@ -91,19 +95,20 @@ private:
         const int64_t base = now + off;
         const float t1 = clamp01 (d * 2.0f);             // first echo fades in over 0..50%
         const float t2 = clamp01 ((d - 0.5f) * 2.0f);    // ghosts fade in over 50..100%
-        auto emit = [&] (double at, float level, int gen)
+        auto emit = [&] (double at, float fade, float softer, int gen)
         {
-            if (level <= 0.01f || rng.uni() > prob) return;
+            if (fade <= 0.01f || rng.uni() > prob) return;
             NoteEvent g = e;
-            g.vel = e.vel * level;
+            g.vel = e.vel * softer;
+            g.gain = fade;
             g.gen = gen;
             add (base + (int64_t) at, g);
             if (offs) add (base + (int64_t) (at + space * 0.45), { 0, e.note, 0.0f, gen, false });
         };
         const double sw = swing * space / 3.0;
-        emit (space + sw, 0.62f * t1, 1);
-        emit (space * 0.5, 0.38f * t2, 2);
-        emit (space * 1.5 + sw, 0.32f * t2, 2);
+        emit (space + sw, t1, 0.62f, 1);
+        emit (space * 0.5, t2, 0.38f, 2);
+        emit (space * 1.5 + sw, t2, 0.32f, 2);
     }
 };
 

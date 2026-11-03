@@ -95,7 +95,7 @@ public:
         Mode m[16];
         double t = 0.0;
         float vel = 1.0f, blastT = 0.001f, blastAmp = 0.0f, blastLp = 0.0f, lpA = 0.0f, debris = 0.0f, debrisZ = 0.0f;
-        float tension = 0.0f, tensionTau = 0.05f, fracture = 0.0f, level = 0.0f, peak = 1.0e-9f, fade = 1.0f, fadeStep = 0.0f;
+        float tension = 0.0f, tensionTau = 0.05f, fracture = 0.0f, level = 0.0f, peak = 1.0e-9f, fade = 1.0f, fadeStep = 0.0f, mix = 1.0f;
         int ticks = 0;
         float lvl() const { return active ? level : 0.0f; }
     };
@@ -124,7 +124,7 @@ public:
         float target = 0.0f;
         for (auto& v : voices)
             if (v.active && v.fracture > 0.0f)
-                target = std::max (target, v.fracture * std::min (1.0f, v.level / v.peak) * (v.fadeStep > 0.0f ? v.fade : 1.0f));
+                target = std::max (target, v.fracture * std::min (1.0f, v.level / v.peak) * (v.fadeStep > 0.0f ? v.fade : 1.0f) * v.mix);
         const float f0 = fractureSm;
         const float coef = std::exp (-(float) c.n / ((target > fractureSm ? 0.002f : 0.05f) * (float) sr));
         fractureSm = target + coef * (fractureSm - target);
@@ -219,7 +219,7 @@ private:
             const auto& w = voices[(size_t) k];
             if (! w.active || w.fadeStep > 0.0f) continue;
             ++sounding;
-            if (quietest < 0 || w.level < voices[(size_t) quietest].level) quietest = k;
+            if (quietest < 0 || w.level * w.mix < voices[(size_t) quietest].level * voices[(size_t) quietest].mix) quietest = k;
         }
         if (sounding >= kSounding && quietest >= 0) voices[(size_t) quietest].fadeStep = 1.0f / (0.005f * (float) sr);
         int idx = -1;
@@ -240,6 +240,7 @@ private:
         v.active = true; v.object = objIdx;
         const float velK = ev.gen == 0 ? lerp (1.0f, ev.vel, c.v (VELSENS)) : ev.vel;
         v.vel = velK * std::pow (0.7f, (float) ev.gen);
+        v.mix = ev.gain;                    // DENSITY fade, after the blast (power follows velocity)
         // Velocity and echo generation scale the charge.
         const float power = clamp01 (c.v (POWER) * (0.55f + 0.45f * velK) * (ev.gen > 0 ? 0.8f : 1.0f));
         float T, amp, lp;
@@ -324,7 +325,7 @@ private:
         }
         // The crack itself (direct pressure wave) on top.
         const float crack = v.blastLp * 0.35f;
-        float gain = kGain * kObjects[v.object].gain * cal::at (cal::strike, v.object);
+        float gain = kGain * kObjects[v.object].gain * cal::at (cal::strike, v.object) * v.mix;
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return; } gain *= v.fade; }
         outL += (l * 0.25f + crack) * gain;
         outR += (r * 0.25f + crack) * gain;

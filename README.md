@@ -33,14 +33,16 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 
 ## Setting up the live set
 
-1. **SF CONTROL** on its own MIDI track, input from the OXI One. Program Change on channel 16 selects the song (01-16). Set each song's **KEY** here; map **PANIC** to a button you can find in the dark.
+1. **SF CONTROL** on its own MIDI track, input from the OXI One. Program Change on channel 16 selects the song (01-16); as VST3 this needs Live 12.2 or later (the AU reads it in any version). Set each song's **KEY** here; map **PANIC** to a button you can find in the dark. Everything stays silent while PANIC is held.
 2. **Instruments**, one per MIDI track: SF KICK, SF PERC (2-3), SF RUMBLE, SF BASS, SF LEAD, SF VOICE, SF PAD, SF STRIKE, SF DECK. Pick models in the header menu, or a starting point from **PRESET**.
 3. **Groups** get SF ENERGY (instead of the DJ filter). PROFILE: DRUMS / BASS / MUSIC / VOICE.
-4. **Returns:** SF DELAY, SF REVERB, SF DENSITY (for the send-delay hat fills).
-5. **Master:** SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF ROOM EQ > SF LIMIT, plus SF ALLOC anywhere on the master.
+4. **Returns:** SF DELAY, SF REVERB, SF DENSITY (for the send-delay hat fills). Turn **DRY** off on a return, so it gives only the effect.
+5. **Master:** SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT, plus SF ALLOC anywhere on the master. **SF ROOM EQ goes after the recording point, not on the master** (below).
 6. **Live instruments, drum racks, hardware:** SF STRIP last on the track gives it the suite's performance row and puts it in Pocket and ALLOC. **Stems:** SF TAP (no sound of its own) or SF STRIP.
 7. **E16:** map with Live's MIDI Map (Cmd-M). In Live's MIDI preferences turn **Remote** on for the E16 *output*, so rings follow song recalls and ALLOC slot changes. The first 8 controls of each plugin are its performance row.
 8. **Songs:** set every plugin for a song, choose the song number on SF CONTROL, press **STORE ALL**. Program Change (or the SONG knob) recalls it on the next bar.
+
+**Recording and the room.** The recording is the set; room correction belongs to the room. Set the Main track's output (the master; Live 12 calls it Main) to an output pair you don't use. Make an audio track **PA**: *Audio From* = Resampling (the Main output), Monitor **In**, SF ROOM EQ on it, *Audio To* = the PA outputs. Record the set on an audio track **REC**: *Audio From* = Resampling, Monitor **Off**, armed. Live records what comes into a track, before its devices, so the recording never carries the venue's correction. (Or do the venue EQ in the audio interface's own mixer, after Live.)
 
 **DECK:** drop tracks on the DECK window (they're analysed in the background: tempo, beat grid, loudness). Click **A** or **B** on a row to load it. Turn **PLAY A** on and it starts on the next QUANT boundary, synced to Live. Hot cues: C1-D#1 (deck A), C2-D#2 (deck B). For headphone cueing, make an audio track with *Audio From* = the DECK track, choose **CUE**, and route it to your headphone outputs.
 
@@ -58,14 +60,19 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 | Oversampling (linear-phase FIR, LIMIT clipper) | 99.5 dB rejection; whole 4x path flat to 20 kHz within 0.01 dB at 44.1, 48 and 96 kHz |
 | Synth alias floor (worst case, 3-octave sweep) | ACID 94 dB, FM 97 dB, STRING MACHINE 105 dB, SUB OSC 94 dB, MS20 77 dB, SYNC 79 dB |
 | LIMIT output true peak (8x, independent check) | never above CEILING: dense programme +12 dB into -1.0 gives -1.12 dBTP; noise +12 dB gives -1.02 dBTP |
-| Loudness meter (BS.1770-4 / EBU R128) | -20.00 LUFS on the 1 kHz reference |
+| Loudness meter (BS.1770-4 / EBU R128) | -20.00 LUFS on the 1 kHz reference; EBU Tech 3341 cases 1-5 and 9 (level, both gates, short-term) within 0.02 LU |
 | REVERB RT60 of the lows at DECAY 1 / 3 / 8 s | 0.99 / 3.04 / 8.00 s |
 | Buffer-size independence | 30 of 30 plugins bit-identical at buffer sizes 1 to 2048 |
 | Sample rates | all 30 clean at 44.1, 48 and 96 kHz |
 | Gain staging | every model of every instrument at its role's target within 0.1 dB (VOICE phrase models within 0.6 dB): KICK -15, PERC -22, RUMBLE -20, BASS -18, LEAD -20, PAD -22, VOICE -20, STRIKE -20 LUFS |
-| PANIC | feedback delay, 20 s reverb and a held pad silenced to -140 dB |
-| Song recall | on the bar line at every buffer size and song position tested (20 of 20; was 9 of 20) |
-| LIMIT AUTO | settles on TARGET with no overshoot (was +0.7 dB and a long settle) |
+| PANIC | feedback delay, 20 s reverb and a held pad silenced to -140 dB; held: -140 dB while held, back in 5 ms on release with no step, also through effects with latency |
+| Song recall | on the bar line at every buffer size and song position tested, whichever order Live processes the tracks in (20 of 20, no plugin a bar late); its KEY switches on that bar too (it used to switch up to a buffer early or late); inside an Arrangement loop that never reaches the bar, on the next bar line after the jump back |
+| LIMIT AUTO | settles on TARGET with no overshoot; holds through breakdowns (the drop comes back within 0.5 dB of TARGET; a 12 dB breakdown is not lifted) |
+| Sample playback above the original pitch | a 17 kHz sample an octave up folds back at -107 dB (it used to come back at 14 kHz); eight octaves up costs 1.3 x what a small transposition does (it used to cost 130 x) |
+| DRIVE MIX | MIX 0 is the input (0.00 dB); 50 % blend flat within 0.01 dB (dry path phase-aligned) |
+| DENSITY quiet end | at the knob's second step (MIDI 2 of 127) the first ghost is 30 dB under the 50 % ghost |
+| REVERB / DELAY FREEZE | a frozen loop holds its level and brightness within 0.15 dB over 14 s; freezing a playing signal adds no click (REVERB brightness unchanged, was +11 dB); TIME turned while frozen bends cleanly (was +13 dB of zipper) |
+| FILTER resonance guard | hot input at full resonance: 3rd harmonic -62 dB (smooth gain, no clipper) |
 
 ## CPU
 
@@ -73,18 +80,18 @@ Offline, one instance at default settings, 48 kHz, buffer 256, measured on the 2
 
 | Plugin | % of one core | Plugin | % of one core | Plugin | % of one core |
 |---|---:|---|---:|---|---:|
-| KICK | 1.0 | FILTER | 0.6 | ISOLATOR | 0.6 |
-| PERC | 1.2 | GATE | 0.3 | BUILD | 2.2 |
-| RUMBLE | 2.2 | DENSITY | 0.4 | GLUE | 0.4 |
-| BASS | 4.9 | DELAY | 1.2 | TONE | 0.5 |
-| LEAD | 2.0 | REVERB | 2.0 | LOWEND | 0.6 |
-| PAD | 11.1 | DRIVE | 1.0 | LIMIT | 4.3 |
-| VOICE | 1.3 | RADIO | 0.5 | ROOM EQ | 0.2 |
-| STRIKE | 1.5 | REPEAT | 0.3 | ALLOC | 0.9 |
-| DECK | 0.3 | DUCK | 0.4 | TAP | 0.5 |
-| CONTROL | 0.1 | ENERGY | 0.7 | STRIP | 1.4 |
+| KICK | 0.8 | FILTER | 0.5 | ISOLATOR | 0.5 |
+| PERC | 1.0 | GATE | 0.2 | BUILD | 1.3 |
+| RUMBLE | 2.0 | DENSITY | 0.2 | GLUE | 0.3 |
+| BASS | 3.4 | DELAY | 1.0 | TONE | 0.5 |
+| LEAD | 1.7 | REVERB | 1.4 | LOWEND | 0.5 |
+| PAD | 7.4 | DRIVE | 1.0 | LIMIT | 3.5 |
+| VOICE | 1.2 | RADIO | 0.4 | ROOM EQ | 0.2 |
+| STRIKE | 1.5 | REPEAT | 0.2 | ALLOC | 0.7 |
+| DECK | 0.4 | DUCK | 0.4 | TAP | 0.5 |
+| CONTROL | 0.1 | ENERGY | 0.6 | STRIP | 1.3 |
 
-A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DECK, 4 ENERGY, DELAY, REVERB, DENSITY and the whole master chain) adds up to about half of one core here.
+A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DECK, 4 ENERGY, DELAY, REVERB, DENSITY and the whole master chain) adds up to about 36 % of one core here (best of three runs; timings on this shared machine vary by 10-20 % from run to run).
 
 ## Status
 
@@ -99,24 +106,33 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 | 6 Instruments: KICK PERC RUMBLE BASS LEAD PAD VOICE (all models + samplers) | Written and passing offline tests. **Awaiting ear test** |
 | 7 DECK (tracklist, analysis, sync, key lock, cues, roll) | Written and passing offline tests (sample-accurate sync 128 -> 124 BPM). **Awaiting test in Live** |
 | 8 Sound and reliability pass (Nov 3): oversampling everywhere, band-limited oscillators, true-peak LIMIT, BS.1770 meters, REVERB / DELAY / GLUE upgrades, gain staging, KEY, MOTION, PANIC, presets, SF STRIKE, SF TONE | Written and passing offline tests and measurements. **Awaiting ear test and test in Live** |
+| 9 Second audit (Nov 3): recall across tracks, knob takeover, held PANIC, DRY on returns, sample reader, DENSITY ghosts, REPEAT, FREEZE, stuck notes, ALLOC stereo and source identity, LIMIT AUTO breakdowns, record / PA routing; then an independent review of those fixes: PANIC release and latching, KEY on the bar, recall in loops, FREEZE edges, sample reader CPU | Fixed, each with a regression test. **Awaiting test in Live** |
 
 ### First things to check in Live
 
 1. **The bus.** SF CONTROL's display should say **BUS SHARED**. Put SF KICK on a track and play it: CONTROL should show **KICK REPORTING**.
 2. **Pocket timing.** SF KICK + SF BASS (POCKET DEPTH up, SHAPE right for an audible pump). The pump should land exactly on the kick. Live's buffer size must be 512 or less. If it's consistently early or late, trim POCKET OFFSET on SF CONTROL.
 3. **ALLOC.** Put SF ALLOC on the master. Every SF source should appear in its list (by track name with VST3). Drag the order, raise DEPTH on a band where two overlap, and watch the amber.
-4. **Songs.** Store two songs and switch with Program Change from the OXI. The E16 rings should follow. With the VST3, Live delivers Program Change as a program change (SF CONTROL lists SONG 01-16); if it doesn't arrive, try the AU.
+4. **Songs.** Store two songs and switch with Program Change from the OXI. The E16 rings should follow. With the VST3, Live 12.2 and later deliver Program Change as a program change (SF CONTROL lists SONG 01-16); with an older Live, or if it doesn't arrive, use the AU.
 5. **DECK.** Load a track, PLAY A: it should start on the bar, locked to Live's tempo.
-6. **KEY and PANIC.** Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune to the root. Push SF DELAY into feedback and hold PANIC: everything goes quiet within 5 ms.
+6. **KEY and PANIC.** Set KEY on SF CONTROL: BASS, LEAD and PAD transpose (notes already held follow), KICK and RUMBLE retune to the root. Push SF DELAY into feedback and hold PANIC: everything goes quiet within 5 ms and stays quiet until you let go.
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
+8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
 
 ### Changes in the Nov 3 update that affect existing sets
 
-- **Rebuild and install everything.** The SF BUS moved to v3; old and new builds don't talk to each other.
+- **Rebuild and install everything.** The SF BUS moved to v4; old and new builds don't talk to each other.
+- **Returns: turn DRY off.** SF DELAY, SF REVERB and SF DENSITY have a DRY switch (on by default, as before). On a return track switch it off, or the send comes back dry as well as wet.
+- **PANIC is held.** While PANIC is held every SF plugin stays silent (it used to come back after 5 ms) and shows PANIC in red in its header; releasing it fades back in. A set never reopens with PANIC (or any momentary button) pressed.
+- **LIMIT AUTO turns down only** (new AUTO MODE, default DOWN ONLY) and holds through breakdowns: it keeps the loudest moments of the last minute at TARGET. UP AND DOWN also lifts a quieter set, at 0.5 dB/s, but never a breakdown.
+- **DENSITY ghosts are quieter at the low end.** They now rise from silence; at the same DENSITY a fill sounds softer below about 30 %. Quiet ghosts no longer cut the ringing kick or CHOKE the previous hit.
+- **SF REPEAT** keeps the captured slice for the whole hold (a long roll used to pick up later input) and keeps playing the loop through the release crossfade.
+- **Song recall** lands on the same bar on every track; a recall sent within 30 ms after a bar line counts for that bar.
+- **SF ALLOC's order follows each plugin, not its name.** Reopening the set or renaming a track keeps every source's place (two PERCs used to be able to swap). A duplicated track joins at the bottom.
 - **Levels changed.** Models are now calibrated to role targets. At the same LEVEL, KICK is about 3-6 dB quieter, some PERC and PAD models change by several dB, and the VOICE vocoder models are much quieter than before. Re-balance faders once.
 - **KICK LAYER works now.** It used to cut the main voice after 3 ms, so a layered kick was only the layer. Main and layer now sum to the level of one kick.
 - **DRIVE knobs start clean.** FILTER, ENERGY and STRIP drive (and synth DRIVE at its low end) fade in from exactly clean instead of jumping +3-4 dB at the first notch.
-- **KEY needs SF CONTROL running.** Without it (deleted, or another set), instruments ignore any key left over.
+- **KEY needs SF CONTROL running** (and notes already held follow KEY and TUNE). Without it (deleted, or another set), instruments ignore any key left over.
 - **SF LIMIT latency** is now 176 samples at 48 kHz (was 72); Live compensates it. **SF DRIVE** now uses the suite's own 4x oversampler (112 dB instead of about 70 dB alias rejection); its latency is 5 samples.
 - **Editors are taller:** a MOTION row and a SYSTEM row sit under each plugin's controls.
 - New: PRESET menus, KEY and PANIC on SF CONTROL, KEY FOLLOW on instruments, SF STRIKE, SF TONE, FAULT indicator in every header.

@@ -78,11 +78,13 @@ struct Ctx
     double beatsPerBar = 4.0;
     int keyRoot = -1;             // SF CONTROL KEY: 0..11 = C..B, -1 = not set
     int64_t samplePos = 0;        // stream position of this chunk (chunks sit on a fixed 64-sample grid)
+    double barPhase = 0.0;        // ppq of a bar line (Live's last bar start, mod the bar)
     const float* p = nullptr;     // parameter values at block end (glided, macro applied)
     const float* p0 = nullptr;    // values at block start (for per-sample ramps)
     Bus* bus = nullptr;
     const char* trackName = "";  // Live track name (VST3 only; empty if unknown)
     uint32_t trackNameSeq = 0;
+    std::atomic<uint64_t>* uid = nullptr;   // this plugin instance's id, saved with the set (ALLOC's order)
 
     double beatsPerSample() const   { return bpm / 60.0 / sr; }
     double samplesPerBeat() const   { return sr * 60.0 / bpm; }
@@ -145,6 +147,8 @@ public:
     // Message-thread service from the host processor: set a parameter and tell Live.
     std::function<void (int index, float value)> setParam;
     std::function<float (int index)> getParam;
+    // The value a stored song holds for a parameter (NaN: that song isn't stored). Audio thread.
+    std::function<float (int song, int index)> getSongValue;
 };
 
 using ModulePtr = std::unique_ptr<Module>;

@@ -225,7 +225,7 @@ public:
 
     void prepare (double rate, int mb) override
     {
-        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate));
+        if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate, s->flacGain));
         sr = rate;
         osr = 2.0 * rate;
         waves = WaveSet::get (osr);
@@ -264,6 +264,7 @@ public:
         bool active = false, releasing = false;
         int note = 60, gen = 0, model = 0, layer = 0, autoOff = -1;
         float vel = 1.0f, gain = 1.0f, freq = 110.0f, target = 110.0f, glideCoef = 0.0f, accent = 0.0f;
+        float pitch = 60.0f, pitchTuned = 60.0f;   // the note (with chord interval) and the tuned pitch it plays at
         double rate = 96000.0;            // render rate: 2x, or 4x for ladder / MS20 models
         int os = 2;
         double ph[8] {}, ph2[8] {}, subPh = 0.0, modPh = 0.0, spos = 0.0;
@@ -279,7 +280,7 @@ public:
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
         struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; } grains[8];
         int grainClock = 0;
-        float level() const { return active ? amp.v * vel : 0.0f; }
+        float level() const { return active ? amp.v * vel * gain : 0.0f; }
     };
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
@@ -309,8 +310,9 @@ public:
                 const auto& ev = events[e++];
                 if (ev.on)
                 {
-                    noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff, relMul);
-                    if (layer > 0.01f) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff, relMul);
+                    // ev.gain: the DENSITY fade, applied after the velocity response (v.gain is post-filter).
+                    noteOn (c, modelA, ev, ev.gain / (1.0f + layer * 0.5f), 0, autoOff, relMul);
+                    if (layer > 0.01f) noteOn (c, modelB, ev, ev.gain * layer / (1.0f + layer * 0.5f), 1, autoOff, relMul);
                 }
                 else noteOff (ev.note, ev.gen, relMul);
             }
@@ -407,6 +409,7 @@ private:
         v.vel = 0.55f + 0.45f * lerp (1.0f, ev.vel, 0.6f);
         v.gain = gain;
         v.target = noteHz (note);
+        v.pitchTuned = note; v.pitch = note - pitchOffset;
         v.glideCoef = c.v (GLIDE) > 0.02f && ! m.acid ? std::exp (-1.0f / ((0.005f + c.v (GLIDE) * 0.4f) * (float) v.rate)) : 0.0f;
         if (! wasActive) v.freq = v.target;
         v.accent = accent ? c.v (ACCENT) : 0.0f;
@@ -428,20 +431,23 @@ private:
         if (gen == 0)
         {
             held.erase (std::remove (held.begin(), held.end(), note), held.end());
-            // Mono: return to the previous held note (slide), every layer.
-            bool slid = false;
             for (auto& v : voices)
-                if (v.active && ! v.releasing && v.note == note && models[(size_t) v.model].mono && ! held.empty())
+            {
+                if (! v.active || v.releasing || v.note != note) continue;
+                const bool mono = models[(size_t) v.model].mono;
+                if (mono && ! held.empty())
                 {
+                    // Mono: return to the previous held note (slide).
                     v.note = held.back();
                     v.target = noteHz ((float) held.back() + pitchOffset);
+                    v.pitch = (float) held.back(); v.pitchTuned = v.pitch + pitchOffset;
                     v.glideCoef = std::exp (-1.0f / (0.06f * (float) v.rate));
-                    slid = true;
                 }
-            if (slid) return;
-            // A played note's release ends its voice even if an echo retriggered it.
-            for (auto& v : voices)
-                if (v.active && ! v.releasing && v.note == note && (v.gen == 0 || models[(size_t) v.model].mono)) { v.amp.off(); v.fenv.off(); v.releasing = true; }
+                // A played note's release ends its voice even if an echo retriggered it. (Poly
+                // layer voices are released even when the mono layer slides back: they used to
+                // be skipped, and stuck.)
+                else if (v.gen == 0 || mono) { v.amp.off(); v.fenv.off(); v.releasing = true; }
+            }
             return;
         }
         // Echo releases only end echo voices, never a voice a held note owns.
@@ -458,6 +464,8 @@ private:
         auto& k = v.ctl;
         const double vr = v.rate;
         const float invOsr = (float) (1.0 / vr);
+        // TUNE and KEY reach notes that are already sounding (gliding there if GLIDE is set).
+        if (const float tuned = v.pitch + pitchOffset; std::abs (tuned - v.pitchTuned) > 1e-4f) { v.pitchTuned = tuned; v.target = noteHz (tuned); }
         const float cutK = c.v (CUTOFF), envA = c.v (ENVAMT) * m.envMul * (1.0f + v.accent);
         k.res = clamp01 (c.v (RES) * m.resMul);
         const float drive = clamp01 (c.v (DRIVE) + m.drive);
@@ -560,11 +568,11 @@ private:
                     for (int u = 0; u < uni; ++u)
                     {
                         float y = osc (shape1, oct1[u], v.ph[u], pw[u]);
-                        v.ph[u] += inc * uniR[u]; if (v.ph[u] >= 1.0) v.ph[u] -= 1.0;
+                        v.ph[u] += inc * uniR[u]; wrap01 (v.ph[u]);
                         if (osc2Amt > 0.0f && m.engine != E_HOOVER)
                         {
                             y += osc (m.wave2, oct2[u], v.ph2[u], pw2) * osc2Amt;
-                            v.ph2[u] += inc * uniR[u] * r2[u]; if (v.ph2[u] >= 1.0) v.ph2[u] -= 1.0;
+                            v.ph2[u] += inc * uniR[u] * r2[u]; wrap01 (v.ph2[u]);
                         }
                         if (uni > 1) { xl += y * (1.0f - v.pan[u]); xr += y * v.pan[u]; stereo = true; }
                         else x += y;
@@ -573,7 +581,7 @@ private:
                     if (doSub)
                     {
                         const float sq = W.square.read (octSub, v.subPh) * subLvl;
-                        v.subPh += inc * 0.5; if (v.subPh >= 1.0) v.subPh -= 1.0;
+                        v.subPh += inc * 0.5; wrap01 (v.subPh);
                         x += sq; xl += sq; xr += sq;
                     }
                     if (m.noise > 0.0f) { const float nz = rng.next() * m.noise; x += nz; xl += nz; xr += nz; }
@@ -583,8 +591,9 @@ private:
                 {
                     static const double h[6] = { 1, 2, 3, 4, 6, 8 };
                     const float w[6] = { 1.0f, 0.8f * color + 0.2f, 0.9f, 0.5f * color, 0.3f, 0.25f * color };
-                    v.ph[0] += inc; if (v.ph[0] >= 1.0) v.ph[0] -= 1.0;
-                    for (int k = 0; k < 6; ++k) { const double p = v.ph[0] * h[k]; x += sinT (p - std::floor (p)) * w[k]; }
+                    v.ph[0] += inc; wrap01 (v.ph[0]);
+                    for (int k = 0; k < 6; ++k)
+                        if ((double) f * h[k] < 0.45 * vr) { const double p = v.ph[0] * h[k]; x += sinT (p - std::floor (p)) * w[k]; }   // drawbars above Nyquist stay silent
                     x *= 0.35f;
                     if (v.t < 0.004f) x += rng.next() * 0.3f * (1.0f - v.t / 0.004f);       // key click
                     { const double p = v.ph[0] * 3.0; x += sinT (p - std::floor (p)) * 0.4f * std::exp (-v.t / 0.2f); }   // percussion
@@ -593,11 +602,11 @@ private:
                 case E_FM:
                 {
                     const float idx = (0.5f + color * 6.0f) * (0.3f + 0.7f * v.fenv.v) * (1.0f + v.accent);
-                    v.modPh += inc * m.ratio * (0.98 + det * 0.04); if (v.modPh >= 1.0) v.modPh -= 1.0;
+                    v.modPh += inc * m.ratio * (0.98 + det * 0.04); wrap01 (v.modPh);
                     double mp = v.modPh + v.fb * (0.3f / kTwoPi); mp -= std::floor (mp);
                     const float mod = sinT (mp);
                     v.fb = mod;
-                    v.ph[0] += inc; if (v.ph[0] >= 1.0) v.ph[0] -= 1.0;
+                    v.ph[0] += inc; wrap01 (v.ph[0]);
                     double cp = v.ph[0] + idx * mod / kTwoPi; cp -= std::floor (cp);
                     x = sinT (cp);
                     break;
@@ -606,7 +615,7 @@ private:
                 {
                     // Hard sync: slave saw restarts with the master; every edge BLEP-corrected.
                     const float ratio = 1.0f + (color * 4.0f + v.fenv.v * c.v (ENVAMT) * 6.0f);
-                    x = v.sync.tick (inc, std::min (0.45, inc * ratio)) * 0.8f;
+                    x = v.sync.tick (std::min (0.45, inc), std::min (0.45, inc * ratio)) * 0.8f;
                     break;
                 }
                 case E_NOISE:
@@ -618,12 +627,13 @@ private:
                     const int t0 = std::min (2, (int) pos);
                     const float fr = pos - (float) t0;
                     x = lerp (W.frame[t0].read (oct1[0], v.ph[0]), W.frame[t0 + 1].read (oct1[0], v.ph[0]), fr);
-                    v.ph[0] += inc; if (v.ph[0] >= 1.0) v.ph[0] -= 1.0;
+                    v.ph[0] += inc; wrap01 (v.ph[0]);
                     break;
                 }
                 case E_GRAIN:
                 {
                     const auto& src = smp != nullptr ? smp->buf : grainSrc;
+                    const auto& mips = smp != nullptr ? smp->mips : grainMips;
                     const int len = src.getNumSamples();
                     const float root = smp != nullptr && smp->rootHz > 0 ? smp->rootHz : 130.81f;
                     const int glen = (int) ((0.03f + color * 0.25f) * sr);       // source samples
@@ -643,14 +653,12 @@ private:
                             }
                     }
                     stereo = true;
-                    const float* s0 = src.getReadPointer (0);
-                    const float* s1 = src.getReadPointer (src.getNumChannels() > 1 ? 1 : 0);
                     for (auto& gr : v.grains)
                     {
                         if (! gr.on) continue;
                         if ((int) gr.pos + 2 >= len || gr.age >= gr.len) { gr.on = false; continue; }
                         const float w = 0.5f - 0.5f * std::cos (kTwoPi * (float) gr.age / (float) gr.len);
-                        const float y = (hermiteAt (s0, len, gr.pos) + hermiteAt (s1, len, gr.pos)) * 0.5f * w;
+                        const float y = (readAt (src, mips, 0, gr.pos, gr.rate) + readAt (src, mips, 1, gr.pos, gr.rate)) * 0.5f * w;
                         xl += y * (1.0f - gr.pan); xr += y * gr.pan;
                         gr.pos += gr.rate; ++gr.age;
                     }
@@ -661,10 +669,11 @@ private:
                     if (smp == nullptr) { v.active = false; return; }
                     const int len = smp->length();
                     if ((int) v.spos + 2 >= len) { v.active = false; return; }
-                    xl = hermiteAt (smp->buf.getReadPointer (0), len, v.spos);
-                    xr = hermiteAt (smp->buf.getReadPointer (smp->buf.getNumChannels() > 1 ? 1 : 0), len, v.spos);
+                    const double rate = (double) f / (double) noteHz (smp->rootNote) / v.os;
+                    xl = smp->read (0, v.spos, rate);
+                    xr = smp->read (1, v.spos, rate);
                     stereo = true;
-                    v.spos += (double) f / (double) noteHz (smp->rootNote) / v.os;
+                    v.spos += rate;
                     break;
                 }
             }
@@ -719,6 +728,7 @@ private:
             x = lp.tickLP (x * 0.2f);
             grainSrc.setSample (0, i, x); grainSrc.setSample (1, i, x);
         }
+        grainMips.build (grainSrc);
     }
 
     std::string name;
@@ -743,6 +753,7 @@ private:
     static constexpr int kSub = 32;
     float L2[2 * kSub] {}, R2[2 * kSub] {}, L4[4 * kSub] {}, R4[4 * kSub] {};
     juce::AudioBuffer<float> grainSrc;
+    Mips grainMips;
     std::atomic<int> activeVoices { 0 };
 };
 

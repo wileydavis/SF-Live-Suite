@@ -4,7 +4,7 @@
 # ------------------------------------------------------------------ shared control descriptions
 COMMON = {
     "filter": "Bipolar DJ filter on the output. Centre is open. Left sweeps a 24 dB/oct low-pass down to 60 Hz; right sweeps a high-pass up to 12 kHz. Resonance is level-compensated, so a full sweep never jumps in volume.",
-    "density": "Ghost notes. 0-50 %: one echo of every note fades in one ECHO SPACE later (1/8 hats become 1/16 hats with ECHO SPACE at 1/16). 50-100 %: two more ghosts at half that spacing (1/32 rolls). Each ghost is quieter, darker and shorter than the note before it.",
+    "density": "Ghost notes. 0-50 %: one echo of every note fades in one ECHO SPACE later (1/8 hats become 1/16 hats with ECHO SPACE at 1/16). 50-100 %: two more ghosts at half that spacing (1/32 rolls). Each ghost is quieter, darker and shorter than the note before it. Ghosts are played softer and also faded in after the instrument's velocity response, so at the first notch they are 30 dB down: a fill really rises from silence. A quiet ghost never cuts the ringing kick or chokes the previous hit.",
     "level": "Output level. Default is set so the module sits sensibly in a mix.",
     "echo_space": "Spacing of the DENSITY ghost notes after each note: 1/8, 1/16, 1/16T, 1/32, 1/8T, 1/8D. 1/8 lands on the offbeat; 1/8D gives a dub gallop.",
     "echo_swing": "Pushes the first ghost note late by up to a third of ECHO SPACE, so fills sit looser.",
@@ -299,23 +299,24 @@ MODULES["CONTROL"] = dict(
     summary="The suite's brain. Six macros every SF plugin can follow, song select (Program Change), STORE ALL. Makes no sound.",
     use=[
         "Put it on its own MIDI track receiving the OXI One.",
-        "Program Change on channel 16 selects the song (VST3: Live delivers it as a program change; SF CONTROL lists SONG 01-16).",
+        "Program Change on channel 16 selects the song. AU: in any Live version. VST3: Live 12.2 and later deliver it as a program change (SF CONTROL lists SONG 01-16); older versions don't.",
+        "Every plugin changes on the same bar line, whatever order Live processes the tracks in. A change sent within 30 ms after a bar line (on the downbeat) counts for that bar; later in the bar, for the next one.",
         "To save a song: set every plugin, choose the song number, press STORE ALL.",
         "The display shows macro levels, the song, the key, and whether the bus is shared, SF KICK is reporting and SF ALLOC is running.",
         "KEY: write parts in C and set each song's key here. Every pitched SF instrument follows; KICK, RUMBLE and STRIKE tune themselves to the key root.",
-        "PANIC: map it to a button you can find in the dark. Every SF plugin fades out over 5 ms and clears every voice, tail and delay line.",
+        "PANIC: map it to a button you can find in the dark. Every SF plugin fades out over 5 ms, clears every voice, tail and delay line, and stays silent while you hold it.",
     ],
     models=[],
     desc={
         "macro1": "Macro 1. Any SF plugin with MACRO SRC = MACRO 1 follows it.",
         "macro2": "Macro 2.", "macro3": "Macro 3.", "macro4": "Macro 4.", "macro5": "Macro 5.", "macro6": "Macro 6.",
-        "song": "Selects the song (01-16). Every SF plugin recalls its stored values on the next bar.",
+        "song": "Selects the song (01-16). Every SF plugin recalls its stored values on the next bar. A recalled knob is yours again the moment you turn it.",
         "store_all": "Stores every SF plugin's current values into the selected song.",
         "pc_channel": "MIDI channel that Program Change is read from (default 16).",
         "pc_enable": "Turns Program Change song select on or off.",
         "pocket_offset": "Timing calibration for Pocket and RUMBLE, -20 to +20 ms (+ = later). Set once, by ear, if the pump lands early or late in your Live setup; leave at 0 otherwise.",
-        "key": "Key of the song: OFF, C ... B. Parts written in C play in this key on every SF instrument with KEY FOLLOW on (nearest transposition, -6 to +5 semitones). Stored per song. Only while SF CONTROL runs: remove it and every instrument is back in C.",
-        "panic": "Hold: every SF plugin fades out over 5 ms and clears every voice, tail and delay line. Nothing restarts until new notes or audio arrive.",
+        "key": "Key of the song: OFF, C ... B. Parts written in C play in this key on every SF instrument with KEY FOLLOW on (nearest transposition, -6 to +5 semitones). Stored per song; a song's key changes on the song's bar in every plugin. Notes already sounding follow. Only while SF CONTROL runs: remove it and every instrument is back in C.",
+        "panic": "Hold: every SF plugin fades out over 5 ms, clears every voice, tail and delay line, and stays silent (no input, no new notes) until you let go; every SF plugin's header shows PANIC in red meanwhile. Release: input and output fade back in over 5 ms; DECK has kept its place in time. A set never reopens with PANIC held.",
     },
 )
 
@@ -345,7 +346,7 @@ MODULES["GATE"] = dict(group="EFFECTS", summary="Rhythmic gate with 16 patterns,
         "rate": "Step size: 1/8, 1/16, 1/32, 1/16T.",
     })
 MODULES["DENSITY"] = dict(group="EFFECTS", summary="The send-delay hat trick as a plugin: fills sparse rhythms with ghost echoes, each generation darker and quieter.",
-    use=["Put it on hats or percussion (insert or return).", "DENSITY 50 % with SPACE 1/16 turns 1/8 hats into 1/16s; above 50 % adds 1/32 ghosts.", "PROB decides, per incoming hit, whether its echoes play."],
+    use=["Put it on hats or percussion (insert, or a return with DRY off).", "DENSITY 50 % with SPACE 1/16 turns 1/8 hats into 1/16s; above 50 % adds 1/32 ghosts.", "PROB decides, per incoming hit, whether its echoes play."],
     models=[], desc={
         "density": "0-50 %: one echo one SPACE later. 50-100 %: two more ghosts at half spacing.",
         "space": "Echo spacing: 1/8, 1/16, 1/16T, 1/32, 1/8T, 1/8D.",
@@ -354,16 +355,17 @@ MODULES["DENSITY"] = dict(group="EFFECTS", summary="The send-delay hat trick as 
         "prob": "Chance each incoming hit gets its echoes.",
         "mix": "Echo level.",
         "shorten": "Echoes carry only the start of each hit (tighter ghosts).",
+        "dry": "Passes the input. Turn it off on a return track, so the return gives only the echoes. Not stored in songs or presets.",
     })
 MODULES["DELAY"] = dict(group="EFFECTS", summary="Tape-style dub delay. Changing TIME bends the pitch as the tape head moves; feedback above 100 % saturates instead of exploding; THROW and FREEZE for live moves. Ducks its repeats around the kick.",
-    use=["As a return: INPUT THROW ONLY and THROW mapped to a button gives dub throws.", "Turn TIME during a tail for the tape-bend. SLEW sets how long the bend takes.", "FEEDBACK past 100 % with TONE swept = the runaway dub effect, safe."],
+    use=["As a return (DRY off): INPUT THROW ONLY and THROW mapped to a button gives dub throws.", "Turn TIME during a tail for the tape-bend. SLEW sets how long the bend takes.", "FEEDBACK past 100 % with TONE swept = the runaway dub effect, safe."],
     models=[], desc={
         "time": "Delay time, synced: 1 BAR to 1/32. Changing it slews the head (pitch bend).",
         "feedback": "Repeats, up to 115 %. Above 100 % the loop saturates instead of growing.",
         "tone": "Bipolar filter inside the feedback loop: left darker, right thinner. Each repeat goes further than the last.",
         "drive": "Saturation inside the feedback loop (2x oversampled): each repeat dirtier than the last.",
         "throw": "Hold to send into the delay (louder send in INPUT ALWAYS, the only send in THROW ONLY).",
-        "freeze": "Loops the current repeats forever, losslessly (10 ms crossfade in and out); input muted.",
+        "freeze": "Loops the current repeats forever, losslessly: no feedback loss, no filtering, the tape wow stops (10 ms crossfade in and out); input muted. Turning TIME while frozen bends the loop (a tape-speed move) and it locks again when the head settles.",
         "mix": "Wet level.",
         "width": "Stereo width of the repeats.",
         "slew": "How long a TIME change takes (the length of the pitch bend).",
@@ -373,6 +375,7 @@ MODULES["DELAY"] = dict(group="EFFECTS", summary="Tape-style dub delay. Changing
         "duck_shape": "Pocket shape for the repeats.",
         "wow": "Tape wow on the repeats.",
         "lo_cut": "Low cut inside the loop.",
+        "dry": "Passes the input at unity (MIX sets only the repeats). Turn it off on a return track. Not stored in songs or presets.",
     })
 MODULES["REVERB"] = dict(group="EFFECTS", summary="Dark feedback-network reverb with freeze, throw, gated mode and ducking (kick pocket plus dry-follow, so tails bloom in the gaps).",
     use=["DUCK at 30-60 % keeps big spaces from washing out the groove.", "FREEZE holds the space as a drone; THROW sends a single hit."],
@@ -380,17 +383,18 @@ MODULES["REVERB"] = dict(group="EFFECTS", summary="Dark feedback-network reverb 
         "size": "Room size.", "decay": "Decay time of the lows, 0.3 to 30 s (measured: DECAY is the real RT60).", "dark": "Damping: shortens the decay of the highs only, so the tail gets darker without getting shorter.",
         "predelay": "Synced predelay: 0, 1/64, 1/32, 1/16, 1/8, 1/4.",
         "duck": "Ducks the tail under the kick and while the dry signal plays.",
-        "freeze": "Infinite hold; input muted.", "throw": "Hold to send (or the only send in INPUT THROW ONLY).",
+        "freeze": "Infinite hold: the space keeps its level and brightness (measured over 14 s). The input fades into the frozen space over 10 ms, then is muted.", "throw": "Hold to send (or the only send in INPUT THROW ONLY).",
         "mix": "Wet level.", "mod": "Modulation of the tail (chorus-like movement).", "width": "Stereo width.",
         "gated": "Gated reverb: the tail is cut GATE TIME after each hit.", "gate_time": "1/16, 1/8, 1/4, 1/2.",
         "lo_cut": "Low cut on the input.", "duck_shape": "Pocket shape for the tail.", "input": "ALWAYS or THROW ONLY.",
+        "dry": "Passes the input at unity (MIX sets only the tail). Turn it off on a return track. Not stored in songs or presets.",
     })
 MODULES["DRIVE"] = dict(group="EFFECTS", summary="Saturation with one CHARACTER knob from smooth to fuzz: TAPE, TUBE, FUZZ, INDUSTRIAL. 4x oversampled, auto gain.",
     use=["Your smooth-then-heavy arc on a single knob: automate CHARACTER across a track.", "LOW KEEP keeps the sub clean while the rest distorts."],
     models=[], desc={
         "drive": "Amount, 0 to +36 dB into the shaper.", "character": "TAPE > TUBE > FUZZ > INDUSTRIAL (wavefold).",
         "tone": "Tilt EQ around 800 Hz.", "low_keep": "Below this frequency the signal stays clean. 0 = off.",
-        "mix": "Dry/wet.", "auto_gain": "Holds output loudness near input loudness.",
+        "mix": "Dry/wet. The dry signal runs through an identical oversampler, so the blend is phase-aligned (no comb filtering) and MIX 0 is the clean input.", "auto_gain": "Holds the driven signal's loudness near the input's, before MIX.",
     })
 MODULES["RADIO"] = dict(group="EFFECTS", summary="Transmission processor: band-limit, dirt, noise, dropouts and squelch. SIGNAL is one knob from lost to clear.",
     use=["On a voice, ride SIGNAL from 0 to 100 % to bring a ghost transmission into focus."],
@@ -404,7 +408,7 @@ MODULES["RADIO"] = dict(group="EFFECTS", summary="Transmission processor: band-l
 MODULES["REPEAT"] = dict(group="EFFECTS", summary="Beat repeat for fills and builds. Hold ROLL: it captures LENGTH of audio from the next QUANT point and loops it, each pass quieter, lower, darker.",
     use=["Map ROLL to a button; LENGTH 1/16 then 1/32 into a drop.", "PITCH negative = the classic falling roll."],
     models=[], desc={
-        "roll": "Hold to roll; release returns to the input.", "length": "Loop length: 1/4 to 1/32 and triplets.",
+        "roll": "Hold to roll. The slice is captured from the QUANT point (up to 4 s) and kept for the whole hold. Release: the loop keeps playing while it crossfades back to the input.", "length": "Loop length: 1/4 to 1/32 and triplets.",
         "decay": "Level loss per pass.", "pitch": "Pitch drop over the repeats: falls by this amount every four passes.",
         "gate": "How much of each pass plays.", "filter": "Darkens over the repeats.", "mix": "Roll level over the input.",
         "quant": "Start point: OFF (at once), 1/16, 1/8, 1/4.",
@@ -441,7 +445,7 @@ MODULES["GLUE"] = dict(group="MASTER AND MIX", summary="Bus compressor with one 
     "ratio": "2:1, 4:1, 10:1.", "sc_hpf": "High-pass on the detector so the kick doesn't drive it.", "mix": "Parallel compression."})
 MODULES["TONE"] = dict(group="MASTER AND MIX", summary="Master voicing EQ: five broad moves on one row (low shelf, mud cut, presence, air, tilt). The ranges stop before damage. Runs at 2x, so the air shelf keeps its shape up to 20 kHz.",
     use=["After GLUE, before LOWEND and LIMIT.", "MUD 1-3 dB cleans a dense mix without thinning it. LOW and AIR at +1-2 dB open up a big system. TILT darkens or brightens everything in one move.",
-         "For the room or PA itself use SF ROOM EQ (stored per venue); TONE is the sound of the set."],
+         "For the room or PA itself use SF ROOM EQ (stored per venue, after the recording point); TONE is the sound of the set."],
     models=[], desc={
         "low": "Low shelf at 70 Hz, +/-6 dB.", "mud": "Broad cut at 280 Hz, 0 to 6 dB.", "presence": "Bell at 3.2 kHz, +/-4 dB.",
         "air": "High shelf at 12 kHz, +/-6 dB.", "tilt": "Tilts the whole spectrum around 900 Hz: right brighter, left darker (+/-3 dB at the ends)."})
@@ -450,21 +454,22 @@ MODULES["LOWEND"] = dict(group="MASTER AND MIX", summary="Low-end safety: mono b
     "rumble_cut": "24 dB/oct high-pass for DC and rumble.", "width": "Stereo width above MONO FREQ.", "low_trim": "Level of the low band."})
 MODULES["LIMIT"] = dict(group="MASTER AND MIX", summary="Clipper and true-peak lookahead limiter with a BS.1770 loudness meter. The clipper runs at 4x through linear-phase oversampling; the limiter detects true peaks at 8x and never lets the output past CEILING. AUTO trims the input so short-term loudness sits at TARGET.",
     use=["Last on the master. CEILING -1 dB for venues and releases.",
-         "AUTO moves the input by at most 1 dB per second, so a whole set sits at TARGET without anyone riding the master.",
+         "AUTO keeps the loudest moments of the last minute at TARGET, moving the input by at most 1 dB per second, so a whole set sits at TARGET without anyone riding the master. A breakdown doesn't count as the set getting quieter: AUTO holds through it, and the drop comes back where it was. AUTO MODE DOWN ONLY (the default) never lifts above unity; UP AND DOWN also lifts a quieter set (0.5 dB per second), but never a breakdown.",
          "CLIP takes the first few dB off the peaks transparently (kick transients) so the limiter works less.",
          "Recording a set: RESET at the start; INTEGRATED then reads the loudness of the whole set.",
          "Latency 176 samples at 48 kHz, compensated by Live."],
     models=[], desc={
         "target": "Loudness AUTO aims for (LUFS short-term).", "ceiling": "True-peak ceiling (dBTP). The output never exceeds it, including between samples.", "clip": "Soft clip before the limiter, 4x oversampled, linear phase. The knee starts up to 6 dB below CEILING.",
-        "input": "Input gain.", "release": "Limiter release. Under sustained limiting a slower envelope holds the gain, so dense passages don't pump.", "auto": "Automatic input trim toward TARGET (+/-12 dB).",
+        "input": "Input gain.", "release": "Limiter release. Under sustained limiting a slower envelope holds the gain, so dense passages don't pump.", "auto": "Automatic input trim (+/-12 dB) that keeps the loudest short-term loudness of the last minute at TARGET. It moves up only after 3 s of music within 6 dB of TARGET, so it never lifts a breakdown. Measured on the raw input, so it settles without overshoot.", "auto_mode": "DOWN ONLY (default): AUTO never lifts above unity, it only stops the set running above TARGET. UP AND DOWN: it also lifts a quieter set.",
         "reset": "Resets the integrated loudness and true-peak hold."})
 MODULES["ROOMEQ"] = dict(group="MASTER AND MIX", summary="Cut-only correction for the room or PA, stored per venue (16 venues). Not part of songs.",
-    use=["Find the boomy and harsh frequencies at soundcheck, cut them, STORE VENUE.", "Next time at that venue, choose it from VENUE."],
+    use=["Put it after the recording point: on an audio track PA with Audio From = Resampling (the Main output), routed to the PA outputs (see Setting up Live). The set is recorded on its own track from the same signal, without the venue's correction.",
+         "Find the boomy and harsh frequencies at soundcheck, cut them, STORE VENUE.", "Next time at that venue, choose it from VENUE."],
     models=[], desc=dict({f"cut{i}": f"Cut at band {i} (0 to 18 dB)." for i in range(1, 7)}, **{f"freq{i}": f"Frequency of band {i}." for i in range(1, 7)},
         q="Width of all six bands.", venue="Recalls a stored venue.", store_venue="Stores the current bands into the selected venue."))
 MODULES["ALLOC"] = dict(group="MASTER AND MIX", summary="The mix assigner. You put the sources in order; each of the ten bands has a priority curve over that order, set with three knobs, and the display shows exactly what each source keeps and loses in that band. Pass-through audio: put it on the master.",
     use=["Every SF instrument, SF STRIP, SF TAP and SF DECK appears in the SOURCES list by its Live track name (VST3) or its role (PERC, PERC 2 ...).",
-         "Drag the list into order, top = most important. This is the ORDER: ALL BANDS. It is saved with the set and never changes on its own; new sources are added at the bottom.",
+         "Drag the list into order, top = most important. This is the ORDER: ALL BANDS. It is saved with the set and never changes on its own; new sources are added at the bottom. The order follows each plugin, not its name: reopening the set or renaming a track keeps every source's place, and a duplicated track joins at the bottom.",
          "Any band can have its own order: click the band (its frame turns white, the list shows ORDER: 180 HZ), drag, and the band is marked OWN. LINK TO ALL puts it back on the global order. Click the band again or ALL BANDS to return to the global list.",
          "In each band: PRIORITY moves the curve's peak up and down the list, DEPTH sets how hard everything away from the peak is cut (0 = nothing), Q sets the width (narrow: one source owns the band; wide: neighbours share).",
          "Each band shows its sources in its own order, named in the lanes: grey = what plays, amber = what ALLOC takes away. The name above the knobs is the source the peak sits on.",

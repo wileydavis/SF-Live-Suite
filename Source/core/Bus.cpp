@@ -19,9 +19,9 @@ const float kBandEdges[kBands + 1] = { 20.0f, 60.0f, 100.0f, 150.0f, 220.0f, 320
 const float kBandCentres[kBands] = { 40.0f, 78.0f, 122.0f, 182.0f, 265.0f, 392.0f, 600.0f, 1060.0f, 2450.0f, 8900.0f };
 
 static constexpr uint32_t kMagic = 0x5346424Bu;   // "SFBK"
-static constexpr uint32_t kVersion = 3;
+static constexpr uint32_t kVersion = 4;
 // Short name: macOS limits POSIX shm names to 31 chars. Bump with kVersion.
-static constexpr const char* kShmName = "/sf_live_suite_bus_v3";
+static constexpr const char* kShmName = "/sf_live_suite_bus_v4";
 
 double Bus::nowSec()
 {
@@ -54,15 +54,18 @@ Bus::Bus()
         struct stat st {};
         if (fstat (fd, &st) == 0 && st.st_size == 0)
             (void) ftruncate (fd, (off_t) sizeof (BusData));   // new pages are zero: a valid empty bus
-        // An existing segment of the wrong size (another build) is never mapped: use a local bus.
+        // A segment too small for this build is never mapped: use a local bus. (Not an exact
+        // match: macOS reports the size rounded up to whole pages. The layout check is below.)
         if (fstat (fd, &st) == 0 && st.st_size >= (off_t) sizeof (BusData))
         {
             void* m = mmap (nullptr, sizeof (BusData), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
             if (m != MAP_FAILED)
             {
                 auto* candidate = static_cast<BusData*> (m);
-                const uint32_t magic = candidate->magic.load();
-                if (magic == 0 || (magic == kMagic && (candidate->version.load() == kVersion || candidate->version.load() == 0)))
+                // Same magic, version and layout size (a build with another layout under the same
+                // name would read every field at the wrong place).
+                const uint32_t magic = candidate->magic.load(), ver = candidate->version.load(), lay = candidate->layoutSize.load();
+                if (magic == 0 || (magic == kMagic && (ver == kVersion || ver == 0) && (lay == (uint32_t) sizeof (BusData) || lay == 0)))
                 {
                     data = candidate;
                     isShared = true;
@@ -84,8 +87,12 @@ Bus::Bus()
     if (data->magic.compare_exchange_strong (expected, kMagic))
     {
         data->version.store (kVersion);
+        data->layoutSize.store ((uint32_t) sizeof (BusData));
         data->song = -1;
         data->keyRoot = -1;
+        data->songAtPpq = -1.0;
+        data->songKey = -2;
+        data->panicHeld = 0;
         for (auto& m : data->macro) m = 0.0f;
     }
 }
@@ -166,6 +173,7 @@ int Bus::claimSource (uint64_t owner, int role, const char* name)
                     s.seenMs = nowMs();
                     s.role = role;
                     s.enabled = 1;
+                    s.uid = 0;
                     packName (s.name, name);
                     for (int b = 0; b < kBands; ++b) { s.energy[b] = -120.0f; s.cut[b] = 0.0f; }
                     return i;
