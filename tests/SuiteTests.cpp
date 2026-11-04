@@ -997,12 +997,124 @@ static int renderModule (int argc, char** argv)
 
 #include "QualityTests.h"
 
+// --capture IN.wav [IN2.wav] OUT.wav: SF TERROIR's import on real recordings, through the plugin's own
+// path (the worker thread, the place as stored in the set). Prints what the status line would and a
+// few measures of the place (balance, width, band levels); writes the place to OUT.wav (32-bit float).
+static int captureFiles (int argc, char** argv)
+{
+    if (argc < 4) { std::fprintf (stderr, "usage: SFTests --capture IN.wav [IN2.wav] OUT.wav\n"); return 2; }
+    const auto cwd = juce::File::getCurrentWorkingDirectory();
+    juce::StringArray ins;
+    for (int i = 2; i < argc - 1; ++i) ins.add (cwd.getChildFile (argv[i]).getFullPathName());
+    const auto out = cwd.getChildFile (argv[argc - 1]);
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    for (auto& in : ins)
+    {
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (juce::File (in)));
+        if (rd == nullptr) { std::fprintf (stderr, "%s: can't read it\n", in.toRawUTF8()); return 1; }
+        const int nch = (int) rd->numChannels;
+        const auto names = ir::trackNames (juce::File (in), rd->metadataValues.getValue (juce::WavAudioFormat::bwavDescription, {}), nch);
+        const auto picks = ir::pickTracks (names, nch);
+        std::printf ("%s: %d ch, %.0f Hz, %d bit%s, %.1f s; tracks %s; used",
+                     juce::File (in).getFileName().toRawUTF8(), nch, rd->sampleRate, (int) rd->bitsPerSample, rd->usesFloatingPointData ? " float" : "",
+                     (double) rd->lengthInSamples / rd->sampleRate, names.isEmpty() ? "(unnamed)" : names.joinIntoString (", ").toRawUTF8());
+        for (int c : picks) std::printf (" %d", c + 1);
+        std::printf ("\n");
+        // The capture alone, for the numbers the stored place doesn't keep (the speaker's clock).
+        if (ins.size() == 1)
+        {
+            const int len = (int) std::min<juce::int64> (rd->lengthInSamples, (juce::int64) ((ir::kMaxRecording + 1.0) * rd->sampleRate));
+            juce::AudioBuffer<float> all (nch, len), b ((int) picks.size(), len);
+            rd->read (all.getArrayOfWritePointers(), nch, 0, len);
+            for (size_t c = 0; c < picks.size(); ++c) b.copyFrom ((int) c, 0, all, picks[c], 0, len);
+            if (b.getNumChannels() == 2 && ir::sameChannels (b)) b.setSize (1, len, true);
+            const auto cap = ir::analyse (b, rd->sampleRate);
+            std::printf ("analysis: %s, clock %.1f ppm\n", cap.ok ? cap.kind.toRawUTF8() : cap.error.toRawUTF8(), cap.driftPpm);
+        }
+    }
+    resetBus();
+    Rig2 r ("TERROIR");
+    r.set ("place", 0.0f);
+    for (int b = 0; b < 4; ++b) r.step (kBlock, nullptr);
+    r.p->mod().loadFiles (ins);
+    juce::ValueTree place;
+    const double until = juce::Time::getMillisecondCounterHiRes() + 300000.0;
+    while (! place.isValid() && juce::Time::getMillisecondCounterHiRes() < until)
+    {
+        juce::Thread::sleep (50);
+        r.step (kBlock, nullptr);
+        juce::MemoryBlock state;
+        r.p->getStateInformation (state);
+        const auto m = juce::ValueTree::readFromData (state.getData(), state.getSize()).getChildWithName ("MODULE");
+        for (int i = 0; i < m.getNumChildren(); ++i)
+            if (m.getChild (i).hasType ("PLACE") && (int) m.getChild (i).getProperty ("slot") == 0) place = m.getChild (i).createCopy();
+    }
+    if (! place.isValid()) { std::printf ("no place stored (the import failed: an unreadable file, or no sweep or impulse found)\n"); return 1; }
+    juce::AudioBuffer<float> a;
+    double psr = (double) place.getProperty ("sr", 48000.0);
+    if (const auto* mb = place.getProperty ("flac").getBinaryData())
+    {
+        juce::FlacAudioFormat flac;
+        std::unique_ptr<juce::AudioFormatReader> rd (flac.createReaderFor (new juce::MemoryInputStream (*mb, true), true));
+        if (rd != nullptr) { a.setSize ((int) rd->numChannels, (int) rd->lengthInSamples); rd->read (a.getArrayOfWritePointers(), a.getNumChannels(), 0, a.getNumSamples()); }
+        a.applyGain ((float) (double) place.getProperty ("gain", 1.0));
+    }
+    const int n = a.getNumSamples(), chs = a.getNumChannels();
+    std::printf ("place: %s, %s, %.2f s, RT %.2f s, %.0f dB over the noise\n", place.getProperty ("kind").toString().toRawUTF8(),
+                 chs > 1 ? "STEREO" : "MONO > STEREO", n / psr, (double) place.getProperty ("rt60"), (double) place.getProperty ("snr"));
+    auto energy = [&] (int c, double t0, double t1)
+    {
+        double e = 0.0;
+        for (int i = (int) (t0 * psr); i < std::min (n, (int) (t1 * psr)); ++i) e += (double) a.getSample (c, i) * a.getSample (c, i);
+        return e;
+    };
+    if (chs == 2)
+    {
+        auto db = [] (double x, double y) { return 10.0 * std::log10 ((x + 1e-30) / (y + 1e-30)); };
+        double sxy = 0, sxx = 0, syy = 0;
+        for (int i = (int) (0.08 * psr); i < n; ++i) { const double x = a.getSample (0, i), y = a.getSample (1, i); sxy += x * y; sxx += x * x; syy += y * y; }
+        std::printf ("right against left: whole %+.1f dB, first 20 ms %+.1f dB, after 80 ms %+.1f dB; tail correlation %.2f\n",
+                     db (energy (1, 0, 99), energy (0, 0, 99)), db (energy (1, 0, 0.02), energy (0, 0, 0.02)), db (energy (1, 0.08, 99), energy (0, 0.08, 99)),
+                     sxy / std::sqrt (sxx * syy + 1e-30));
+    }
+    // Octave-band levels of the place (both sides summed), relative to the loudest band.
+    {
+        constexpr int order = 18, N = 1 << order;
+        juce::dsp::FFT fft (order);
+        std::vector<float> d ((size_t) N * 2, 0.0f);
+        for (int i = 0; i < std::min (N, n); ++i) { float s = 0.0f; for (int c = 0; c < chs; ++c) s += a.getSample (c, i); d[(size_t) i] = s; }
+        fft.performFrequencyOnlyForwardTransform (d.data());
+        std::vector<double> lv;
+        const double fcs[] = { 31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
+        for (double fc : fcs)
+        {
+            const int k0 = std::max (1, (int) (fc / std::sqrt (2.0) * N / psr)), k1 = std::min (N / 2 - 1, (int) (fc * std::sqrt (2.0) * N / psr));
+            double e = 0.0;
+            for (int k = k0; k <= k1; ++k) e += (double) d[(size_t) k] * d[(size_t) k];
+            lv.push_back (10.0 * std::log10 (e + 1e-30));
+        }
+        const double top = *std::max_element (lv.begin(), lv.end());
+        std::printf ("octave bands (dB under the loudest):");
+        for (size_t k = 0; k < lv.size(); ++k) std::printf ("  %g Hz %.0f", fcs[k], lv[k] - top);
+        std::printf ("\n");
+    }
+    out.deleteFile();
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (out), psr, (unsigned) chs, 32, {}, 0));
+    if (w != nullptr) w->writeFromAudioSampleBuffer (a, 0, n);
+    std::printf ("wrote %s\n", out.getFullPathName().toRawUTF8());
+    return 0;
+}
+
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && std::string (argv[1]) == "--dump") { dumpSpecs(); return 0; }
     if (argc > 1 && std::string (argv[1]) == "--state") return dumpState (argc, argv);
     if (argc > 1 && std::string (argv[1]) == "--render") return renderModule (argc, argv);
+    if (argc > 1 && std::string (argv[1]) == "--capture") return captureFiles (argc, argv);
     if (argc > 2 && std::string (argv[1]) == "--sweep")
     {
         // SF TERROIR's sweep file (the same as its SWEEP FILE button writes).

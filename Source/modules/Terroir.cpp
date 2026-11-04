@@ -415,7 +415,10 @@ public:
         ui::label (g, empty ? "SLOT " + juce::String (sel + 1) + " EMPTY: BUILT-IN ROOM" : d.name, nameRow, empty ? ui::kDim : ui::kText, 14.0f);
         ui::label (g, d.info, nameRow, ui::kDim, 10.0f, juce::Justification::centredRight);
         auto statusRow = in.removeFromBottom (14);
-        ui::label (g, d.status, statusRow, d.statusLevel == 2 ? ui::kRed : d.statusLevel == 1 ? ui::kAmber : ui::kFaint, 10.0f);
+        if (d.status.isEmpty())   // nothing loaded yet: how (a drag from Finder loses the window, which Live hides)
+            ui::label (g, "LOAD (TOP RIGHT) A RECORDING OF THE SWEEP, A CLAP OR AN IR INTO SLOT " + juce::String (sel + 1) + ", OR DROP IT HERE", statusRow, ui::kFaint, 10.0f);
+        else
+            ui::label (g, d.status, statusRow, d.statusLevel == 2 ? ui::kRed : d.statusLevel == 1 ? ui::kAmber : ui::kFaint, 10.0f);
         // The IR as it plays now (SIZE, DECAY, DARK, LENGTH, REVERSE applied): level in dB, 0 to -60.
         auto plot = in.reduced (0, 4);
         g.setColour (ui::kGrid);

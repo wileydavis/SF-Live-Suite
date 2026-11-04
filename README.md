@@ -27,6 +27,8 @@ cmake --build build-test --target SFTests SFSnapshot
 ./build-test/SFTests_artefacts/Release/SFTests --quality   # sound-quality measurements only
 ./build-test/SFTests_artefacts/Release/SFTests --cpu       # CPU table
 ./build-test/SFTests_artefacts/Release/SFTests --render RADIO 10 out.wav signal=0.3 squelch=0.8   # listen to one plugin
+./build-test/SFTests_artefacts/Release/SFTests --capture take.wav place.wav   # a TERROIR recording through the plugin's import: what it found, balance, bands
+./build-test/SFTests_artefacts/Release/SFTests --sweep sweep.wav   # TERROIR's sweep file
 ./build-test/SFSnapshot_artefacts/Release/SFSnapshot    # editor images -> docs/snapshots
 ```
 

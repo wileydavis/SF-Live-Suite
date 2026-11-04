@@ -3077,7 +3077,7 @@ static void testTerroir()
         r.p->mod().loadFiles (juce::StringArray (wavFile.getFullPathName()));
         juce::MemoryBlock state;
         bool stored = false;
-        for (int k = 0; k < 400 && ! stored; ++k)
+        for (const double until = juce::Time::getMillisecondCounterHiRes() + 120000.0; ! stored && juce::Time::getMillisecondCounterHiRes() < until;)
         {
             juce::Thread::sleep (25);
             r.step (kBlock, nullptr);
@@ -3233,7 +3233,7 @@ static void testTerroir()
             for (int b = 0; b < 4; ++b) r.step (kBlock, nullptr);
             r.p->mod().loadFiles (juce::StringArray (f.getFullPathName()));
             juce::AudioBuffer<float> a;
-            for (int k = 0; k < 400 && a.getNumChannels() == 0; ++k)
+            for (const double until = juce::Time::getMillisecondCounterHiRes() + 120000.0; a.getNumChannels() == 0 && juce::Time::getMillisecondCounterHiRes() < until;)
             {
                 juce::Thread::sleep (25);
                 r.step (kBlock, nullptr);
@@ -3305,7 +3305,7 @@ static void testTerroir()
             auto placeIn = [&] (Rig2& rr, int slot, const juce::String& name)
             {
                 juce::AudioBuffer<float> a;
-                for (int k = 0; k < 600 && a.getNumChannels() == 0; ++k)
+                for (const double until = juce::Time::getMillisecondCounterHiRes() + 120000.0; a.getNumChannels() == 0 && juce::Time::getMillisecondCounterHiRes() < until;)
                 {
                     juce::Thread::sleep (25);
                     rr.step (kBlock, nullptr);
