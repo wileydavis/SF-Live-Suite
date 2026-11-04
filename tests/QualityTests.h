@@ -3130,11 +3130,11 @@ static void testTerroir()
         }
         for (int c = 2; c < 4; ++c) for (int i = 0; i < n; ++i) poly.addSample (c, i, gauss (rng) * 1.0e-4f);
         for (int i = 0; i < n; ++i) { const float m = 0.5f * (poly.getSample (2, i) + poly.getSample (3, i)); poly.setSample (0, i, m); poly.setSample (1, i, m); }
-        auto write = [&] (const juce::File& f, const juce::AudioBuffer<float>& b, const juce::StringPairArray& meta)
+        auto write = [&] (const juce::File& f, const juce::AudioBuffer<float>& b, const juce::StringPairArray& meta, int bits = 24)
         {
             f.deleteFile();
             juce::WavAudioFormat wav;
-            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), sr, (unsigned) b.getNumChannels(), 24, meta, 0));
+            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), sr, (unsigned) b.getNumChannels(), bits, meta, 0));
             w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
         };
         const auto bextFile = dir.getChildFile ("Factory Poly.wav"), ixmlFile = dir.getChildFile ("Factory Ixml.wav"), monoFile = dir.getChildFile ("Shed Mono.wav");
@@ -3236,6 +3236,99 @@ static void testTerroir()
         CHECK (pair.getNumChannels() == 2 && std::abs (dt - lag) <= 1 && std::abs (ild - gainToDb (0.42f / 0.6f)) < 0.5f,
                "TERROIR poly file: %d channels, %d samples apart, %.2f dB", pair.getNumChannels(), dt, ild);
         CHECK (monoPlace.getNumChannels() == 1, "TERROIR: a mono take saved as stereo stays stereo (%d channels)", monoPlace.getNumChannels());
+
+        // 8. Stereo from one mic: the sweep recorded twice, from two spots (two rooms here), each take
+        //    started by hand (0.6 s and 1.7 s before the sweep), one speaker clock 30 ppm off, files
+        //    "Hall L" and "Hall R" dropped together. Each side is its own take, from its own onset.
+        //    And a stereo IR split into two files of the same length ("Plate L" / "Plate R": the poly
+        //    file's pair) stays one recording: its 1.5 ms between the sides is kept.
+        {
+            const auto file = ir::sweepFile (sr);
+            const auto roomA = roomIr (sr, 0.9f, 31), roomB = roomIr (sr, 0.9f, 32);
+            auto take = [&] (const std::vector<float>& rm, double lead, double ppm, double tailSec)
+            {
+                auto played = ir::stretch (file.getReadPointer (0), file.getNumSamples(), 1.0 + ppm * 1.0e-6);
+                played.insert (played.begin(), (size_t) (lead * sr), 0.0f);
+                auto rec = convolveWith (played, rm);
+                rec.resize (played.size() + (size_t) (tailSec * sr));
+                for (auto& v : rec) v += gauss (rng) * 3.0e-4f;
+                juce::AudioBuffer<float> b (1, (int) rec.size());
+                b.copyFrom (0, 0, rec.data(), (int) rec.size());
+                return b;
+            };
+            // 32-bit float files, as a MixPre writes them: these rooms take the sweep over full scale.
+            const auto hallL = dir.getChildFile ("Hall L.wav"), hallR = dir.getChildFile ("Hall R.wav");
+            write (hallL, take (roomA, 0.6, 0.0, 2.0), {}, 32);
+            write (hallR, take (roomB, 1.7, 30.0, 3.1), {}, 32);
+            resetBus();
+            Rig2 r ("TERROIR");
+            r.set ("place", 5.0f);
+            for (int b = 0; b < 4; ++b) r.step (kBlock, nullptr);
+            r.p->mod().loadFiles (juce::StringArray (hallL.getFullPathName(), hallR.getFullPathName()));
+            auto placeIn = [&] (Rig2& rr, int slot, const juce::String& name)
+            {
+                juce::AudioBuffer<float> a;
+                for (int k = 0; k < 600 && a.getNumChannels() == 0; ++k)
+                {
+                    juce::Thread::sleep (25);
+                    rr.step (kBlock, nullptr);
+                    juce::MemoryBlock state;
+                    rr.p->getStateInformation (state);
+                    const auto m = juce::ValueTree::readFromData (state.getData(), state.getSize()).getChildWithName ("MODULE");
+                    for (int i = 0; i < m.getNumChildren(); ++i)
+                    {
+                        const auto c = m.getChild (i);
+                        if (! c.hasType ("PLACE") || (int) c.getProperty ("slot") != slot || c.getProperty ("name").toString() != name) continue;
+                        if (const auto* mb = c.getProperty ("flac").getBinaryData())
+                        {
+                            juce::FlacAudioFormat fmt;
+                            std::unique_ptr<juce::AudioFormatReader> rd (fmt.createReaderFor (new juce::MemoryInputStream (*mb, true), true));
+                            if (rd != nullptr)
+                            {
+                                a.setSize ((int) rd->numChannels, (int) rd->lengthInSamples);
+                                rd->read (a.getArrayOfWritePointers(), a.getNumChannels(), 0, a.getNumSamples());
+                            }
+                        }
+                    }
+                }
+                return a;
+            };
+            const auto hall = placeIn (r, 5, "HALL");
+            double cA = 0.0, cB = 0.0;
+            int dPk = -1;
+            if (hall.getNumChannels() == 2)
+            {
+                auto shape = [&] (const float* x, int nx, const std::vector<float>& rm)
+                {
+                    const int px = peakIndex (x, nx), ph = peakIndex (rm.data(), (int) rm.size()), pre = (int) (0.002 * sr);
+                    const int len = std::min ({ (int) (0.8 * sr), nx - px + pre, (int) rm.size() - ph + pre });
+                    return px < pre ? 0.0 : bandCorrelation (x + px - pre, rm.data() + ph - pre, len, sr);
+                };
+                cA = shape (hall.getReadPointer (0), hall.getNumSamples(), roomA);
+                cB = shape (hall.getReadPointer (1), hall.getNumSamples(), roomB);
+                dPk = std::abs (peakIndex (hall.getReadPointer (1), hall.getNumSamples()) - peakIndex (hall.getReadPointer (0), hall.getNumSamples()));
+            }
+            std::printf ("   two takes from two spots (\"Hall L\" / \"Hall R\"): %d channels, left against its room %.4f, right %.4f, onsets %d samples apart\n",
+                         hall.getNumChannels(), cA, cB, dPk);
+            CHECK (hall.getNumChannels() == 2 && cA > 0.99 && cB > 0.99 && dPk >= 0 && dPk <= 2,
+                   "TERROIR two takes: %d channels, %.4f / %.4f, %d samples apart", hall.getNumChannels(), cA, cB, dPk);
+            // The split stereo IR.
+            const auto plateL = dir.getChildFile ("Plate L.wav"), plateR = dir.getChildFile ("Plate R.wav");
+            {
+                juce::AudioBuffer<float> one (1, n);
+                one.copyFrom (0, 0, poly, 2, 0, n); write (plateL, one, {});
+                one.copyFrom (0, 0, poly, 3, 0, n); write (plateR, one, {});
+            }
+            resetBus();
+            Rig2 q ("TERROIR");
+            q.set ("place", 6.0f);
+            for (int b = 0; b < 4; ++b) q.step (kBlock, nullptr);
+            q.p->mod().loadFiles (juce::StringArray (plateL.getFullPathName(), plateR.getFullPathName()));
+            const auto plate = placeIn (q, 6, "PLATE");
+            const int dt2 = plate.getNumChannels() == 2 ? peakIndex (plate.getReadPointer (1), plate.getNumSamples()) - peakIndex (plate.getReadPointer (0), plate.getNumSamples()) : -1;
+            std::printf ("   a stereo IR as two files of one length (\"Plate L\" / \"Plate R\"): %d channels, right %d samples later (want %d)\n", plate.getNumChannels(), dt2, lag);
+            CHECK (plate.getNumChannels() == 2 && std::abs (dt2 - lag) <= 1, "TERROIR split stereo IR: %d channels, %d samples apart", plate.getNumChannels(), dt2);
+        }
         dir.deleteRecursively();
     }
 }

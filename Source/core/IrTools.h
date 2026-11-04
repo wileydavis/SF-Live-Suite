@@ -72,5 +72,9 @@ juce::StringArray trackNames (const juce::File& wav, const juce::String& bextDes
 // Two channels carrying the same signal (a mono take saved as stereo, a centred mic in a mix): the
 // difference is 60 dB or more under the signal.
 bool sameChannels (const juce::AudioBuffer<float>& b);
+// Stereo from one mic: two captures made one after the other from two spots (a left and a right
+// take). Nothing ties their clocks together, so each side starts at its own onset; both are at
+// kEnergy already. The tails differ, so the place is wide.
+Capture joinTakes (const Capture& left, const Capture& right);
 } // namespace ir
 } // namespace sf

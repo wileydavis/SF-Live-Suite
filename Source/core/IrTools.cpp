@@ -652,5 +652,23 @@ bool sameChannels (const juce::AudioBuffer<float>& b)
     }
     return s > 0.0 && d <= 1.0e-6 * s;
 }
+
+Capture joinTakes (const Capture& left, const Capture& right)
+{
+    Capture c;
+    if (! left.ok || ! right.ok) { c.error = ! left.ok ? left.error : right.error; return c; }
+    const int nl = left.ir.getNumSamples(), nr = right.ir.getNumSamples();
+    c.ir.setSize (2, std::max (nl, nr));
+    c.ir.clear();
+    c.ir.copyFrom (0, 0, left.ir, 0, 0, nl);
+    c.ir.copyFrom (1, 0, right.ir, 0, 0, nr);
+    c.ok = true;
+    c.sr = left.sr;
+    c.kind = left.kind == right.kind ? left.kind + " (2 TAKES)" : left.kind + " / " + right.kind;
+    c.snrDb = std::min (left.snrDb, right.snrDb);
+    c.rt60 = 0.5f * (left.rt60 + right.rt60);
+    c.driftPpm = std::abs (left.driftPpm) > std::abs (right.driftPpm) ? left.driftPpm : right.driftPpm;
+    return c;
+}
 } // namespace ir
 } // namespace sf

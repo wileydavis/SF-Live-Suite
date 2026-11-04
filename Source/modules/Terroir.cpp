@@ -648,7 +648,8 @@ private:
         }
         juce::AudioFormatManager fm;
         fm.registerBasicFormats();
-        juce::AudioBuffer<float> rec;
+        std::vector<juce::AudioBuffer<float>> takes;                     // one per file
+        std::vector<juce::int64> lengths;                                // each file's own length
         double fileSr = 0.0;
         juce::String tracks;                                             // which tracks of a poly file, for the status line
         for (int k = 0; k < job.files.size(); ++k)
@@ -679,18 +680,37 @@ private:
                 r->read (all.getArrayOfWritePointers(), nch, pos, n);
                 for (size_t c = 0; c < picks.size(); ++c) b.copyFrom ((int) c, pos, all, picks[c], 0, n);
             }
-            if (job.files.size() == 1) rec = std::move (b);
+            takes.push_back (std::move (b));
+            lengths.push_back (r->lengthInSamples);
+        }
+        ir::Capture cap;
+        if (takes.size() == 2 && lengths[0] != lengths[1])
+        {
+            // A left and a right take recorded one after the other (their lengths differ): nothing
+            // ties them in time, so each is analysed alone and the two sit side by side.
+            ir::Capture side[2];
+            for (size_t k = 0; k < 2; ++k)
+            {
+                side[k] = ir::analyse (takes[k], fileSr);
+                if (! side[k].ok) { setStatus (juce::File (job.files[(int) k]).getFileNameWithoutExtension().toUpperCase() + ": " + side[k].error, 2); return; }
+            }
+            cap = ir::joinTakes (side[0], side[1]);
+        }
+        else
+        {
+            // One recording: a file, or one split in two of the same length (an IR's L and R).
+            juce::AudioBuffer<float> rec;
+            if (takes.size() == 1) rec = std::move (takes[0]);
             else
             {
-                // Left and right takes.
-                if (k == 0) { rec.setSize (2, len); rec.clear(); }
-                if (len > rec.getNumSamples()) rec.setSize (2, len, true, true);
-                rec.copyFrom (k, 0, b, 0, 0, len);
+                rec.setSize (2, takes[0].getNumSamples());
+                rec.copyFrom (0, 0, takes[0], 0, 0, rec.getNumSamples());
+                rec.copyFrom (1, 0, takes[1], 0, 0, rec.getNumSamples());
             }
+            // The same signal on both channels (a mono take saved as stereo): a mono place, its tail spread.
+            if (rec.getNumChannels() == 2 && ir::sameChannels (rec)) rec.setSize (1, rec.getNumSamples(), true);
+            cap = ir::analyse (rec, fileSr);
         }
-        // The same signal on both channels (a mono take saved as stereo): a mono place, its tail spread.
-        if (rec.getNumChannels() == 2 && ir::sameChannels (rec)) rec.setSize (1, rec.getNumSamples(), true);
-        auto cap = ir::analyse (rec, fileSr);
         const auto name = job.name.toUpperCase().substring (0, 32);
         if (! cap.ok) { setStatus (name + ": " + cap.error, 2); return; }
         auto p = std::make_shared<Place>();
