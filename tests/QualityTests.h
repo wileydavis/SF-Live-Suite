@@ -2361,3 +2361,78 @@ static void testDrop()
     }
     resetBus();
 }
+
+// SLOW ALL: SF CONTROL sets how long the next knob moves take in every plugin whose own SLOW is
+// CONTROL. A move keeps the length it was made with: turning SLOW ALL (or SLOW) never touches a
+// knob already travelling; the plugin's own SLOW wins; a length left on the bus by a CONTROL that
+// is gone slows nothing; song recalls follow it.
+static void testSlowAll()
+{
+    std::printf ("-- SLOW ALL\n");
+    resetBus();
+    auto& d = Bus::get().d();
+    Rig2 ctl ("CONTROL"), f ("FILTER");
+    auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+    bool controlRuns = true;
+    auto cycle = [&] { if (controlRuns) ctl.step (kBlock, quiet); else ctl.ppq += kBlock * ctl.bps(); f.step (kBlock, quiet); };
+    const double barBlocks = 4.0 / (kBlock * f.bps());
+    auto bars = [&] (double b) { for (int k = 0, n = (int) std::lround (b * barBlocks); k < n; ++k) cycle(); };
+    const int fi = f.p->paramIndex ("filter");
+    auto heard = [&] { return f.p->baseValue (fi); };
+    auto expect = [&] (const char* what, float want, float tol)
+    {
+        const float h = heard();
+        std::printf ("   %-62s %.3f (want %.3f)\n", what, h, want);
+        CHECK (std::abs (h - want) <= tol, "%s: %.3f, want %.3f", what, h, want);
+    };
+    CHECK (f.p->apvts.getParameter ("slow")->getCurrentValueAsText() == "CONTROL", "a new plugin's SLOW should be CONTROL");
+
+    f.set ("filter", 0.2f); bars (0.25);
+    f.set ("filter", 0.8f); bars (0.15);
+    expect ("SLOW ALL OFF: a move lands at once", 0.8f, 0.002f);
+
+    ctl.set ("slow_all", 1.0f); bars (0.25);
+    expect ("SLOW ALL to 1 BAR: nothing moves", 0.8f, 0.001f);
+    f.set ("filter", 0.0f); bars (0.5);
+    expect ("the next move (80 > 0 %) half a bar in", 0.4f, 0.01f);
+    ctl.set ("slow_all", 0.0f); bars (0.25);
+    expect ("SLOW ALL to OFF while it travels: three quarters in, no jump", 0.2f, 0.01f);
+    ctl.set ("slow_all", 3.0f); bars (0.3);
+    expect ("SLOW ALL to 4 BAR while it travels: still there after its bar", 0.0f, 0.001f);
+
+    f.set ("filter", 1.0f); bars (1.0);
+    expect ("the next move takes the new length (4 BAR): a quarter after a bar", 0.25f, 0.01f);
+    ctl.set ("slow_all", 0.0f); f.set ("filter", 0.6f); bars (0.15);
+    expect ("moved again with SLOW ALL OFF: straight there from where it got to", 0.6f, 0.002f);
+
+    f.set ("slow", 1.0f); f.set ("filter", 0.0f); bars (0.5);
+    expect ("own SLOW 1 BAR over SLOW ALL OFF: half a bar in", 0.3f, 0.01f);
+    f.set ("slow", 8.0f); bars (0.25);
+    expect ("own SLOW to OFF while it travels: no jump", 0.15f, 0.01f);
+    bars (0.3);
+    expect ("... and it arrives on time", 0.0f, 0.001f);
+    ctl.set ("slow_all", 3.0f); f.set ("filter", 1.0f); bars (0.15);
+    expect ("own SLOW OFF over SLOW ALL 4 BAR: at once", 1.0f, 0.002f);
+
+    f.set ("slow", 0.0f); bars (0.05);
+    controlRuns = false; d.controlSeenMs = 0;            // CONTROL deleted: 4 BAR stays on the bus
+    f.set ("filter", 0.0f); bars (0.15);
+    expect ("SLOW ALL left on the bus by a CONTROL that is gone: at once", 0.0f, 0.002f);
+    controlRuns = true;
+
+    // Recalls with the transport stopped land at once (playing, they wait for the bar line).
+    auto recall = [&] (int s) { d.song = s; d.songAtPpq = -1.0; d.songKey = -2; d.songSeq.fetch_add (1); };
+    ctl.head.playing = f.head.playing = false;
+    ctl.set ("slow_all", 0.0f);
+    d.song = 1; f.set ("filter", 0.2f); bars (0.15); f.p->storeSong(); bars (0.05);       // song 2: 20 %
+    d.song = 2; f.set ("filter", 0.9f); bars (0.15); f.p->storeSong(); bars (0.05);       // song 3: 90 %
+    ctl.set ("slow_all", 1.0f); bars (0.05);
+    recall (1); bars (0.5); f.p->flushHostNotifications();
+    expect ("song 2 recalled from 90 % with SLOW ALL 1 BAR: half a bar in", 0.55f, 0.01f);
+    bars (0.55); f.p->flushHostNotifications(); bars (0.05);
+    expect ("... after its bar", 0.2f, 0.001f);
+    ctl.set ("slow_all", 0.0f); bars (0.05);
+    recall (2); bars (0.15); f.p->flushHostNotifications();
+    expect ("song 3 recalled with SLOW ALL OFF: at once", 0.9f, 0.002f);
+    resetBus();
+}

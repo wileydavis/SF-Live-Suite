@@ -296,7 +296,7 @@ MODULES["DECK"] = dict(
 
 MODULES["CONTROL"] = dict(
     group="INSTRUMENTS",
-    summary="The suite's brain. Six macros every SF plugin can follow, song select (Program Change), STORE ALL and STORE TO. Makes no sound.",
+    summary="The suite's brain. Six macros every SF plugin can follow, song select (Program Change), STORE ALL and STORE TO, and SLOW ALL. Makes no sound.",
     use=[
         "Put it on its own MIDI track receiving the OXI One.",
         "Program Change on channel 16 selects the song. AU: in any Live version. VST3: Live 12.2 and later deliver it as a program change (SF CONTROL lists SONG 01-16); older versions don't.",
@@ -318,6 +318,7 @@ MODULES["CONTROL"] = dict(
         "pc_enable": "Turns Program Change song select on or off.",
         "pocket_offset": "Timing calibration for Pocket and RUMBLE, -20 to +20 ms (+ = later). Set once, by ear, if the pump lands early or late in your Live setup; leave at 0 otherwise.",
         "key": "Key of the song: OFF, C ... B. Parts written in C play in this key on every SF instrument with KEY FOLLOW on (nearest transposition, -6 to +5 semitones). Stored per song; a song's key changes on the song's bar in every plugin. Notes already sounding follow. Only while SF CONTROL runs: remove it and every instrument is back in C.",
+        "slow_all": "How long your next knob moves take, in every SF plugin whose SLOW is CONTROL (the default): OFF (at once) or 1 to 64 BARS. A move keeps the length it was made with: turning SLOW ALL never touches a knob already travelling. Song recalls follow it. Not stored per song. Only while SF CONTROL runs.",
         "panic": "Hold: every SF plugin fades out over 5 ms, clears every voice, tail and delay line, and stays silent (no input, no new notes) until you let go; every SF plugin's header shows PANIC in red meanwhile. Release: input and output fade back in over 5 ms; DECK has kept its place in time. A set never reopens with PANIC held.",
     },
 )
@@ -498,7 +499,7 @@ MODULES["TAP"] = dict(group="MASTER AND MIX", summary="Puts any track (stems, ha
         "pocket_depth": "Duck this track around SF KICK.", "pocket_shape": "Pocket shape."})
 
 SYSTEM = [
-    ("SLOW", "OFF / 1 / 2 / 4 / 8 / 16 / 32 / 64 BAR", "Slow mode. Every performance-row knob travels to where you set it over exactly this many bars, however far you moved it. Song recalls glide too. While travelling the knob shows GLIDE now>target in green."),
+    ("SLOW", "CONTROL, 1-64 BAR, OFF", "Slow mode. Every performance-row knob travels to where you set it over exactly this many bars, however far you moved it; song recalls glide too. CONTROL (the default): SF CONTROL's SLOW ALL sets the length. A move keeps the length it set off with. While travelling the knob shows GLIDE now>target in green."),
     ("MACRO SRC", "OFF, MACRO 1-6", "Which SF CONTROL macro this plugin follows."),
     ("MACRO AMT", "-100 to +100 %", "How strongly and in which direction. Each plugin decides which of its knobs respond (the ones marked M in the tables)."),
     ("M1 / M2 SOURCE", "OFF, SINE, TRIANGLE, SQUARE, RAMP UP, RAMP DOWN, RANDOM, DRIFT, KICK, NOTES or INPUT", "Two modulators (MOTION). Waves, RANDOM (stepped) and DRIFT (smooth) move around the knob; ramps rise or fall from it and restart every RATE; KICK follows SF KICK's hits; NOTES (instruments) follows velocity; INPUT (effects) follows the input level."),

@@ -14,10 +14,13 @@ namespace sf
 // a stored song, which would replace the sound before it could be stored). That song becomes
 // the one in force (unless a song change is waiting for its bar), and STORE TO goes back to
 // ACTIVE SONG.
+// SLOW ALL: how long your next knob moves take to arrive, in every SF plugin whose own SLOW is
+// CONTROL (the default). OFF = straight there. A move keeps the length it was made with, so
+// turning SLOW ALL never touches a knob that is already travelling. Song recalls follow it too.
 class ControlModule : public Module, private juce::Timer
 {
 public:
-    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO };
+    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO, SLOWALL };
     ControlModule() { startTimerHz (20); }
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
@@ -44,6 +47,9 @@ public:
         p.push_back (momentary ("panic", "PANIC"));
         std::vector<std::string> to { "ACTIVE SONG" }; for (auto& sn : songs) to.push_back (sn);
         auto st = choice ("store_to", "STORE TO", to, 0); st.song = false; st.preset = false; p.push_back (st);
+        // A performance setting, like a hand on a knob: songs and presets leave it alone.
+        auto sa = choice ("slow_all", "SLOW ALL", { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR" }, 0);
+        sa.song = false; sa.preset = false; p.push_back (sa);
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
@@ -64,6 +70,7 @@ public:
         d.controlSeenMs = Bus::nowMs();
         d.pocketOffsetMs = c.v (POFFSET);
         d.keyRoot = c.ci (KEY) - 1;
+        d.slowAll = juce::jlimit (0, 7, c.ci (SLOWALL));
         const bool pn = c.b (PANIC);
         if (pn && ! panicWas) d.panicSeq.fetch_add (1);
         d.panicHeld = pn ? 1 : 0;

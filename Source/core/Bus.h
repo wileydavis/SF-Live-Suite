@@ -92,6 +92,11 @@ struct BusData
     // Where the transport was when SF CONTROL asked for the song (v5): a plugin that sees the
     // request just after a jump back can tell whether it was asked for before or after the jump.
     std::atomic<double> songFromPpq;
+
+    // SF CONTROL's SLOW ALL (v6): how long a new setting takes to arrive in every plugin whose own
+    // SLOW is CONTROL. 0 = OFF, 1..7 = 1..64 BAR (SFProcessor::glideBars). Honoured only while
+    // CONTROL runs.
+    std::atomic<int32_t> slowAll;
 };
 
 class Bus

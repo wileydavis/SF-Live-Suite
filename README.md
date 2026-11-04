@@ -48,7 +48,7 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **DECK:** drop tracks on the DECK window (they're analysed in the background: tempo, beat grid, loudness). Click **A** or **B** on a row to load it. Turn **PLAY A** on and it starts on the next QUANT boundary, synced to Live. Hot cues: C1-D#1 (deck A), C2-D#2 (deck B). For headphone cueing, make an audio track with *Audio From* = the DECK track, choose **CUE**, and route it to your headphone outputs.
 
-**Slow mode:** set **SLOW** on any plugin (1-64 bars). Every performance knob then glides to where you set it over that many bars. A quarter turn becomes a long, even build.
+**Slow mode:** turn **SLOW ALL** on SF CONTROL (1-64 bars) and every performance knob glides to where you set it over that many bars; OFF and your moves land at once. A quarter turn becomes a long, even build. A move keeps the length it was made with, so you can set OFF for a direct move and a length for a glide without stopping a knob that is already travelling. Song recalls follow it too. A plugin's own **SLOW** (CONTROL by default) can fix its own length or OFF instead.
 
 **Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH in the MOTION row). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. They are saved with songs and presets, and random sources replay the same way every time the set is played.
 

@@ -83,7 +83,7 @@ story += bullets(["Send Program Change on MIDI channel 16 to SF CONTROL (program
                   "The header of every plugin shows SONG nn, and WAIT BAR in green while the recall is waiting for the bar line.",
                   "Recalled values are reported to Live, so the E16 rings jump to the new song's settings. A recalled knob is yours again the moment you turn it.",
                   "A plugin with nothing stored in that song stays as it is.",
-                  "With SLOW on, the recall glides instead of jumping: a song change becomes an 8- or 16-bar transition.",
+                  "With SLOW ALL (SF CONTROL) or a plugin's own SLOW on, the recall glides instead of jumping: a song change becomes an 8- or 16-bar transition.",
                   "Arrangement automation wins over recalled values, as on any device."])
 story.append(H2("VST3 AND PROGRAM CHANGE"))
 story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTROL therefore lists 16 programs (SONG 01-16); Live 12.2 and later turn a Program Change on the track into a program change for the VST3, older versions don't. The AU version reads Program Change directly from MIDI in any version. If song changes don't arrive in the VST3, use the AU."))
@@ -293,11 +293,12 @@ story += bullets(["Live is the clock master. On the ONE: USB device mode, sync f
 
 story.append(H2("THE E16"))
 story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README); SF SHOW.als has every address mapped. The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
-PRESS_DOES = {"DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "PANIC": "every SF plugin silent while held",
+PRESS_DOES = {"SLOW ALL": "a quick press flips the knob to SLOW ALL on SF CONTROL (pink ring): how long your next moves take, OFF to 64 BAR; another press flips it back",
+              "DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "PANIC": "every SF plugin silent while held",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
               "ROLL": "the drums roll while held"}
 def press_text(p, full=True):
-    kind = "hold" if p.mode == "HOLD" else "toggle"
+    kind = p.mode.lower()
     return f"{p.name} ({kind})" + (f": {PRESS_DOES[p.name]}" if full else "")
 def where_to(c):
     t = c.target.split(" > ")
@@ -305,18 +306,18 @@ def where_to(c):
 cells = {}
 for i, c in enumerate(E16.TOP, 1):
     pr = E16.PRESSES_ALL.get(i)
-    sub = f"PRESS: {pr.name} ({'HOLD' if pr.mode == 'HOLD' else 'TOGGLE'})" if pr else where_to(c)
+    sub = f"PRESS: {pr.short()}" if pr else where_to(c)
     cells[i] = (c.label, sub, CYAN if c.colour == E16.LIGHT_BLUE else INK, False)
 for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND", 1), ("GATE", 0), ("DENSITY", 0), ("FILTER", 0), ("SOUND", 1), ("LEVEL", 0)]):
     pr = E16.PRESSES_ALL.get(i)
-    cells[i] = (name, f"PRESS: {pr.name} ({'HOLD' if pr.mode == 'HOLD' else 'TOGGLE'})" if pr else ("THE PLUGIN'S OWN" if quiet else ""),
+    cells[i] = (name, f"PRESS: {pr.short()}" if pr else ("THE PLUGIN'S OWN" if quiet else ""),
                 CYAN if name == "LEVEL" else INK, bool(quiet))
 story.append(Spacer(1, 2)); story.append(E16Grid(cells)); story.append(Spacer(1, 8))
 story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(press_text(pr))}." for i, pr in sorted(E16.PRESSES_ALL.items())]
                  + ["<b>PANIC and 92 PA's on/off are on computer keys</b> (Key Map, Cmd-K), never on a press: a knob is easily pressed while it is turned, and neither may ever happen by accident. A key flips them: PANIC on, every SF plugin silent; again, back. Every press on the E16 is one the set plays through if it happens by accident."])
 story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
                   "Each instrument's LEVEL belongs to its song; the volumes here are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix, and give every volume mapping a maximum of 0 dB (Max in Live's MIDI Mappings).",
-                  "Rings: light blue is a volume, white is everything else."])
+                  "Rings: light blue is a volume, white is everything else, pink is knob 1 on SLOW ALL."])
 
 story.append(H2("THE E16: PAGES"))
 rows = [["PAGE", "ROW 3: ENCODERS 9-12", "ROW 4: ENCODERS 13-16", "PRESSES"]]
@@ -478,11 +479,11 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. The VST3 needs Live 12.2 or later; otherwise use the AU."],
                     ["E16 rings don't follow", "Remote on for E16 Port 2's output in Live's MIDI preferences; map with Live's MIDI Map."],
-                    ["An E16 press does nothing", "The presses aren't in the scene file yet: add them in the OXI App (controllers/e16 README), and again after loading a new scene file. A toggle that flips back: Remote is on for two E16 ports, so the note arrives twice. Port 2 only."],
+                    ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports, so the note arrives twice. Port 2 only."],
                     ["An E16 knob jumps when touched", "A shared knob holding an old value: controllers/e16 README, check 2. Or Auto Transmit is on: off in the scene and globally."],
                     ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],
-                    ["A knob shows GLIDE", "SLOW is on: the knob is travelling to where you set it."],
+                    ["A knob shows GLIDE", "SLOW ALL or the plugin's SLOW is on: the knob is travelling to where you set it."],
                     ["A knob moves on its own", "MOTION: check M1 / M2 TARGET in the plugin's MOTION row."],
                     ["Header shows FAULT (red)", "The plugin caught an invalid value or a runaway and reset itself to silence. It carries on working. If it happens again, note what was playing: it is a bug."],
                     ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out, clears and stays silent while held. Live's own clips and devices aren't SF: mute the PA track for those."],
@@ -499,7 +500,7 @@ rows = [["CH", "MESSAGE", "LIVE TARGET", "MAPPING", "ON THE E16"]]
 for (msg, ch, n), (target, places, kind, rng, item) in sorted(E16.addresses().items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2])):
     m = f"CC {n}" if msg == "CC" else f"NOTE {n} ({E16.note_name(n)})"
     how = {"TURN": "absolute", "HOLD": "press: hold", "TOGGLE": "press: toggle"}[kind] + (f", {rng}" if rng else "")
-    rows.append([str(ch), m, esc(target), esc(how), esc(E16.where(places))])
+    rows.append([str(ch), m, esc(target), esc(how), esc(E16.where(places, getattr(item, "second", False)))])
 story.append(table(rows, [0.35 * inch, 1.05 * inch, 2.55 * inch, 1.25 * inch, W - 5.2 * inch], mono_first=False, pad=2.3))
 
 doc = Doc(os.path.join(ROOT, "docs", "SF-Live-Suite-Manual.pdf"))

@@ -5,7 +5,7 @@ mapped: `controllers/live`), save it as your template: nothing is remapped after
 
 | FILE | WHAT |
 |---|---|
-| `SF SHOW.oxie16` | The scene: 12 pages, all 192 turns set (name, ring colour, channel, CC). |
+| `SF SHOW.oxie16` | The scene: 12 pages, all 192 turns set (name, ring colour, channel, CC), every press, and knob 1's second destination. |
 | `sf-show-map.csv` | Every address once: channel, CC or note, the Live target, the mapping range, where it sits on the E16. Map Live from this. |
 | `layout.py` | The layout. One source for the scene, the map, the show set's mappings and the manual's E16 tables. |
 | `make_scene.py` | Rebuilds the scene and the map: `python3 make_scene.py`. |
@@ -13,7 +13,7 @@ mapped: `controllers/live`), save it as your template: nothing is remapped after
 ## THE GRID
 
 ```
- 1 LOW ENERGY      2 DRUMS ENERGY    3 MUSIC ENERGY    4 BUILD           press 4: DROP
+ 1 LOW ENERGY      2 DRUMS ENERGY    3 MUSIC ENERGY    4 BUILD           press 1: SLOW ALL, press 4: DROP
  5 KICK VOLUME     6 LOW VOLUME      7 DRUMS VOLUME    8 MUSIC VOLUME
  9  ...           10  ...           11  ...           12  ...            rows 3 and 4: the page
 13  ...           14  ...           15  ...           16  ...
@@ -22,7 +22,13 @@ mapped: `controllers/live`), save it as your template: nothing is remapped after
 Encoders are numbered row by row from the top left. Rows 1 and 2 are the same on every page (the
 E16's screen shows them as LOW ENGY, DRM ENGY, MUS ENGY, BUILD, KICK VOL, LOW VOL, DRUM VOL, MUS VOL).
 Rows 3 and 4 are the page: PERFORM, KICK, BASS, RUMBLE, HATS, STRIKE, ACID, STAB, TEXTURE, VOICE,
-SPACE, MACROS (the manual, chapter 7, THE E16). Rings: light blue is a volume, white is everything else.
+SPACE, MACROS (the manual, chapter 7, THE E16). Rings: light blue is a volume, white is everything else,
+pink is knob 1 on SLOW ALL.
+
+**Knob 1 has two destinations.** A quick press flips it from LOW ENERGY to **SLOW ALL** on SF CONTROL
+(CC 34, channel 16; the ring turns pink and the screen shows a bar under the value): turn it to set how
+long your next moves take, OFF (at once) to 64 BAR. Another quick press flips it back. Knobs already
+travelling keep the length they set off with.
 
 ## ADDRESSES
 
@@ -91,18 +97,12 @@ included, with every volume at Max 0 dB and DUB FEEDBACK at 0-70 %: open it and 
 
 ## 5. PRESSES
 
-The scene file has no presses yet: the App's encoding of a CC or note press isn't published, and a
-guess could ship a press that sends nothing. Two ways:
-
-- **Encode them:** export a small test scene from the OXI App (two minutes) and make_scene.py can be
-  taught the App's press format, so the file carries every press. Page 1 only: encoder 1 push = CC 21,
-  channel 15, Press & Release, P.Val 127, R.Val 0; encoder 2 push = Note 25, channel 12, Press &
-  Release, velocity 127; page 1 output = USB2.
-- **Or add them in the App now.** Every press: Output = Same as Page, the channel as listed. DROP
-  goes on encoder 4 of all 12 pages. Loading a new SF SHOW file replaces them: add them again after.
+The presses are in the scene file, in the OXI App's own encoding (learned from a test scene exported
+from the App on 3 Nov): every press sends to Output ALL, like the turns. Nothing to add in the App.
 
 | WHERE | ENCODER | PRESS | MESSAGE | LIVE TARGET |
 |---|---|---|---|---|
+| all 12 pages | 1 | SLOW ALL, swap | Swap Destination (sends nothing); Destination 2 = CC 34 ch 16 | 00 CONTROL > SF CONTROL > SLOW ALL |
 | all 12 pages | 4 | DROP, hold | CC 21 ch 15, Press & Release, P.Val 127, R.Val 0 | 90 LIVE BUS > SF BUILD > DROP |
 | SPACE | 9 | DUB THROW, hold | CC 24 ch 12, Press & Release, P.Val 127, R.Val 0 | A DUB > SF DELAY > THROW |
 | SPACE | 10 | DUB FREEZE, toggle | Note 25 (C#0) ch 12, Press & Release, velocity 127 | A DUB > SF DELAY > FREEZE |
@@ -112,30 +112,36 @@ guess could ship a press that sends nothing. Two ways:
 
 A hold press is a CC: 127 on press, 0 on release, and the parameter is on for as long as the knob is
 down. A toggle press is a note: Live flips the switch on every Note On, so the E16 can never think
-FREEZE is on while Live has it off. Every press here is one the set plays through if it happens by
-accident (a throw, a roll, a freeze, a drop); what would stop the set is on a computer key.
+FREEZE is on while Live has it off. The swap sends nothing: it only chooses which destination knob 1
+turns. Every press here is one the set plays through if it happens by accident (a throw, a roll, a
+freeze, a drop, a flipped knob 1); what would stop the set is on a computer key.
+
+Never give an encoder a second destination without the Swap Destination press: it would send both on
+every turn. `make_scene.py` refuses to write one.
 
 ## 6. CHECKS
 
 1. Every knob: turn it, the right parameter moves. Every press: the right switch.
-2. **Holds.** Hold DROP, a THROW and ROLL for three seconds each: the parameter stays on for the whole
+2. **Knob 1.** A quick press: the ring turns pink; turn it: SLOW ALL moves on SF CONTROL and LOW ENERGY
+   stays put. Press again: white, and the turn moves LOW ENERGY. Do it on two pages.
+3. **Holds.** Hold DROP, a THROW and ROLL for three seconds each: the parameter stays on for the whole
    hold and goes off on release. (A long press on the E16 also opens its own functions, such as
    group status; if one interferes, make that press a toggle in `layout.py`.)
-3. **Shared knobs.** On page 2, turn LOW ENERGY fully left. Go to page 1 and turn it one step right:
+4. **Shared knobs.** On page 2, turn LOW ENERGY fully left. Go to page 1 and turn it one step right:
    the sound must move one step, not jump back. If it jumps, the E16 keeps a separate value per page:
-   run `python3 make_scene.py --relative-shared`, load the new file (and add the presses again), and
+   run `python3 make_scene.py --relative-shared`, load the new file, and
    remap the turns the new `sf-show-map.csv` marks *relative*, turning each knob slowly **left** while
    mapping so Live picks Relative, Twos Complement. Set Max 0 dB again on the remapped volumes.
-4. **Page change.** Change pages and leave and re-enter SF SHOW: Live's MIDI input indicator stays
+5. **Page change.** Change pages and leave and re-enter SF SHOW: Live's MIDI input indicator stays
    dark (nothing sent).
-5. **Recall.** Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from
+6. **Recall.** Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from
    the new value when turned.
-6. **PANIC** from its key: silence, every SF header shows PANIC. Again: back without a click.
+7. **PANIC** from its key: silence, every SF header shows PANIC. Again: back without a click.
 
 ## CHANGING THE LAYOUT
 
 Edit `layout.py`: `TOP` is rows 1-2, `PAGES` is rows 3-4 of each page, `PRESSES_*` the presses, `KEYS`
 the computer keys. Run `python3 make_scene.py` (it checks that every address names one Live target),
-load the new file, add the presses again, and map only what changed. `python3
+load the new file and map only what changed. `python3
 docs/manual/build_manual.py` and `python3 docs/manual/build_show_manual.py` put the new layout in the
 manuals.

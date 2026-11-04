@@ -101,9 +101,10 @@ MIXER = {
     ("40 BRIDGE", "volume"): (15, 101),
 }
 
-# Ring colours: indexes into the OXI App's 10 x 10 colour picker (34 white, 18 light blue).
-# Light blue marks volume; everything else is white. Change them in the App to taste.
-WHITE, LIGHT_BLUE = 34, 18
+# Ring colours: indexes into the OXI App's 10 x 10 colour picker (34 white, 18 light blue, 50 pink).
+# Light blue marks volume; everything else is white. Pink: the knob is on its second destination
+# (Swap Destination's second colour). Change them here, not in the App: make_scene.py rewrites the file.
+WHITE, LIGHT_BLUE, PINK = 34, 18, 50
 
 FADER = "Max 0 dB"
 BIPOLAR = ("energy", "filter", "tune")      # centre (64) is neutral
@@ -113,6 +114,9 @@ def anchor(module, pid):
     """The knob's anchor (the value a Set to Anchor press would send, and the ring before Live reports):
     the centre for a centre-neutral parameter, the top for one whose default is its maximum, else 0."""
     p = next(x for x in SPECS[module]["params"] if x["id"] == pid)
+    if p["type"] == "menu":                         # the default's place in the menu
+        ch = p["choices"].split("|")
+        return round(ch.index(p["def"]) / (len(ch) - 1) * 127)
     if pid in BIPOLAR or (p["def"] == "OFF" and p["min"] != "OFF" and p["max"] != "OFF"):
         return 64
     for unit in (" %", " st"):                      # linear ranges: the default's place in them
@@ -135,7 +139,9 @@ ABBR = {
 
 class Ctl:
     """One encoder turn and where it lands in Live: track + SF plugin + parameter id, or track + mixer
-    control ("volume", "send A"). max_value caps the mapping (the parameter's own unit; gain for volume)."""
+    control ("volume", "send A"). max_value caps the mapping (the parameter's own unit; gain for volume).
+    second: the encoder's second destination, reached with its Swap Destination press."""
+    second = False
     def __init__(self, name, abbr, channel, number, target, colour, default=0, live_range="", label="",
                  track="", module=None, pid=None, mixer=None, max_value=None):
         assert 1 <= len(name) <= 8 and name == name.upper(), name
@@ -187,6 +193,30 @@ class Press:
         if self.mode == "HOLD":
             return f"CC {self.number} ch {self.channel}, Press & Release, P.Val 127, R.Val 0"
         return f"Note {self.number} ({note_name(self.number)}) ch {self.channel}, Press & Release, velocity 127"
+
+    def short(self):
+        return f"{self.name} ({self.mode})"
+
+
+class Swap:
+    """Swap Destination: a quick press flips the encoder to its second destination, a turn of its own
+    (the ring takes the second colour, the screen shows a bar under the value); another press flips it
+    back. The press itself sends nothing; both destinations are plain CC turns with Live's feedback.
+    Without the swap press an encoder with two destinations would send both on every turn."""
+    mode = "SWAP"
+    address = None
+
+    def __init__(self, ctl):
+        self.ctl = ctl
+        ctl.second, ctl.colour = True, PINK
+        self.name, self.target = ctl.label, ctl.target
+        self.channel, self.number = ctl.channel, ctl.number
+
+    def message(self):
+        return f"Swap Destination; Destination 2 = CC {self.number} ch {self.channel}"
+
+    def short(self):
+        return self.name                    # fits a grid cell: "PRESS: SLOW ALL"
 
 
 class Key:
@@ -269,9 +299,11 @@ PAGES = [
 ]
 
 # Presses. A knob is easily pressed while it is turned, so a press must be harmless when it happens by
-# accident: a throw, a roll, a freeze or a drop is a musical mistake the set plays through. What would
-# stop the set goes on a computer key instead (KEYS), never on a press.
+# accident: a throw, a roll, a freeze or a drop is a musical mistake the set plays through, and a swap
+# only flips the knob (SLOW ALL never moves the sound, only how the next moves go). What would stop
+# the set goes on a computer key instead (KEYS), never on a press.
 PRESSES_ALL = {
+    1: Swap(P("CONTROL", "slow_all", "SLOW ALL", "SLOW")),
     4: Press("BUILD", "drop", "HOLD"),
 }
 PRESSES_PAGE = {
@@ -311,18 +343,24 @@ def addresses():
             e[1].append((title, i))
         for i in range(1, 17):
             p = press_for(title, i)
-            if p:
+            if p and p.mode == "SWAP":                  # the press sends nothing; its second turn does
+                c = p.ctl
+                e = out.setdefault(c.address, [c.target, [], "TURN", c.live_range, c])
+                assert e[0] == c.target, (c.address, e[0], c.target)
+                e[1].append((title, i))
+            elif p:
                 e = out.setdefault(p.address, [p.target, [], p.mode, "", p])
                 assert e[0] == p.target and e[2] == p.mode, (p.address, e[0], p.target)
                 e[1].append((title, i))
     return out
 
 
-def where(places):
-    """'every page, encoder 4' or 'SPACE 9, ...'."""
+def where(places, second=False):
+    """'every page, encoder 4' or 'SPACE 9, ...' (', second destination' for a swap's turn)."""
+    tail = ", second destination" if second else ""
     if len(places) == len(PAGES) and len({i for _, i in places}) == 1:
-        return f"every page, encoder {places[0][1]}"
-    return ", ".join(f"{t} {i}" for t, i in places)
+        return f"every page, encoder {places[0][1]}{tail}"
+    return ", ".join(f"{t} {i}" for t, i in places) + tail
 
 
 if __name__ == "__main__":

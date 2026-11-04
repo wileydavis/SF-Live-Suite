@@ -34,7 +34,12 @@ public:
     enum { SYS_GLIDE = 0, SYS_MACRO_SRC, SYS_MACRO_AMT,
            SYS_M1_SRC, SYS_M1_RATE, SYS_M1_TARGET, SYS_M1_DEPTH,
            SYS_M2_SRC, SYS_M2_RATE, SYS_M2_TARGET, SYS_M2_DEPTH, kNumSys };
-    static std::vector<std::string> glideNames() { return { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR" }; }
+    // SLOW: CONTROL (follow SF CONTROL's SLOW ALL; it was OFF before SLOW ALL, and sets saved then
+    // keep their old sound while SLOW ALL is OFF), this plugin's own length, or OFF (appended, so
+    // saved sets keep their lengths).
+    enum { SLOW_CONTROL = 0, SLOW_OFF = 8 };
+    static std::vector<std::string> glideNames() { return { "CONTROL", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR", "OFF" }; }
+    // Bars for a SLOW ALL index (0 = OFF) or an own SLOW length (1..7).
     static double glideBars (int i) { static const double b[] = { 0, 1, 2, 4, 8, 16, 32, 64 }; return b[juce::jlimit (0, 7, i)]; }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -124,7 +129,9 @@ private:
     std::unique_ptr<std::atomic<float>[]> ovrFrom;
     std::unique_ptr<std::atomic<uint32_t>[]> extGen, ovrGen, recallGen, reportedGen;
     std::atomic<int> notifying { -1 };            // the parameter flushHostNotifications is writing
-    std::vector<double> glideElapsed;
+    // SLOW: a move's length (beats) is fixed when it is made; 0 = not travelling.
+    std::vector<double> glideElapsed, glideBeats;
+    int slowAllNow = 0;                           // SF CONTROL's SLOW ALL this block (0 while CONTROL isn't running)
     std::vector<int> ovrAge;
     double internalPpq = 0.0, barPhase = 0.0;
     char trackName[24] {};

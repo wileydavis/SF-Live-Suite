@@ -39,8 +39,8 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 
 - Every other plugin setting is the plugin's default. Every SF plugin's parameter panel is unfolded,
   so every mapped parameter is in view.
-- **E16:** every address in `controllers/e16/sf-show-map.csv` is mapped, the presses included (they
-  work once the presses are in the E16 scene: `controllers/e16/README.md`, step 5). Every volume has
+- **E16:** every address in `controllers/e16/sf-show-map.csv` is mapped, the presses and knob 1's
+  second destination (SLOW ALL on SF CONTROL) included; the E16 scene carries them all. Every volume has
   Max 0 dB; DUB FEEDBACK is mapped 0-70 %.
 - Every MIDI track starts on MIDI From No Input, so nothing plays until section 2 points it at its
   part. Cue Out 3/4. Tempo 120, 4/4, eight empty scenes. Colours: groups white, instruments light
@@ -93,7 +93,7 @@ For DECK's headphone cue, add an audio track: Audio From 41 DECK, CUE; out to th
 
 1. Live opens the set without a message and lists no SF plugin as missing. A missing plugin: the
    suite isn't installed, or VST3 is off.
-2. Cmd-M: the MIDI Mappings list shows the E16 mappings (107). Turn a few knobs on different pages:
+2. Cmd-M: the MIDI Mappings list shows the E16 mappings (108). Turn a few knobs on different pages:
    the parameter named in `sf-show-map.csv` moves, and a volume stops at 0 dB.
 3. Play the ONE: each instrument plays only its own part; the LIVE BUS, Main and 92 PA meters move;
    93 REC, armed, records the set. Cue a track: it reaches the headphones and not the PA.

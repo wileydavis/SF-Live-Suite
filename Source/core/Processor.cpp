@@ -104,7 +104,7 @@ SFProcessor::SFProcessor (ModulePtr m)
     {
         return s >= 0 && s < kSongs && i >= 0 && i < (int) specs.size() && songHas[(size_t) s].load() ? songVals[(size_t) s][(size_t) i] : NAN;
     };
-    glideFrom.assign (specs.size(), 0.0f); glideTo.assign (specs.size(), NAN); glideElapsed.assign (specs.size(), 0.0);
+    glideFrom.assign (specs.size(), 0.0f); glideTo.assign (specs.size(), NAN); glideElapsed.assign (specs.size(), 0.0); glideBeats.assign (specs.size(), 0.0);
     std::random_device rd;
     motionSeed = (uint32_t) rd() | 1u;
     instanceUid = (((uint64_t) rd() << 32) ^ (uint64_t) rd() ^ (uint64_t) (uintptr_t) this) | 1u;
@@ -325,8 +325,10 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     clockAnchored = true;
     c.barPhase = barPhase;
     // KEY only while SF CONTROL is running: the shared bus outlives sets and Live sessions, so a
-    // key left there by a deleted CONTROL (or the last set) must not transpose anything.
+    // key left there by a deleted CONTROL (or the last set) must not transpose anything. The same
+    // for SLOW ALL: a length left there must not slow the next set's knobs.
     const bool controlOn = bus.controlAlive();
+    slowAllNow = controlOn ? juce::jlimit (0, 7, (int) d.slowAll.load()) : 0;
 
     // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
     if (! seqInit)
@@ -463,8 +465,10 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
 void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
 {
     const auto& d = c.bus->d();
-    const int glideIdx = numModParams + SYS_GLIDE;
-    const double gBars = glideBars ((int) raw[(size_t) glideIdx]->load());
+    // SLOW: how long a move made now takes. CONTROL: SF CONTROL's SLOW ALL; a length: this
+    // plugin's own; OFF: straight there.
+    const int slow = (int) raw[(size_t) (numModParams + SYS_GLIDE)]->load();
+    const double gBars = slow == SLOW_CONTROL ? glideBars (slowAllNow) : slow >= SLOW_OFF ? 0.0 : glideBars (slow);
     const int mSrc = (int) raw[(size_t) (numModParams + SYS_MACRO_SRC)]->load();
     const float mAmt = raw[(size_t) (numModParams + SYS_MACRO_AMT)]->load();
     const float macro = mSrc > 0 && mSrc <= kMacros ? d.macro[mSrc - 1].load() : 0.0f;
@@ -504,23 +508,34 @@ void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
         }
         if (s.type != PType::Float) { cur[i] = t; base[i] = t; continue; }
         const float range = s.max - s.min;
-        // SLOW: performance-row knobs travel to a new setting over exactly N bars, however far.
-        if (gBars > 0.0 && s.glide && s.primary && (int) i < numModParams && ! firstBlock)
+        // SLOW: a performance-row knob travels to a new setting (a turn, automation, a song recall)
+        // over exactly N bars, however far. N is fixed when the setting is made: changing SLOW or
+        // SLOW ALL never touches a knob already travelling, it only sets how the next move goes. A
+        // knob moved again while it travels sets off from where it has got to.
+        const bool glides = s.glide && s.primary && (int) i < numModParams;
+        if (glides && ! firstBlock)
         {
             if (std::isnan (glideTo[i]) || std::abs (t - glideTo[i]) > 1e-5f * (1.0f + std::abs (range)))
             {
                 glideFrom[i] = base[i];
                 glideTo[i] = t;
                 glideElapsed[i] = 0.0;
+                glideBeats[i] = gBars * c.beatsPerBar;
             }
-            glideElapsed[i] += chunkBeats;
-            const double total = gBars * c.beatsPerBar;
-            const float k = (float) std::min (1.0, glideElapsed[i] / total);
-            base[i] = glideFrom[i] + (glideTo[i] - glideFrom[i]) * k;
+            if (glideBeats[i] > 0.0)
+            {
+                glideElapsed[i] += chunkBeats;
+                const double k = std::min (1.0, glideElapsed[i] / glideBeats[i]);
+                base[i] = k >= 1.0 ? glideTo[i] : glideFrom[i] + (glideTo[i] - glideFrom[i]) * (float) k;
+                if (k >= 1.0) glideBeats[i] = 0.0;
+            }
+            else base[i] = t + smooth * (base[i] - t);
         }
         else
         {
-            glideTo[i] = NAN;
+            // Not a SLOW knob, or the first block (where the knobs start, not a move).
+            glideTo[i] = glides ? t : NAN;
+            glideBeats[i] = 0.0;
             base[i] = firstBlock ? t : t + smooth * (base[i] - t);
         }
         // MACRO and MOTION act on the knob's travel (normalised, skew included), after the glide,

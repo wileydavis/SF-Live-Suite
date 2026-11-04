@@ -195,7 +195,7 @@ class E16Page(Flowable):
                 label(c, tx, yl, addr + (f"  {rng}" if rng else ""), 5.7, GREY, "Mono", "l")
                 p = self.press_for(i)
                 if p:
-                    t = f"PRESS {p.name} / {'HOLD' if p.mode == 'HOLD' else 'TOGGLE'}"
+                    t = f"PRESS: SWAP TO {p.name}" if p.mode == "SWAP" else f"PRESS {p.name} / {p.mode}"
                     w = stringWidth(t, "MonoB", 5.6) + 6
                     by = y1 - RH + 4
                     c.setFillColor(GREY if fixed else INK); c.rect(tx, by, w, 8, stroke=0, fill=1)
@@ -508,27 +508,32 @@ story.append(P("The E16 is a 4 &times; 4 grid of endless encoders, numbered row 
 cells = {}
 for i, ctl in enumerate(E16.TOP, 1):
     pr = E16.PRESSES_ALL.get(i)
-    sub = f"PRESS: {pr.name} ({'HOLD' if pr.mode == 'HOLD' else 'TOGGLE'})" if pr else ctl.label.upper()
+    sub = f"PRESS: {pr.short()}" if pr else ctl.label.upper()
     cells[i] = (ctl.name, sub, CYAN if ctl.colour == E16.LIGHT_BLUE else INK, False)
 for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND", 1), ("GATE", 0), ("DENSITY", 0), ("FILTER", 0), ("SOUND", 1), ("LEVEL", 0)]):
     cells[i] = (name, "THE PLUGIN'S OWN" if quiet else "", CYAN if name == "LEVEL" else INK, bool(quiet))
 story.append(E16Grid(cells))
 story.append(Spacer(1, 8))
 story += bullets(["<b>1-3, the group ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together).",
+                  "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns pink): turn it to set how long your next moves take, OFF (at once) to 64 BAR. Press again: LOW ENERGY. Knobs already travelling keep going.",
                   "<b>4, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page. The drop lands on the next bar line (chapter 7).",
                   "<b>5-8, the volumes:</b> KICK, LOW, DRUMS, MUSIC. Each is mapped with a maximum of 0 dB, so a full turn never runs past the soundcheck balance.",
                   "<b>On an instrument page</b> 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row."])
 story.append(H2T("RINGS, PAGES, PRESSES"))
-story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else. Live sends every value back, so the rings follow song recalls and mouse moves.",
+story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else, pink is knob 1 on SLOW ALL. Live sends every value back, so the rings follow song recalls and mouse moves.",
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>Changing pages sends nothing.</b> A knob on two pages (LOW ENERGY is on all twelve) sends the same address from both: two ways to one mapping.",
                   "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off.",
                   "Every press is one the set plays through if it happens by accident (a throw, a roll, a freeze, a drop). What would stop the set is on a computer key."])
 story.append(CondPageBreak(1.7 * inch))
+def press_row(where, i, p):
+    kind = {"HOLD": "hold", "TOGGLE": "toggle", "SWAP": "swap"}[p.mode]
+    msg = {"HOLD": f"CC {p.number} ch {p.channel}", "SWAP": f"turn 2: CC {p.number} ch {p.channel}"}.get(
+        p.mode, f"note {p.number} ({E16.note_name(p.number)}) ch {p.channel}")
+    return [where, str(i), f"{p.name}, {kind}", msg, esc(p.target)]
 story.append(table([["WHERE", "KNOB", "PRESS", "MESSAGE", "LIVE TARGET"]] +
-    [["every page", "4", "DROP, hold", "CC 21 ch 15", "90 LIVE BUS &gt; SF BUILD &gt; DROP"]] +
-    [[t, str(i), f"{p.name}, {'hold' if p.mode == 'HOLD' else 'toggle'}", (f"CC {p.number} ch {p.channel}" if p.mode == "HOLD" else f"note {p.number} ({E16.note_name(p.number)}) ch {p.channel}"),
-      esc(p.target)] for (t, i), p in sorted(E16.PRESSES_PAGE.items(), key=lambda kv: ([pg for pg, _ in E16.PAGES].index(kv[0][0]), kv[0][1]))],
+    [press_row("every page", i, p) for i, p in sorted(E16.PRESSES_ALL.items())] +
+    [press_row(t, i, p) for (t, i), p in sorted(E16.PRESSES_PAGE.items(), key=lambda kv: ([pg for pg, _ in E16.PAGES].index(kv[0][0]), kv[0][1]))],
     [0.85 * inch, 0.45 * inch, 1.15 * inch, 1.35 * inch, W - 3.8 * inch], mono_first=False))
 story.append(H2T("ADDRESSES"))
 story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB, 10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 the groups (LOW, DRUMS, MUSIC and DRUMS' REPEAT), 15 LIVE BUS and BRIDGE, 16 CONTROL.",
@@ -538,15 +543,15 @@ story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5
 story.append(H2T("LOAD THE SCENE"))
 story += numbered(["OXI App &gt; Scenes. If no computer folder is assigned yet, assign one.",
                    "Copy <b>SF SHOW.oxie16</b> (controllers/e16 in the repository) into the Scenes folder inside it and click Refresh Views.",
-                   "Drag SF SHOW from On Computer onto a free slot under On Device.",
-                   "Add the presses in the App (the table above): Output Same as Page, the channel as listed; DROP on knob 4 of all twelve pages. Loading a new SF SHOW file replaces them: add them again after.",
+                   "Drag SF SHOW from On Computer onto a free slot under On Device. The presses come with it.",
                    "<b>Auto Transmit off</b>, for the scene and in the global settings: sending stored values on a page change would pull Live's faders to whatever the E16 last held. MIDI Thru off.",
                    "In Live: E16 Port 2 Remote on, input and output; Ports 1 and 3 off (Port 1 is the OXI App's; a second Remote port would double every message, and a FREEZE would flip twice). Takeover Mode: Value Scaling."])
 story.append(H2T("CHECK IT ONCE"))
 story += numbered(["Every knob: turn it, the right parameter moves. Every press: the right switch.",
                    "Hold DROP, a THROW and ROLL for three seconds each: on for the whole hold, off on release. (A long press also opens the E16's own functions; if one interferes, make that press a toggle.)",
-                   "Shared knobs: on page 2 turn LOW ENERGY fully left; on page 1 turn it one step right. The sound moves one step, not jumps. If it jumps, the E16 keeps a value per page: controllers/e16 README, check 3, has the relative fallback.",
+                   "Shared knobs: on page 2 turn LOW ENERGY fully left; on page 1 turn it one step right. The sound moves one step, not jumps. If it jumps, the E16 keeps a value per page: controllers/e16 README, check 4, has the relative fallback.",
                    "Change pages, leave SF SHOW and come back: Live's MIDI input indicator stays dark.",
+                   "Press knob 1 (pink) and turn: SLOW ALL moves, LOW ENERGY doesn't. Press again: LOW ENERGY.",
                    "Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from the new value."])
 story.append(PageBreak())
 
@@ -580,7 +585,7 @@ story.append(Spacer(1, 6))
 story += bullets(["SF CONTROL decides the bar line once and sends it with the song, so every plugin lands on the same bar whatever order Live processes the tracks in.",
                   "A change sent within 30 ms after a bar line (a Program Change on the downbeat) counts for that bar; later in the bar, for the next one. Every plugin's header shows WAIT BAR in green until it lands.",
                   "Turning SONG on SF CONTROL does the same as a Program Change. A plugin with nothing stored in that song stays as it is.",
-                  "<b>SLOW</b> on a plugin turns its recall into a glide: with SLOW at 8 or 16 BAR a song change becomes an 8- or 16-bar transition."])
+                  "<b>SLOW ALL</b> on SF CONTROL turns every recall into a glide: at 8 or 16 BAR a song change becomes an 8- or 16-bar transition; at OFF it lands on the bar."])
 story.append(H2T("SAVING A SONG"))
 story += bullets(["Set every plugin how the song should start, then press <b>STORE ALL</b> on SF CONTROL: every SF plugin stores its values into the song in force (SONG).",
                   "<b>Into another song:</b> choose it in <b>STORE TO</b> first, then STORE ALL. That song isn't recalled, so nothing you hear changes; it becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. Choosing it on SONG instead would recall it and lose what you set.",
@@ -640,8 +645,13 @@ story += bullets(["<b>Throws:</b> SPACE page, hold 9 (DUB THROW) on an offbeat s
 story.append(H2T("FILLS AND TRANSITIONS"))
 story += bullets(["<b>Hats:</b> HATS page, CLOSED DENSITY up with ECHO SPACE at 1/16 on SF PERC: 1/8 hats become 1/16s, then 1/32 rolls past 50 %.",
                   "<b>Drum roll:</b> MACROS page, hold ROLL (15) and turn LENGTH under the same finger: 1/4 down to 1/32. PITCH (16) makes it fall.",
-                  "<b>Between tracks:</b> load the next ONE project during a build or a breakdown; the song lands on a bar line. With SLOW set, the sound glides into the new song instead.",
+                  "<b>Between tracks:</b> load the next ONE project during a build or a breakdown; the song lands on a bar line. With SLOW ALL set, the sound glides into the new song instead.",
                   "<b>BRIDGE:</b> bring 16 BRIDGE up on PERFORM and 15 LIVE BUS down to hand the room to a clip while you regroup. BRIDGE still needs Live: it is not a backup for a computer failure."])
+story.append(H2T("GLIDES"))
+story += bullets(["<b>SLOW ALL</b> (press knob 1, turn, press again) sets how long your next moves take, in every SF plugin. OFF: they land at once. 8 BAR: a quarter turn of ACID CUTOFF becomes an eight-bar rise that plays itself.",
+                  "<b>A move keeps its length.</b> Start a 16-bar rise on the pad, set SLOW ALL to OFF, and make quick moves elsewhere: the pad keeps rising. Turn a travelling knob and it sets off again from where it has got to.",
+                  "<b>Song changes follow it.</b> SLOW ALL at 16 BAR before the Program Change: the set morphs into the next track over 16 bars. OFF: it lands on the bar.",
+                  "Live's faders (the volumes, the returns, LIVE BUS, BRIDGE) never glide. A plugin's own SLOW, set in its window, wins over SLOW ALL; leave it at CONTROL."])
 story.append(H2T("WHEN SOMETHING GOES WRONG"))
 story.append(table([["WHAT HAPPENED", "DO THIS"],
     ["A runaway: feedback, a stuck note, a wrong sound in front of the crowd", "PANIC key: every SF plugin fades out over 5 ms, clears and stays silent. Same key: back, without a click."],
@@ -663,6 +673,7 @@ story += numbered(["Every SF plugin from the same build: SF CONTROL shows BUS SH
                    "The PA pair carries 92 PA and nothing else; Cue reaches the headphones and not the PA.",
                    "DROP, a THROW and ROLL each held for three seconds: on for the whole hold, off on release.",
                    "The shared E16 knobs don't jump (chapter 4); changing pages sends nothing.",
+                   "SLOW ALL where you want it for the opening (knob 1 pressed; OFF for direct moves), then back to LOW ENERGY.",
                    "A drop rehearsed with the night's GAP, TAIL and DROP DUCK settings.",
                    "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording.",
                    "Soundcheck the busiest passage: SF LIMIT INPUT for 1-3 dB of limiting there, AUTO on, DOWN ONLY."])
@@ -677,7 +688,9 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["Pump early or late", "Live buffer 512 or less; the ONE's MIDI Clock Sync Delay; then POCKET OFFSET by ear."],
     ["Songs don't change", "PC ENABLE on, PC CHANNEL 16, sequencer 8 on 16B. The VST3 needs Live 12.2 or later; otherwise use the AU."],
     ["E16 rings don't follow", "Remote on for E16 Port 2's output."],
-    ["An E16 press does nothing", "The presses aren't in the scene yet (chapter 4, load step 4). A toggle that flips back: Remote is on for two E16 ports."],
+    ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports."],
+    ["Knob 1 moves LOW ENERGY and SLOW ALL together", "Its push was changed in the App: load SF SHOW.oxie16 again (knob 1's push must be Swap Destination)."],
+    ["Every move glides (or none does)", "SLOW ALL is saved with the set: press knob 1 and set it. A plugin whose own SLOW isn't CONTROL keeps its own."],
     ["An E16 knob jumps when touched", "Auto Transmit is on, or the E16 keeps a value per page: chapter 4, check 3."],
     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds: rebuild and install the whole suite, restart Live."],
     ["A return doubles the dry signal", "DRY off on SF DELAY or SF REVERB on the returns."]], [1.9 * inch, W - 1.9 * inch], mono_first=False))
@@ -692,7 +705,7 @@ rows = [["CH", "MESSAGE", "LIVE TARGET", "MAPPING", "ON THE E16"]]
 for (msg, ch, n), (target, places, kind, rng, item) in sorted(E16.addresses().items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2])):
     m = f"CC {n}" if msg == "CC" else f"NOTE {n} ({E16.note_name(n)})"
     how = {"TURN": "absolute", "HOLD": "press: hold", "TOGGLE": "press: toggle"}[kind] + (f", {rng}" if rng else "")
-    rows.append([str(ch), m, esc(target), esc(how), esc(E16.where(places))])
+    rows.append([str(ch), m, esc(target), esc(how), esc(E16.where(places, getattr(item, "second", False)))])
 story.append(table(rows, [0.35 * inch, 1.05 * inch, 2.55 * inch, 1.25 * inch, W - 5.2 * inch], mono_first=False, pad=2.3))
 
 doc = Doc(os.path.join(ROOT, "docs", "SF-SHOW-Operators-Manual.pdf"), title="SF SHOW Operator's Manual",
