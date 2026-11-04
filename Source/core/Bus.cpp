@@ -19,9 +19,9 @@ const float kBandEdges[kBands + 1] = { 20.0f, 60.0f, 100.0f, 150.0f, 220.0f, 320
 const float kBandCentres[kBands] = { 40.0f, 78.0f, 122.0f, 182.0f, 265.0f, 392.0f, 600.0f, 1060.0f, 2450.0f, 8900.0f };
 
 static constexpr uint32_t kMagic = 0x5346424Bu;   // "SFBK"
-static constexpr uint32_t kVersion = 6;
+static constexpr uint32_t kVersion = 7;
 // Short name: macOS limits POSIX shm names to 31 chars. Bump with kVersion.
-static constexpr const char* kShmName = "/sf_live_suite_bus_v6";
+static constexpr const char* kShmName = "/sf_live_suite_bus_v7";
 
 double Bus::nowSec()
 {
@@ -203,5 +203,42 @@ void Bus::releaseSource (int slot, uint64_t owner)
     auto& s = data->src[slot];
     uint64_t cur = owner;
     s.owner.compare_exchange_strong (cur, 0);
+}
+
+int Bus::claimGlide (uint64_t owner)
+{
+    for (int pass = 0; pass < 2; ++pass)
+        for (int i = 0; i < kGlideSlots; ++i)
+        {
+            auto& g = data->glides[i];
+            uint64_t cur = g.owner.load();
+            if (cur == owner) return i;
+            const bool stale = cur != 0 && nowMs() - g.seenMs.load() > 1500;
+            if ((pass == 0 && cur == 0) || (pass == 1 && stale))
+                if (g.owner.compare_exchange_strong (cur, owner))
+                {
+                    g.count = 0;
+                    g.seenMs = nowMs();
+                    return i;
+                }
+        }
+    return -1;
+}
+
+void Bus::releaseGlide (int slot, uint64_t owner)
+{
+    if (slot < 0 || slot >= kGlideSlots) return;
+    auto& g = data->glides[slot];
+    if (g.owner.load() != owner) return;
+    g.count = 0;
+    uint64_t cur = owner;
+    g.owner.compare_exchange_strong (cur, 0);
+}
+
+bool Bus::glideAlive (int slot, int64_t withinMs) const
+{
+    if (slot < 0 || slot >= kGlideSlots) return false;
+    const auto& g = data->glides[slot];
+    return g.owner.load() != 0 && nowMs() - g.seenMs.load() < withinMs;
 }
 } // namespace sf

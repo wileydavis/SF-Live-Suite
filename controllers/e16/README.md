@@ -5,10 +5,11 @@ mapped: `controllers/live`), save it as your template: nothing is remapped after
 
 | FILE | WHAT |
 |---|---|
-| `SF SHOW.oxie16` | The scene: 12 pages, all 192 turns set (name, ring colour, channel, CC), every press, and knob 1's second destination. |
+| `SF SHOW.oxie16` | The scene: 12 pages, all 192 turns set (name, ring colour, channel, CC), every press, knob 1's second destination, and the GLIDE RINGS script. |
 | `sf-show-map.csv` | Every address once: channel, CC or note, the Live target, the mapping range, where it sits on the E16. Map Live from this. |
 | `layout.py` | The layout. One source for the scene, the map, the show set's mappings and the manual's E16 tables. |
-| `make_scene.py` | Rebuilds the scene and the map: `python3 make_scene.py`. |
+| `glide_rings.lua` | The scene's script: travelling knobs show green, walking with the sound (GLIDE RINGS below). |
+| `make_scene.py` | Rebuilds the scene, the map and the plugins' copy of it (`Source/core/E16Map.h`): `python3 make_scene.py`. |
 
 ## THE GRID
 
@@ -121,6 +122,32 @@ freeze, a drop, a flipped knob 1); what would stop the set is on a computer key.
 Never give an encoder a second destination without the Swap Destination press: it would send both on
 every turn. `make_scene.py` refuses to write one.
 
+## GLIDE RINGS
+
+While a knob travels (SLOW ALL, or a plugin's own SLOW), its ring turns **green** and walks with the
+sound to where you set it; when the knob arrives, the ring is white again and shows the knob's value
+as before. Turn a travelling knob and for a moment the ring shows your hand (where you are setting
+it); the green walk picks up again when you let go. Song recalls with SLOW ALL on show every recalled
+knob walking.
+
+- **How:** every SF plugin finds its own knobs in the scene (by its Live track's name; a plugin the
+  scene has on one track only also without it) and reports the travelling ones. SF CONTROL sends
+  their positions to the E16 as SysEx on **E16 RINGS** (SF CONTROL, setup: OFF, PORT 1-3; default
+  PORT 3, which Live doesn't use). The scene's script paints those rings.
+- **Nothing depends on it.** The knobs are the scene's plain CC knobs. If the script stops, SF CONTROL
+  goes, or E16 RINGS is OFF, the rings show the knobs' values as before (a green ring lets go within
+  1.2 s).
+- **Needs** E16 firmware with Lua scripting (1.2 or later; 1.3.1 here) and the SF SHOW scene loaded
+  from this folder (the script is inside it).
+- SF CONTROL's display shows **E16 RINGS PORT 3** in green once it has the port; **NO PORT 3** while
+  the E16 isn't there (it looks again every 2 s).
+- Knob 1 is green both on SLOW ALL and while LOW ENERGY travels: a travelling ring moves.
+- No green: the plugins must come from the same build (SF CONTROL: BUS SHARED); try E16 RINGS PORT 2
+  (Live's port: the SysEx goes in beside Live's feedback). An AU of SF LEAD, PERC or ENERGY (on
+  several tracks in the scene) doesn't know its track name: use the VST3s.
+- Message format and timing: `Source/core/E16Glide.h`. Tests: `SFTests --rings` (the plugins and SF
+  CONTROL), `python3 tests/glide_rings_test.py` (the script as shipped, on a mock of the E16's Lua).
+
 ## 6. CHECKS
 
 1. Every knob: turn it, the right parameter moves. Every press: the right switch.
@@ -139,11 +166,15 @@ every turn. `make_scene.py` refuses to write one.
 6. **Recall.** Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from
    the new value when turned.
 7. **PANIC** from its key: silence, every SF header shows PANIC. Again: back without a click.
+8. **Glide rings.** SLOW ALL to 4 BAR, turn a knob on the page and let go: its ring turns green and
+   walks to where you set it over four bars, then turns white. Turn it while it walks: the ring shows
+   your hand, then green again. SF CONTROL shows E16 RINGS PORT 3 in green.
 
 ## CHANGING THE LAYOUT
 
 Edit `layout.py`: `TOP` is rows 1-2, `PAGES` is rows 3-4 of each page, `PRESSES_*` the presses, `KEYS`
 the computer keys. Run `python3 make_scene.py` (it checks that every address names one Live target),
-load the new file and map only what changed. `python3
+load the new file and map only what changed. It also rewrites `Source/core/E16Map.h`, the plugins'
+copy of the knob map for GLIDE RINGS: rebuild the suite after a layout change. `python3
 docs/manual/build_manual.py` and `python3 docs/manual/build_show_manual.py` put the new layout in the
 manuals.

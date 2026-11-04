@@ -317,7 +317,7 @@ story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(p
                  + ["<b>PANIC and 92 PA's on/off are on computer keys</b> (Key Map, Cmd-K), never on a press: a knob is easily pressed while it is turned, and neither may ever happen by accident. A key flips them: PANIC on, every SF plugin silent; again, back. Every press on the E16 is one the set plays through if it happens by accident."])
 story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
                   "Each instrument's LEVEL belongs to its song; the volumes here are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix, and give every volume mapping a maximum of 0 dB (Max in Live's MIDI Mappings).",
-                  "Rings: light blue is a volume, white is everything else, green is knob 1 on SLOW ALL."])
+                  "Rings: light blue is a volume, white is everything else, green is knob 1 on SLOW ALL. A knob that is travelling (SLOW) turns green and walks with the sound until it arrives (GLIDE RINGS: SF CONTROL's E16 RINGS and the scene's script; controllers/e16 README)."])
 
 story.append(H2("THE E16: PAGES"))
 rows = [["PAGE", "ROW 3: ENCODERS 9-12", "ROW 4: ENCODERS 13-16", "PRESSES"]]

@@ -1,5 +1,6 @@
 #include "Processor.h"
 #include "BandLimited.h"
+#include "E16Map.h"
 #include "Editor.h"
 #include "Registry.h"
 #include <chrono>
@@ -124,6 +125,59 @@ SFProcessor::~SFProcessor()
 {
     stopTimer();
     for (auto* p : params) p->removeListener (this);
+    sf::Bus::get().releaseGlide (glideSlot, instanceUid.load());
+}
+
+// GLIDE RINGS. The plugin's knobs on the E16 scene: those for its Live track and its module; with
+// no track name (AU) or a renamed track, a module the scene has on one track only still finds its
+// knobs. Each knob's ring position is Live's mapping of the parameter (normalised between lo and hi).
+void SFProcessor::findE16Knobs()
+{
+    e16Seq = trackNameSeq.load();
+    numE16 = 0;
+    const std::string mod = module->id();
+    char name[24];
+    std::memcpy (name, trackName, sizeof (name));
+    name[23] = 0;
+    const char* track = nullptr;
+    for (const auto& k : sf::kE16Knobs)
+        if (mod == k.module)
+        {
+            if (std::strcmp (name, k.track) == 0) { track = k.track; break; }
+            if (track == nullptr) track = k.track;
+            else if (std::strcmp (track, k.track) != 0) track = "";     // on several tracks: needs the name
+        }
+    if (track == nullptr || track[0] == 0) return;
+    for (const auto& k : sf::kE16Knobs)
+        if (mod == k.module && std::strcmp (track, k.track) == 0 && k.param >= 0 && k.param < numModParams
+            && numE16 < (int) e16Knobs.size())
+        {
+            auto* p = params[(size_t) k.param];
+            e16Knobs[(size_t) numE16++] = { k.param, (uint32_t) k.channel << 24 | (uint32_t) k.number << 16, 0.0f,
+                                            k.max > 0.0f ? juce::jmax (0.01f, p->convertTo0to1 (k.max)) : 1.0f };
+        }
+}
+
+// Every block: the knobs travelling now and where their sound is, for SF CONTROL to show on the E16.
+void SFProcessor::publishGlides (sf::Bus& bus)
+{
+    if (trackNameSeq.load() != e16Seq) findE16Knobs();
+    if (numE16 == 0) return;
+    const uint64_t me = instanceUid.load();
+    if (glideSlot < 0 || bus.d().glides[glideSlot].owner.load() != me) glideSlot = bus.claimGlide (me);
+    if (glideSlot < 0) return;
+    auto& g = bus.d().glides[glideSlot];
+    int n = 0;
+    for (int k = 0; k < numE16 && n < sf::kGlideEntries; ++k)
+    {
+        const auto& e = e16Knobs[(size_t) k];
+        if (glideBeats[(size_t) e.param] <= 0.0) continue;
+        const float norm = params[(size_t) e.param]->convertTo0to1 (base[(size_t) e.param]);
+        const float ring = juce::jlimit (0.0f, 1.0f, (norm - e.lo) / (e.hi - e.lo));
+        g.entry[n++] = e.addr | (uint32_t) juce::roundToInt (ring * 16383.0f);
+    }
+    g.count = n;                 // after the entries it counts
+    g.seenMs = sf::Bus::nowMs();
 }
 
 // Any thread: Live (automation, a MIDI-mapped knob, the host's own controls), the editor, a
@@ -453,6 +507,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         streamPos += (uint64_t) n;
     }
     firstBlock = false;
+    publishGlides (bus);
 
     outMeter.push (mainOut.getArrayOfReadPointers(), mainOut.getNumChannels(), total);
     if (outMeter.peak > 0.999f) clipped = true;

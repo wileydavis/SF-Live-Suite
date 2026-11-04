@@ -132,6 +132,14 @@ private:
     // SLOW: a move's length (beats) is fixed when it is made; 0 = not travelling.
     std::vector<double> glideElapsed, glideBeats;
     int slowAllNow = 0;                           // SF CONTROL's SLOW ALL this block (0 while CONTROL isn't running)
+    // GLIDE RINGS: this plugin's knobs on the E16 (E16Map.h, found by the Live track's name), and
+    // the bus slot where the travelling ones are reported for SF CONTROL. Audio thread only.
+    struct E16Entry { int param; uint32_t addr; float lo, hi; };
+    std::array<E16Entry, 24> e16Knobs {};
+    int numE16 = 0, glideSlot = -1;
+    uint32_t e16Seq = 0xffffffffu;
+    void findE16Knobs();
+    void publishGlides (sf::Bus&);
     std::vector<int> ovrAge;
     double internalPpq = 0.0, barPhase = 0.0;
     char trackName[24] {};

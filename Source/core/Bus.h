@@ -13,6 +13,8 @@ constexpr int kKickRing = 32;
 constexpr int kMacros = 6;
 constexpr int kSongs = 16;
 constexpr int kConflictSlots = 3;
+constexpr int kGlideSlots = 48;          // one per SF plugin instance that has a knob on the E16
+constexpr int kGlideEntries = 8;         // knobs of one plugin travelling at once (its performance row)
 
 // Default ALLOC priority, highest first.
 enum Role { ROLE_KICK = 0, ROLE_BASS, ROLE_VOICE, ROLE_LEAD, ROLE_PERC, ROLE_RUMBLE, ROLE_PAD, ROLE_DECK, ROLE_OTHER, kNumRoles };
@@ -43,6 +45,17 @@ struct SourceSlot
     std::atomic<uint64_t> uid;                // the plugin instance's id, saved with the set (0 = not yet)
     std::atomic<float> energy[kBands];        // dBFS, smoothed
     std::atomic<float> cut[kBands];           // dB of cut ALLOC asks for (>= 0)
+};
+
+// A plugin's knobs that are travelling (SLOW), for SF CONTROL to show on the E16 (v7). Each entry
+// is one knob: E16 channel (1-16) << 24 | number << 16 | ring position (0-16383, Live's mapping of
+// where the sound is now). Written by the plugin every block, entries before count.
+struct GlideSlot
+{
+    std::atomic<uint64_t> owner;
+    std::atomic<int64_t> seenMs;
+    std::atomic<int32_t> count;
+    std::atomic<uint32_t> entry[kGlideEntries];
 };
 
 struct ConflictSlot
@@ -97,6 +110,9 @@ struct BusData
     // SLOW is CONTROL. 0 = OFF, 1..7 = 1..64 BAR (SFProcessor::glideBars). Honoured only while
     // CONTROL runs.
     std::atomic<int32_t> slowAll;
+
+    // Travelling knobs, for SF CONTROL's E16 RINGS (v7).
+    GlideSlot glides[kGlideSlots];
 };
 
 class Bus
@@ -126,6 +142,11 @@ public:
     bool sourceAlive (int slot, int64_t withinMs = 1500) const;
     static void packName (std::atomic<uint64_t>* dst, const char* s);
     static void unpackName (const std::atomic<uint64_t>* src, char* out24);
+
+    // Glide reports (SF CONTROL's E16 RINGS). claim: -1 if full. A slot unseen for 1.5 s is stale.
+    int claimGlide (uint64_t owner);
+    void releaseGlide (int slot, uint64_t owner);
+    bool glideAlive (int slot, int64_t withinMs = 500) const;
 
     bool allocAlive() const   { return nowMs() - data->allocSeenMs.load() < 1500; }
     bool controlAlive() const { return nowMs() - data->controlSeenMs.load() < 1500; }

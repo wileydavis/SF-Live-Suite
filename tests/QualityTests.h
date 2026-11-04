@@ -9,6 +9,8 @@
 //   --rates         44.1 / 96 kHz, odd and huge block sizes, block-size independence
 //   --cpu           real-time factor per module (README table)
 #include "core/BandLimited.h"
+#include "core/E16Glide.h"
+#include "core/E16Map.h"
 #include "core/Loudness.h"
 #include "core/Oversample.h"
 #include "core/Resample.h"
@@ -2434,5 +2436,106 @@ static void testSlowAll()
     ctl.set ("slow_all", 0.0f); bars (0.05);
     recall (2); bars (0.15); f.p->flushHostNotifications();
     expect ("song 3 recalled with SLOW ALL OFF: at once", 0.9f, 0.002f);
+    resetBus();
+}
+
+// GLIDE RINGS: a plugin finds its knobs on the E16 scene (by track name, or by module when the scene
+// has it on one track), reports the travelling ones with Live's mapping of where the sound is, and
+// SF CONTROL turns that into the scene script's SysEx: a start, moves of 32 or more, a keep-alive
+// every 400 ms, an arrival; at most 14 knobs a message.
+static void testGlideRings()
+{
+    std::printf ("-- GLIDE RINGS\n");
+    resetBus();
+    auto& bus = Bus::get();
+    auto& d = bus.d();
+    auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+    Rig2 ctl ("CONTROL"), kick ("KICK"), stab ("LEAD"), lead ("LEAD"), dub ("DELAY");
+    auto name = [] (Rig2& r, const char* n) { juce::AudioProcessor::TrackProperties t; t.name = n; r.p->updateTrackProperties (t); };
+    name (stab, "32 Stab");          // Live's name, any case
+    name (dub, "A DUB");
+    std::vector<Rig2*> all { &ctl, &kick, &stab, &lead, &dub };
+    auto cycle = [&] { for (auto* r : all) r->step (kBlock, quiet); };
+    const double barBlocks = 4.0 / (kBlock * kick.bps());
+    auto bars = [&] (double b) { for (int k = 0, n = (int) std::lround (b * barBlocks); k < n; ++k) cycle(); };
+    auto entries = [&] {
+        std::map<int, int> m;      // channel * 128 + number -> ring
+        for (auto& g : d.glides)
+            if (g.owner.load() != 0)
+                for (int k = 0; k < g.count.load(); ++k) { const uint32_t e = g.entry[k]; m[(int) (e >> 24) * 128 + (int) ((e >> 16) & 0xff)] = (int) (e & 0xffff); }
+        return m;
+    };
+    bars (0.1);
+    int claimed = 0;
+    for (auto& g : d.glides) claimed += g.owner.load() != 0 ? 1 : 0;
+    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 32 STAB, DELAY on A DUB; not the unnamed LEAD)\n", claimed);
+    CHECK (claimed == 4, "%d glide slots claimed, want 4", claimed);
+
+    ctl.set ("slow_all", 1.0f); bars (0.05);
+    kick.set ("tune", 12.0f); stab.set ("cutoff", 1.0f); lead.set ("cutoff", 1.0f); dub.set ("feedback", 0.70f);
+    bars (0.5);
+    auto e = entries();
+    const int kt = kick.p->paramIndex ("tune"), sc = stab.p->paramIndex ("cutoff"), fb = dub.p->paramIndex ("feedback");
+    auto ringOf = [] (Rig2& r, int i, float top) { auto* p = r.p->param (i); return (int) std::lround (juce::jlimit (0.0f, 1.0f, p->convertTo0to1 (r.p->baseValue (i)) / top) * 16383.0f); };
+    const float fbTop = dub.p->param (fb)->convertTo0to1 (0.70f);
+    std::printf ("   half a bar in: KICK TUNE ch 1 CC 20 ring %d (want %d), STAB CUTOFF ch 9 CC 20 ring %d (want %d), DUB FEEDBACK ch 12 CC 21 ring %d (want %d), %d knobs reported\n",
+                 e.count (1 * 128 + 20) ? e[1 * 128 + 20] : -1, ringOf (kick, kt, 1.0f), e.count (9 * 128 + 20) ? e[9 * 128 + 20] : -1, ringOf (stab, sc, 1.0f),
+                 e.count (12 * 128 + 21) ? e[12 * 128 + 21] : -1, ringOf (dub, fb, fbTop), (int) e.size());
+    CHECK (e.size() == 3, "%d knobs reported, want 3 (the unnamed LEAD has no knob on the scene)", (int) e.size());
+    CHECK (e.count (1 * 128 + 20) && std::abs (e[1 * 128 + 20] - ringOf (kick, kt, 1.0f)) <= 1, "KICK TUNE ring wrong");
+    CHECK (e.count (9 * 128 + 20) && std::abs (e[9 * 128 + 20] - ringOf (stab, sc, 1.0f)) <= 1, "STAB CUTOFF ring wrong");
+    CHECK (e.count (12 * 128 + 21) && std::abs (e[12 * 128 + 21] - ringOf (dub, fb, fbTop)) <= 1, "DUB FEEDBACK ring wrong (mapped 0-70 %%)");
+
+    E16Glide sender;
+    auto msgs = sender.collect (bus, Bus::nowMs());
+    bool framed = ! msgs.empty();
+    int knobs = 0;
+    for (auto& m : msgs)
+    {
+        framed = framed && m.size() >= 7 && m[0] == 0xF0 && m[1] == 0x7D && m[2] == 0x53 && m[3] == 0x46 && m.back() == 0xF7;
+        for (size_t i = 5; i + 1 < m.size(); ++i) framed = framed && m[i] < 0x80;
+        if (m[4] == 1) knobs += (int) (m.size() - 6) / 4;
+    }
+    std::printf ("   first collect: %d message(s), %d knobs, framed %s\n", (int) msgs.size(), knobs, framed ? "yes" : "NO");
+    CHECK (framed && knobs == 3, "first collect: %d knobs, framed %d", knobs, (int) framed);
+    const auto again = sender.collect (bus, Bus::nowMs());
+    std::printf ("   at once again: %d message(s) (nothing moved 32)\n", (int) again.size());
+    CHECK (again.empty(), "nothing moved, yet %d messages", (int) again.size());
+    const auto keep = sender.collect (bus, Bus::nowMs() + 450);
+    int kept = 0;
+    for (auto& m : keep) if (m[4] == 1) kept += (int) (m.size() - 6) / 4;
+    std::printf ("   450 ms later: %d knobs again (keep-alive)\n", kept);
+    CHECK (kept == 3, "keep-alive: %d knobs, want 3", kept);
+
+    bars (0.6);
+    e = entries();
+    const auto done = sender.collect (bus, Bus::nowMs());
+    int arrived = 0;
+    for (auto& m : done) if (m[4] == 2) arrived += (int) (m.size() - 6) / 2;
+    std::printf ("   after the bar: %d knobs travelling, %d arrival(s) sent\n", (int) e.size(), arrived);
+    CHECK (e.empty() && arrived == 3, "after the glide: %d travelling, %d arrivals", (int) e.size(), arrived);
+
+    // Fifteen knobs at once: two messages.
+    for (int i = 0; i < 6; ++i) ctl.set (("macro" + std::to_string (i + 1)).c_str(), 1.0f);
+    auto flip = [] (Rig2& r, const char* id) { auto* p = r.p->param (r.p->paramIndex (id)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); };
+    for (const char* id : { "tune", "decay", "punch", "click", "density", "filter", "drive", "level" }) flip (kick, id);
+    flip (stab, "cutoff");
+    bars (0.25);
+    e = entries();
+    const auto many = sender.collect (bus, Bus::nowMs());
+    int moves = 0, biggest = 0;
+    for (auto& m : many) if (m[4] == 1) { moves += (int) (m.size() - 6) / 4; biggest = std::max (biggest, (int) (m.size() - 6) / 4); }
+    std::printf ("   %d knobs travelling: %d message(s), %d knobs, at most %d in one\n", (int) e.size(), (int) many.size(), moves, biggest);
+    CHECK ((int) e.size() >= 15 && moves == (int) e.size() && biggest <= E16Glide::kPerMove && many.size() >= 2, "batching wrong");
+
+    // A plugin removed: its slot goes, and its knobs are reported as arrived.
+    all.erase (std::remove (all.begin(), all.end(), &kick), all.end());
+    kick.p.reset();
+    cycle();
+    const auto gone = sender.collect (bus, Bus::nowMs());
+    int left = 0;
+    for (auto& m : gone) if (m[4] == 2) left += (int) (m.size() - 6) / 2;
+    std::printf ("   KICK removed: %d arrival(s) sent for its knobs\n", left);
+    CHECK (left == 8, "removed plugin: %d arrivals, want 8", left);
     resetBus();
 }

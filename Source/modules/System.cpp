@@ -1,5 +1,7 @@
 // CONTROL, ALLOC, TAP
 #include "Kit.h"
+#include "../core/E16Glide.h"
+#include <juce_audio_devices/juce_audio_devices.h>
 #include <cstdio>
 #include <map>
 #include <mutex>
@@ -17,10 +19,13 @@ namespace sf
 // SLOW ALL: how long your next knob moves take to arrive, in every SF plugin whose own SLOW is
 // CONTROL (the default). OFF = straight there. A move keeps the length it was made with, so
 // turning SLOW ALL never touches a knob that is already travelling. Song recalls follow it too.
+// E16 RINGS: the E16 USB port SF CONTROL tells the SF SHOW scene's script about travelling knobs
+// on (their rings turn green and follow the sound). OFF: nothing is sent. A port that isn't there
+// is looked for again every 2 s.
 class ControlModule : public Module, private juce::Timer
 {
 public:
-    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO, SLOWALL };
+    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO, SLOWALL, E16RINGS };
     ControlModule() { startTimerHz (20); }
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
@@ -50,6 +55,8 @@ public:
         // A performance setting, like a hand on a knob: songs and presets leave it alone.
         auto sa = choice ("slow_all", "SLOW ALL", { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR" }, 0);
         sa.song = false; sa.preset = false; p.push_back (sa);
+        auto er = choice ("e16_rings", "E16 RINGS", { "OFF", "PORT 1", "PORT 2", "PORT 3" }, 3);
+        er.song = false; er.preset = false; p.push_back (er);
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
@@ -153,7 +160,7 @@ public:
             }
         }
     }
-    int displayHeight() const override { return 150; }
+    int displayHeight() const override { return 166; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         auto& bus = Bus::get();
@@ -186,6 +193,9 @@ public:
         line ("BUS", bus.shared() ? "SHARED" : "LOCAL ONLY", bus.shared() ? ui::kGreen : ui::kAmber);
         line ("KICK", bus.kickAlive (2000) ? "REPORTING" : "SILENT", bus.kickAlive (2000) ? ui::kGreen : ui::kFaint);
         line ("ALLOC", bus.allocAlive() ? "RUNNING" : "NOT LOADED", bus.allocAlive() ? ui::kGreen : ui::kFaint);
+        const int want = getParam ? juce::jlimit (0, 3, (int) std::lround (getParam (E16RINGS))) : 0;
+        const bool found = want != 0 && e16State.load() == 2 && e16Port.load() == want;
+        line ("E16 RINGS", want == 0 ? juce::String ("OFF") : (found ? "PORT " : "NO PORT ") + juce::String (want), found ? ui::kGreen : ui::kFaint);
         int alive = 0; juce::String names;
         for (int i = 0; i < kSources; ++i)
             if (bus.sourceAlive (i))
@@ -210,7 +220,43 @@ private:
             if (s < kSongs && d.song.load() == s) mirrorSong (s);
             setParam (STORETO, 0.0f);
         }
+        updateE16();
     }
+
+    // E16 RINGS (message thread, 20 Hz): find the port, then send what the plugins report.
+    static bool isE16Port (const juce::String& name, int n)
+    {
+        const auto s = name.toUpperCase();
+        const auto k = juce::String (n);
+        return s.contains ("E16") && (s.endsWith (" " + k) || s.contains ("PORT " + k) || s.endsWith ("PORT" + k));
+    }
+    void updateE16()
+    {
+        const int want = getParam ? juce::jlimit (0, 3, (int) std::lround (getParam (E16RINGS))) : 0;
+        if (want != e16Port.load()) { out.reset(); e16Port = want; e16Check = 0; glide.reset(); }
+        if (want == 0) { e16State = 0; return; }
+        if (--e16Check <= 0)
+        {
+            e16Check = 40;
+            juce::MidiDeviceInfo found;
+            for (const auto& dev : juce::MidiOutput::getAvailableDevices())
+                if (isE16Port (dev.name, want)) { found = dev; break; }
+            if (found.identifier.isEmpty()) { out.reset(); glide.reset(); }
+            else if (out == nullptr || out->getIdentifier() != found.identifier)
+            {
+                out = juce::MidiOutput::openDevice (found.identifier);
+                glide.reset();
+            }
+            e16State = out != nullptr ? 2 : 1;
+        }
+        if (out != nullptr)
+            for (const auto& m : glide.collect (Bus::get(), Bus::nowMs()))
+                out->sendMessageNow (juce::MidiMessage (m.data(), (int) m.size()));
+    }
+    std::unique_ptr<juce::MidiOutput> out;
+    E16Glide glide;
+    std::atomic<int> e16Port { -1 }, e16State { 0 };
+    int e16Check = 0;
     // Marked, so the audio thread never takes it for a request.
     void mirrorSong (int s)
     {
