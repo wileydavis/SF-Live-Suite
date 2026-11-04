@@ -433,6 +433,9 @@ for group, mods in order:
         if m["models"]:
             story.append(H2("OBJECTS" if mid == "STRIKE" else "CAPTURING A PLACE" if mid == "TERROIR" else "MODELS" if mid not in ("GATE", "ENERGY") else "REFERENCE"))
             story.append(table([["SOURCE", "HOW"] if mid == "TERROIR" else ["NAME", "SOUND"]] + [[esc(a), esc(b)] for a, b in m["models"]], [1.55 * inch, W - 1.55 * inch]))
+        if m.get("field"):
+            story.append(H2("IN THE FIELD"))
+            story.append(table([["STEP", "WHAT"]] + [[esc(a), esc(b)] for a, b in m["field"]], [1.55 * inch, W - 1.55 * inch]))
         desc = dict(C.COMMON); desc.update(m["desc"])
         def rng(p):
             if p["type"] == "knob": return f"{esc(p['min'])} to {esc(p['max'])}<br/>default {esc(p['def'])}"
