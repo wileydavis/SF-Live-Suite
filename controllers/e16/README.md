@@ -1,13 +1,13 @@
 # SF SHOW: the OXI E16 scene for the show template
 
-One E16 scene for the whole rig of the manual's chapter 7. Load it once, map Live once, save the Live
-set as your template: nothing is remapped after that.
+One E16 scene for the whole rig of the manual's chapter 7. Load it once, open the show set (already
+mapped: `controllers/live`), save it as your template: nothing is remapped after that.
 
 | FILE | WHAT |
 |---|---|
 | `SF SHOW.oxie16` | The scene: 12 pages, all 192 turns set (name, ring colour, channel, CC). |
 | `sf-show-map.csv` | Every address once: channel, CC or note, the Live target, the mapping range, where it sits on the E16. Map Live from this. |
-| `layout.py` | The layout. One source for the scene, the map and the manual's E16 tables. |
+| `layout.py` | The layout. One source for the scene, the map, the show set's mappings and the manual's E16 tables. |
 | `make_scene.py` | Rebuilds the scene and the map: `python3 make_scene.py`. |
 
 ## THE GRID
@@ -69,6 +69,10 @@ SPACE, MACROS (the manual, chapter 7, THE E16). Rings: light blue is a volume, w
   the parameter smoothly into agreement instead of jumping.
 
 ## 4. MAP LIVE, ONCE
+
+**The show set comes mapped.** `controllers/live/SF SHOW.als` holds every address below, presses
+included, with every volume at Max 0 dB and DUB FEEDBACK at 0-70 %: open it and go to its README
+(MIDI From, outputs, the two keys of item 5). Map by hand only in a set of your own:
 
 1. Open the show set (tracks named as in chapter 7).
 2. Unfold every SF plugin's parameter panel (the triangle in its title bar). A parameter that isn't

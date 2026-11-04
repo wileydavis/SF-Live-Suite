@@ -407,7 +407,7 @@ story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
 story.append(H2("THE E16"))
 story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's parameter panel (the triangle in its title bar), click the parameter there and turn the E16 knob. A parameter that isn't listed: Configure, touch it in the plugin window, Configure off.",
                   "In Live's MIDI preferences turn <b>Remote</b> on for the E16's Port 2, input <i>and output</i>. Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
-                  "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has a ready-made E16 scene for the show template, SF SHOW."])
+                  "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has a ready-made E16 scene for the show template, SF SHOW, and the show set with every address already mapped."])
 story.append(H2("SAMPLES"))
 story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the plugin window or click LOAD. The sample is analysed (root note, decay, onsets) and embedded in the Live set, so the set travels without the file."))
 story.append(H2("FIRST SESSION CHECKS"))
@@ -425,6 +425,7 @@ story.append(PageBreak())
 story.append(H1("7  THE SHOW TEMPLATE"))
 story.append(Rule())
 story.append(P("One Live set for every show, built on fixed roles. The OXI ONE plays the notes and patterns; the E16 plays the sound, the balance and the transitions. The E16's top half is the same on every page, so the whole arrangement is always under one hand while the other works deep in one sound.", "summary"))
+story.append(P("The set is built: <b>controllers/live/SF SHOW.als</b> in the repository holds every track, group and return below, every SF plugin with its starting settings, the routing, and every E16 address mapped. Open it, do the five steps its README lists (MIDI From, the outputs, the two keys, two options, the save), and keep it as your template."))
 
 story.append(H2("TRACKS"))
 story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
@@ -516,7 +517,7 @@ story += bullets(["Live is the clock master. On the ONE: USB device mode, sync f
                   "Every Pocket stage in a chain adds its 512-sample lookahead to the total latency (compensated, but it adds up): no SF TAP or SF DUCK on tracks that already hold SF instruments."])
 
 story.append(H2("THE E16"))
-story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README). The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
+story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README); SF SHOW.als has every address mapped. The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
 PRESS_DOES = {"DROP": "the build resets on the next bar line", "PANIC": "every SF plugin silent while held",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
               "ROLL": "the drums roll while held"}
@@ -560,7 +561,7 @@ story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5
                   "<b>Presses:</b> a hold is a CC, 127 on press and 0 on release, so the parameter is on while the knob is down. A toggle is a note: Live flips a switch on every Note On, so the E16 can never think FREEZE is on while Live has it off. SF SHOW sets every turn; until the OXI App's press format is known, the presses are added in the App (the README lists them), and again after loading a new scene file.",
                   "<b>On the E16:</b> Auto Transmit off, for the scene and globally (stored values sent on a page change would pull Live's faders to them), MIDI Thru off. Stay in SF SHOW for the whole show.",
                   "<b>In Live:</b> E16 Port 2 Remote on, input and output; Ports 1 and 3 off (Port 1 is the OXI App's, and a second Remote port doubles every message: a toggle would flip twice). Takeover Mode: Value Scaling, so a knob that disagrees with Live after a recall moves the sound smoothly instead of jumping.",
-                  "<b>Map once, keep it:</b> MIDI mappings belong to the Live set, so map the show set once and save it as a template (File &gt; Save Live Set As Template). New sets start mapped.",
+                  "<b>Mapped once, kept:</b> MIDI mappings belong to the Live set. SF SHOW.als comes with every address mapped, every volume at Max 0 dB and DUB FEEDBACK at 0-70 %; save it as a template (File &gt; Save Live Set As Template) and new sets start mapped. In a set of your own, map once from the appendix and do the same.",
                   "<b>Map the E16 straight to the SF parameters, not through Instrument Rack macros.</b> A song recall changes the plugin's value underneath a macro: the macro doesn't follow, its ring shows the wrong value and the next turn jumps the sound back. Ranges go in Live's MIDI Mappings (Min and Max per mapping): give resonance and feedback the part of their travel that matters, and widen it when the music asks.",
                   "Check the shared knobs once: turn LOW ENERGY on page 2, go to page 1 and turn it a step. The sound must move a step, not jump back. If it jumps, the README's relative fallback fixes it.",
                   "Keep STORE ALL, MODEL, KEY and the calibration controls off the performance pages."])
@@ -601,14 +602,16 @@ story += bullets(["Instrument tracks on Monitor In: they play from the ONE wheth
                   "Collect All and Save. SF samples are inside the set; DECK tracks are referenced by path, so keep the files where they are."])
 
 story.append(H2("BUILD ORDER"))
-story += numbered(["CONTROL, KICK, BASS, RUMBLE, LIVE BUS, PA and REC. Clock and latency calibrated, a short recording made.",
+story += numbered(["SF SHOW.als (controllers/live): MIDI From, the outputs, PANIC and 92 PA on their keys, the two options; saved as a template.",
+                   "CONTROL, KICK, BASS, RUMBLE, LIVE BUS, PA and REC playing. Clock and latency calibrated, a short recording made.",
                    "CLOSED, OPEN, CLAP and STRIKE.",
                    "ACID, STAB, TEXTURE and VOICE, one at a time.",
                    "The returns; check the sends are disabled on LIVE BUS.",
                    "BRIDGE and DECK.",
-                   "SF SHOW on the E16 (controllers/e16): map the top half, then the pages; PANIC and 92 PA on their keys; the macros. Save the mapped set as a template.",
+                   "SF SHOW on the E16 (controllers/e16): the scene loaded, the presses added, every page checked against the set's mappings; the macros.",
                    "Rehearse moving between BRIDGE, DECK and LIVE BUS.",
                    "Record a whole set before adding anything else."])
+story.append(CondPageBreak(2.2 * inch))
 story.append(H2("BEFORE THE FIRST SHOW"))
 story += bullets(["CONTROL shows BUS SHARED and KICK REPORTING; the pump lands on the kick.",
                   "The ONE's Program Change recalls the song, every track on the same bar, and a recalled knob is yours the moment you turn it. (VST3 needs Live 12.2 or later; the AU works in any version.)",
@@ -694,6 +697,8 @@ story += bullets(["Songs, samples, ALLOC choices, MOTION random seeds, DECK trac
                   "DECK track log: Documents/SF Live Suite/tracklog.txt.", "DECK tracks are referenced by file path, not embedded: keep the files where they are."])
 story.append(H2("WHEN SOMETHING ISN'T RIGHT"))
 story.append(table([["SYMPTOM", "CHECK"],
+                    ["SF SHOW.als: a plugin is missing", "The suite isn't installed, or VST3 is off (Settings &gt; Plug-Ins). Install or turn VST3 on, then open the set again."],
+                    ["An instrument doesn't play", "MIDI From: SF SHOW.als starts every MIDI track on No Input; set each to its ONE port and channel (chapter 7), never All Ins, where every instrument plays every part."],
                     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be an SF KICK (or use SF DUCK with SOURCE SIDECHAIN)."],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. The VST3 needs Live 12.2 or later; otherwise use the AU."],
@@ -714,7 +719,7 @@ story.append(table([["SYMPTOM", "CHECK"],
 
 story.append(CondPageBreak(3 * inch))
 story.append(H2("E16 ADDRESS MAP (SF SHOW)"))
-story.append(P("Every address of the SF SHOW scene once, by channel: what to click in Live when mapping (Cmd-M), the range to give the mapping, and where the knob is on the E16. The same list is controllers/e16/sf-show-map.csv."))
+story.append(P("Every address of the SF SHOW scene once, by channel: the Live target, the mapping's range, and where the knob is on the E16. SF SHOW.als has them all mapped; this list is for checking it, and for mapping a set of your own (Cmd-M). The same list is controllers/e16/sf-show-map.csv."))
 rows = [["CH", "MESSAGE", "LIVE TARGET", "MAPPING", "ON THE E16"]]
 for (msg, ch, n), (target, places, kind, rng, item) in sorted(E16.addresses().items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2])):
     m = f"CC {n}" if msg == "CC" else f"NOTE {n} ({E16.note_name(n)})"

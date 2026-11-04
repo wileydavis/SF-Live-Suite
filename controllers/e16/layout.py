@@ -116,34 +116,37 @@ ABBR = {
 
 
 class Ctl:
-    """One encoder turn and where it lands in Live."""
-    def __init__(self, name, abbr, channel, number, target, colour, default=0, live_range="", label=""):
+    """One encoder turn and where it lands in Live: track + SF plugin + parameter id, or track + mixer
+    control ("volume", "send A"). max_value caps the mapping (the parameter's own unit; gain for volume)."""
+    def __init__(self, name, abbr, channel, number, target, colour, default=0, live_range="", label="",
+                 track="", module=None, pid=None, mixer=None, max_value=None):
         assert 1 <= len(name) <= 8 and name == name.upper(), name
         assert 1 <= len(abbr) <= 4 and abbr == abbr.upper(), abbr
         assert 1 <= channel <= 16 and 0 <= number <= 119, (name, channel, number)
         self.name, self.abbr, self.channel, self.number, self.target = name, abbr, channel, number, target
         self.colour, self.default, self.live_range = colour, default, live_range
         self.label = label or name          # the full name, for the manual
+        self.track, self.module, self.pid, self.mixer, self.max_value = track, module, pid, mixer, max_value
 
     @property
     def address(self):
         return ("CC", self.channel, self.number)
 
 
-def P(dest, pid, name=None, abbr=None, live_range="", label=None):
+def P(dest, pid, name=None, abbr=None, live_range="", label=None, max_value=None):
     """A turn on an SF plugin parameter."""
     track, module, ch, base = PLUGINS[dest]
     pname = param_name(module, pid)
     return Ctl(name or pname[:8], abbr or ABBR.get(pid, pname[:4]), ch, base + module_params(module).index(pid),
                f"{track} > SF {module} > {pname}", LIGHT_BLUE if pid == "level" else WHITE,
-               anchor(module, pid), live_range, label or pname)
+               anchor(module, pid), live_range, label or pname, track, module, pid, None, max_value)
 
 
 def M(track, control, name, abbr, live_range="", label=None):
-    """A turn on a Live mixer control."""
+    """A turn on a Live mixer control. A fader stops at 0 dB (gain 1)."""
     ch, n = MIXER[(track, control)]
     return Ctl(name, abbr, ch, n, f"{track} > mixer > {control}", LIGHT_BLUE if control == "volume" else WHITE, 0,
-               live_range, label)
+               live_range, label, track, None, None, control, 1.0 if live_range == FADER else None)
 
 
 class Press:
@@ -156,6 +159,7 @@ class Press:
         self.number = base + module_params(module).index(pid)
         self.name = param_name(module, pid)
         self.target = f"{track} > SF {module} > {self.name}"
+        self.track, self.module, self.pid = track, module, pid
 
     @property
     def address(self):
@@ -229,7 +233,7 @@ PAGES = [
     ("VOICE", row("VOICE", ["signal", "tone", "echo", "gate", "density", "filter", "drive", "level"])),
     ("SPACE", [
         P("DUB", "time", "DUB TIME", "DTIM", label="DUB TIME"),
-        P("DUB", "feedback", "DUB FDBK", "DFDB", "0-70 % at first", "DUB FEEDBACK"),
+        P("DUB", "feedback", "DUB FDBK", "DFDB", "0-70 % at first", "DUB FEEDBACK", max_value=0.70),
         P("DUB", "tone", "DUB TONE", "DTON", label="DUB TONE"),
         P("DUB", "drive", "DUB DRV", "DDRV", label="DUB DRIVE"),
         P("SPACE", "size", "SPC SIZE", "SSIZ", label="SPACE SIZE"),

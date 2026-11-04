@@ -622,6 +622,82 @@ static void dumpSpecs()
     std::printf ("}\n");
 }
 
+// --state MODULE [seed=N] [id=value ...]: a fresh plugin's state with the given parameters set, as the
+// hex bytes Live stores for a VST3 (ProcessorState), and every parameter's normalised value, as JSON.
+// Used by controllers/live/make_set.py. A value is a number in the parameter's own unit, a choice name,
+// or on/off. The state carries uid 0, so every instance keeps the random id it is born with.
+static int dumpState (int argc, char** argv)
+{
+    if (argc < 3) { std::fprintf (stderr, "usage: SFTests --state MODULE [seed=N] [id=value ...]\n"); return 2; }
+    const std::string mid = argv[2];
+    const auto ids = allModuleIds();
+    if (std::find (ids.begin(), ids.end(), mid) == ids.end()) { std::fprintf (stderr, "no module %s\n", mid.c_str()); return 2; }
+    SFProcessor p (makeModule (mid));
+    const auto& sp = p.allSpecs();
+    int seed = 1;
+    for (int a = 3; a < argc; ++a)
+    {
+        const std::string arg = argv[a];
+        const auto eq = arg.find ('=');
+        if (eq == std::string::npos) { std::fprintf (stderr, "not id=value: %s\n", arg.c_str()); return 2; }
+        const auto key = arg.substr (0, eq), val = arg.substr (eq + 1);
+        if (key == "seed") { seed = std::stoi (val); continue; }
+        const int k = p.paramIndex (key);
+        if (k < 0) { std::fprintf (stderr, "%s has no parameter %s\n", mid.c_str(), key.c_str()); return 2; }
+        const auto& s = sp[(size_t) k];
+        float v = 0.0f;
+        if (s.type == PType::Choice)
+        {
+            const auto it = std::find (s.choices.begin(), s.choices.end(), val);
+            if (it == s.choices.end()) { std::fprintf (stderr, "%s %s has no choice %s\n", mid.c_str(), key.c_str(), val.c_str()); return 2; }
+            v = (float) (it - s.choices.begin());
+        }
+        else if (s.type != PType::Float)
+        {
+            if (val != "on" && val != "off") { std::fprintf (stderr, "%s %s takes on or off\n", mid.c_str(), key.c_str()); return 2; }
+            v = val == "on" ? 1.0f : 0.0f;
+        }
+        else
+        {
+            v = std::stof (val);
+            if (v < s.min || v > s.max) { std::fprintf (stderr, "%s %s: %s is outside %g..%g\n", mid.c_str(), key.c_str(), val.c_str(), s.min, s.max); return 2; }
+        }
+        auto* prm = p.param (k);
+        prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+    }
+    juce::MemoryBlock mb;
+    p.getStateInformation (mb);
+    auto root = juce::ValueTree::readFromData (mb.getData(), mb.getSize());
+    root.setProperty ("uid", "0", nullptr);
+    root.setProperty ("motionSeed", seed, nullptr);
+    juce::MemoryOutputStream os;
+    root.writeToStream (os);
+    // The state must load back into a fresh plugin with every value intact.
+    SFProcessor q (makeModule (mid));
+    q.setStateInformation (os.getData(), (int) os.getDataSize());
+    bool same = true;
+    for (size_t k = 0; k < sp.size(); ++k)
+        if (sp[k].type != PType::Momentary && std::abs (q.param ((int) k)->getValue() - p.param ((int) k)->getValue()) > 1e-6f) same = false;
+    // programs > 1: JUCE's VST3 wrapper adds a Program parameter after these (CONTROL's songs).
+    std::printf ("{\"module\": \"%s\", \"roundtrip\": %s, \"programs\": %d, \"program\": %d, \"state\": \"%s\", \"params\": [\n", mid.c_str(),
+                 same ? "true" : "false", p.getNumPrograms(), p.getCurrentProgram(),
+                 juce::String::toHexString (os.getData(), (int) os.getDataSize(), 0).toUpperCase().toRawUTF8());
+    for (size_t k = 0; k < sp.size(); ++k)
+    {
+        const auto& s = sp[k];
+        auto* prm = p.param ((int) k);
+        const char* type = s.type == PType::Float ? "knob" : s.type == PType::Choice ? "menu" : s.type == PType::Toggle ? "toggle" : "momentary";
+        const int steps = s.type == PType::Choice ? (int) s.choices.size() : s.type == PType::Float ? 0 : 2;
+        // The id a VST3 host sees: JUCE hashes the parameter id and clears the top bit (Studio One rule).
+        const auto vst3Id = (juce::uint32) juce::String (s.id).hashCode() & 0x7fffffffu;
+        std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"vst3_id\": %u, \"norm\": %.9g, \"def_norm\": %.9g, \"min\": %.9g, \"max\": %.9g, \"centre\": %s, \"steps\": %d}%s\n",
+                     s.id.c_str(), s.name.c_str(), type, (unsigned) vst3Id, (double) prm->getValue(), (double) prm->convertTo0to1 (s.def), (double) s.min, (double) s.max,
+                     std::isnan (s.centre) ? "null" : juce::String (s.centre, 9).toRawUTF8(), steps, k + 1 < sp.size() ? "," : "");
+    }
+    std::printf ("]}\n");
+    return 0;
+}
+
 // FILTER crossing the centre (LP <-> open <-> HP) must not click: sweep a sustained chord slowly
 // through the centre and compare the worst high-frequency burst with a steady reference.
 static void testFilterCrossing()
@@ -812,6 +888,7 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && std::string (argv[1]) == "--dump") { dumpSpecs(); return 0; }
+    if (argc > 1 && std::string (argv[1]) == "--state") return dumpState (argc, argv);
     std::vector<std::string> ids = allModuleIds();
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-' && std::string (argv[i]).find_first_of ("abcdefghijklmnopqrstuvwxyz") == std::string::npos) ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
