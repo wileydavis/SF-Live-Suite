@@ -2450,11 +2450,15 @@ static void testGlideRings()
     auto& bus = Bus::get();
     auto& d = bus.d();
     auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
-    Rig2 ctl ("CONTROL"), kick ("KICK"), stab ("LEAD"), lead ("LEAD"), dub ("DELAY");
+    Rig2 ctl ("CONTROL"), kick ("KICK"), stab ("LEAD"), lead ("LEAD"), dub ("DELAY"), low ("ENERGY");
     auto name = [] (Rig2& r, const char* n) { juce::AudioProcessor::TrackProperties t; t.name = n; r.p->updateTrackProperties (t); };
     name (stab, "32 Stab");          // Live's name, any case
     name (dub, "A DUB");
-    std::vector<Rig2*> all { &ctl, &kick, &stab, &lead, &dub };
+    // Live reports a track's context in three calls: an empty name, the name, then the colour with
+    // an empty name. ENERGY sits on three tracks in the scene: it needs the name to survive.
+    name (low, ""); name (low, "10 LOW");
+    { juce::AudioProcessor::TrackProperties t; t.colour = juce::Colours::white; low.p->updateTrackProperties (t); }
+    std::vector<Rig2*> all { &ctl, &kick, &stab, &lead, &dub, &low };
     auto cycle = [&] { for (auto* r : all) r->step (kBlock, quiet); };
     const double barBlocks = 4.0 / (kBlock * kick.bps());
     auto bars = [&] (double b) { for (int k = 0, n = (int) std::lround (b * barBlocks); k < n; ++k) cycle(); };
@@ -2468,13 +2472,25 @@ static void testGlideRings()
     bars (0.1);
     int claimed = 0;
     for (auto& g : d.glides) claimed += g.owner.load() != 0 ? 1 : 0;
-    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 32 STAB, DELAY on A DUB; not the unnamed LEAD)\n", claimed);
-    CHECK (claimed == 4, "%d glide slots claimed, want 4", claimed);
+    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 32 STAB, DELAY on A DUB, ENERGY on 10 LOW after Live's\n"
+                 "   three calls; not the unnamed LEAD)\n", claimed);
+    CHECK (claimed == 5, "%d glide slots claimed, want 5", claimed);
 
     ctl.set ("slow_all", 1.0f); bars (0.05);
     kick.set ("tune", 12.0f); stab.set ("cutoff", 1.0f); lead.set ("cutoff", 1.0f); dub.set ("feedback", 0.70f);
     bars (0.5);
     auto e = entries();
+    CHECK (e.empty() || ! e.count (14 * 128 + 20), "LOW ENERGY reported before it moved");
+    low.set ("energy", 1.0f); bars (0.25);
+    e = entries();
+    std::printf ("   LOW ENERGY (ch 14 CC 20) travelling: reported %s\n", e.count (14 * 128 + 20) ? "yes" : "NO");
+    CHECK (e.count (14 * 128 + 20) == 1, "LOW ENERGY not reported: its track name was lost");
+    low.set ("energy", low.p->param (low.p->paramIndex ("energy"))->convertFrom0to1 (low.p->param (low.p->paramIndex ("energy"))->getValue()));
+    bars (1.1);
+    kick.set ("tune", 0.0f); stab.set ("cutoff", 0.4f); dub.set ("feedback", 0.45f); bars (1.1);
+    kick.set ("tune", 12.0f); stab.set ("cutoff", 1.0f); dub.set ("feedback", 0.70f);
+    bars (0.5);
+    e = entries();
     const int kt = kick.p->paramIndex ("tune"), sc = stab.p->paramIndex ("cutoff"), fb = dub.p->paramIndex ("feedback");
     auto ringOf = [] (Rig2& r, int i, float top) { auto* p = r.p->param (i); return (int) std::lround (juce::jlimit (0.0f, 1.0f, p->convertTo0to1 (r.p->baseValue (i)) / top) * 16383.0f); };
     const float fbTop = dub.p->param (fb)->convertTo0to1 (0.70f);

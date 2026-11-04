@@ -765,7 +765,11 @@ void SFProcessor::timerCallback() { flushHostNotifications(); }
 
 void SFProcessor::updateTrackProperties (const TrackProperties& p)
 {
-    // Live (VST3) tells the plugin its track name; ALLOC lists sources by it.
+    // Live (VST3) tells the plugin its track name; ALLOC lists sources by it, and GLIDE RINGS finds
+    // the plugin's E16 knobs by it. Live reports the name and the colour in separate calls, and a
+    // call without the name arrives here with an empty one: it must not wipe the name (a track in
+    // Live always has one).
+    if (p.name.trim().isEmpty()) return;
     char buf[24] {};
     p.name.toUpperCase().copyToUTF8 (buf, 23);
     std::memcpy (trackName, buf, sizeof (buf));
