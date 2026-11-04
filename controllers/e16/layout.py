@@ -61,6 +61,23 @@ PLUGINS = {
     "CONTROL":  ("00 CONTROL", "CONTROL", 16, 20),
 }
 
+# Plugins that can stand in for another on its track with the E16 unchanged: the parameters the scene
+# uses have the same ids at the same places. SF TERROIR (convolution, your own places) swaps in for SF
+# REVERB on B SPACE: the SPACE page's knobs and presses land on its SIZE, DECAY, DARK, DUCK, THROW and
+# FREEZE once Live is mapped to it (Cmd-M; controllers/live/check_set.py accepts either).
+ALTERNATES = {"REVERB": ["TERROIR"]}
+
+
+def alternates(module, pid):
+    """The modules that may stand in for `module` for parameter `pid` (same id, same place)."""
+    out = []
+    for alt in ALTERNATES.get(module, []):
+        ids = module_params(alt)
+        assert pid in ids and ids.index(pid) == module_params(module).index(pid), f"{alt} {pid} is not where {module} has it"
+        out.append(alt)
+    return out
+
+
 # Blocks kept free for later, so a new mapping never takes an address that is already promised.
 RESERVED = [
     (14, "60-99", "free"),

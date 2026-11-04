@@ -9,7 +9,7 @@ Use it on a set of your own (one saved before a mapping existed, or mapped by ha
 map with Cmd-M. SF SHOW.als, the built set, passes with every address mapped and no keys.
 
 A target is found by track name (as in the show template: "01 KICK", "A DUB") and the plugin's name
-("SF KICK"), VST3 or AU. Exit status: 0 when every address is right, 1 when something is missing or wrong.
+("SF KICK"), VST3 or AU. SF TERROIR counts wherever the scene has SF REVERB (it swaps in on B SPACE). Exit status: 0 when every address is right, 1 when something is missing or wrong.
 """
 import gzip
 import os
@@ -73,7 +73,7 @@ def expected():
             tgt = item.mixer
             mx = item.max_value
         else:
-            tgt = f"SF {item.module} > {L.param_name(item.module, item.pid)}"
+            tgt = [f"SF {m} > {L.param_name(m, item.pid)}" for m in [item.module] + L.alternates(item.module, item.pid)]
             mx = None
             if getattr(item, "max_value", None) is not None:
                 # max_value is in the parameter's unit; the mapping range is normalised (linear knobs only).
@@ -99,14 +99,15 @@ def main():
         got = by_addr.get(addr, [])
         label = f"{addr[0]:4s} {addr[2]:3d} ch {addr[1]:2d}"
         if not got:
-            missing.append(f"{label}  {track} > {target}  ({where})")
+            missing.append(f"{label}  {track} > {' or '.join(target) if isinstance(target, list) else target}  ({where})")
             continue
         if len(got) > 1:
             twice.append(f"{label}  " + "; ".join(f"{t} > {g}" for t, g, _ in got))
-        if not any(t == track and g == target for t, g, _ in got):
-            wrong.append(f"{label}  wants {track} > {target}, is on " + "; ".join(f"{t} > {g}" for t, g, _ in got))
+        targets = target if isinstance(target, list) else [target]
+        if not any(t == track and g in targets for t, g, _ in got):
+            wrong.append(f"{label}  wants {track} > {' or '.join(targets)}, is on " + "; ".join(f"{t} > {g}" for t, g, _ in got))
             continue
-        m = next(x for t, g, x in got if t == track and g == target)
+        m = next(x for t, g, x in got if t == track and g in targets)
         if mx is not None and m is not None and abs(m - mx) > 0.01:
             ranges.append(f"{label}  {track} > {target}: max {m:.3f}, the scene's is {mx:.3f}")
     e16_channels = {a[1] for a in want}

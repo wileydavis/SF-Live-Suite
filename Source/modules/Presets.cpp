@@ -258,6 +258,23 @@ std::vector<Preset> reverb()
     };
 }
 
+// TERROIR presets shape whatever place is loaded; they never change the PLACE.
+std::vector<Preset> terroir()
+{
+    return {
+        { "AS RECORDED",          { } },
+        { "ROOM/TIGHT",           { { "decay", 0.45f }, { "lo_cut", 180.0f }, { "mix", 0.2f } } },
+        { "ROOM/SMALLER",         { { "size", 0.7f }, { "decay", 0.8f }, { "mix", 0.2f } } },
+        { "BIG/DARK",             { { "size", 1.6f }, { "dark", 0.35f }, { "mix", 0.3f } } },
+        { "TAIL/ONLY",            { { "start", 40.0f }, { "predelay", 3 }, { "mix", 0.3f } } },
+        { "GATED/1/4",            { { "length", 5 }, { "mix", 0.3f } } },
+        { "GATED/1/8 DARK",       { { "length", 6 }, { "dark", 0.4f }, { "mix", 0.3f } } },
+        { "REVERSE/1/2 SWELL",    { { "length", 4 }, { "reverse", 1 }, { "mix", 0.35f } } },
+        { "THROW/ONLY",           { { "input", 1 }, { "mix", 0.5f } } },
+        { "MIX/IN THE ROOM",      { { "mix", 0.2f }, { "duck", 0.0f }, { "lo_cut", 60.0f } } },   // on the whole mix (DRY on)
+    };
+}
+
 std::vector<Preset> drive()
 {
     return {
@@ -393,6 +410,7 @@ std::vector<Preset> factoryPresets (const std::string& id)
     if (id == "DENSITY") return density();
     if (id == "DELAY") return delay();
     if (id == "REVERB") return reverb();
+    if (id == "TERROIR") return terroir();
     if (id == "DRIVE") return drive();
     if (id == "RADIO") return radio();
     if (id == "REPEAT") return repeat();

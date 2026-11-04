@@ -157,7 +157,11 @@ def e16_knobs():
         k = (c.track, c.module, L.module_params(c.module).index(c.pid), c.channel, c.number, c.max_value)
         assert seen.get(c.address, k) == k, (c.address, seen[c.address], k)
         seen[c.address] = k
-    return sorted(seen.values(), key=lambda k: (k[3], k[4]))
+    rows = list(seen.values())
+    for t, m, p, ch, n, mx in list(rows):           # a stand-in (TERROIR for REVERB) finds the same knobs
+        pid = L.module_params(m)[p]
+        rows += [(t, alt, p, ch, n, mx) for alt in L.alternates(m, pid)]
+    return sorted(rows, key=lambda k: (k[3], k[4], k[1]))
 
 
 def write_cpp_map(path):

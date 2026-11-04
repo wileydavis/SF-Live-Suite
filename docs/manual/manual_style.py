@@ -160,8 +160,8 @@ class E16Grid(Flowable):
 class Doc(BaseDocTemplate):
     def __init__(self, path, title="SF Live Suite Reference Manual", header="SF LIVE SUITE  REFERENCE", footer="V0.2  NOV 2026",
                  cover_title="SF LIVE SUITE", cover_sub="REFERENCE MANUAL",
-                 cover_lines=("30 PLUGINS FOR PERFORMING HYPNOTIC / DUB TECHNO IN ABLETON LIVE",
-                              "10 INSTRUMENTS   11 EFFECTS   9 MASTER AND MIX TOOLS",
+                 cover_lines=("31 PLUGINS FOR PERFORMING HYPNOTIC / DUB TECHNO IN ABLETON LIVE",
+                              "10 INSTRUMENTS   12 EFFECTS   9 MASTER AND MIX TOOLS",
                               "", "VERSION 0.2   NOVEMBER 2026", "STRANGE FREQUENCIES"),
                  cover_note="CONTROL RANGES AND DEFAULTS IN THIS MANUAL ARE GENERATED FROM THE PLUGIN CODE."):
         super().__init__(path, pagesize=letter, leftMargin=0.8 * inch, rightMargin=0.8 * inch, topMargin=0.85 * inch,

@@ -114,6 +114,11 @@ It lists every E16 address that is missing or on the wrong target, with where it
 the keys on PANIC and 92 PA. Map what it lists (Cmd-M: click the target, turn or press the knob), save,
 run it again. It finds targets by the template's track names and plugin names, VST3 or AU.
 
+## SF TERROIR
+
+The set ships with SF REVERB on B SPACE. To use your captured places there instead, swap in SF
+TERROIR (DRY off) and map six controls: `controllers/e16/README.md`, SF TERROIR ON B SPACE.
+
 ## REBUILDING
 
 ```

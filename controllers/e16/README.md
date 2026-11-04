@@ -150,6 +150,17 @@ knob walking.
 - Message format and timing: `Source/core/E16Glide.h`. Tests: `SFTests --rings` (the plugins and SF
   CONTROL), `python3 tests/glide_rings_test.py` (the script as shipped, on a mock of the E16's Lua).
 
+## SF TERROIR ON B SPACE
+
+SF TERROIR (convolution, your own places) can take SF REVERB's place on B SPACE: its first eight
+controls are SF REVERB's, in the same order, so the E16's SPACE page fits as it is.
+
+1. On B SPACE, put SF TERROIR in place of SF REVERB and turn its **DRY off** (a return is wet only).
+2. Cmd-M, then on the E16's SPACE page: turn 13 SPC SIZE, 14 SPC DCY, 15 SPC DARK, 16 SPC DUCK, and
+   press 13 (THROW) and 14 (FREEZE), each with its SF TERROIR control clicked. Cmd-M off, save.
+3. `python3 controllers/live/check_set.py "My Show.als"` counts SF TERROIR wherever the scene has
+   SF REVERB: 108 of 108 again. GLIDE RINGS find it too.
+
 ## 6. CHECKS
 
 1. Every knob: turn it, the right parameter moves. Every press: the right switch.

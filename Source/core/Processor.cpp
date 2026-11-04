@@ -338,6 +338,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // motion keeps running and every SF plugin agrees on the beat.
     Ctx c;
     c.sr = sr; c.bus = &bus;
+    c.offline = isNonRealtime();
     c.trackName = trackName; c.trackNameSeq = trackNameSeq.load();
     c.uid = &instanceUid;
     c.bpm = lastBpm;

@@ -19,5 +19,5 @@ ModulePtr makeGLUE();    ModulePtr makeLOWEND();  ModulePtr makeLIMIT();   Modul
 ModulePtr makeCONTROL(); ModulePtr makeALLOC();   ModulePtr makeTAP();     ModulePtr makeSTRIP();
 ModulePtr makeKICK();    ModulePtr makePERC();    ModulePtr makeRUMBLE();  ModulePtr makeBASS();
 ModulePtr makeLEAD();    ModulePtr makePAD();     ModulePtr makeVOICE();   ModulePtr makeDECK();
-ModulePtr makeTONE();    ModulePtr makeSTRIKE();
+ModulePtr makeTONE();    ModulePtr makeSTRIKE();  ModulePtr makeTERROIR();
 } // namespace sf

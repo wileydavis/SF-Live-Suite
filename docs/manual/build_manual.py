@@ -91,7 +91,7 @@ story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTR
 story.append(H2("PRESETS"))
 story += bullets(["The <b>PRESET</b> button in every header opens the menu: factory presets grouped by style (DUB, ACID, HYPNOTIC ...), your own presets, SAVE USER PRESET and SHOW PRESET FOLDER. The button shows the preset that is loaded.",
                   "A preset sets every sound control of the plugin, MOTION included, and Live is told about every change, so the E16 rings follow. It never touches SLOW, MACRO, ALLOC, ROLE, a source setting or KEY FOLLOW.",
-                  "181 factory presets across 25 plugins. Use them as starting points, then store the result into a song.",
+                  "191 factory presets across 26 plugins. Use them as starting points, then store the result into a song.",
                   "User presets are files in Music/SF Live Suite/Presets/&lt;PLUGIN&gt;. Copy the folder to take them to another computer."])
 
 story += [CondPageBreak(3 * inch), Spacer(1, 14)]
@@ -400,7 +400,7 @@ story.append(PageBreak())
 
 # ---------------- PART 2: modules
 order = [("INSTRUMENTS", ["KICK", "PERC", "RUMBLE", "BASS", "LEAD", "PAD", "VOICE", "STRIKE", "DECK", "CONTROL"]),
-         ("EFFECTS", ["STRIP", "FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
+         ("EFFECTS", ["STRIP", "FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "TERROIR", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
          ("MASTER AND MIX", ["ISOLATOR", "BUILD", "GLUE", "TONE", "LOWEND", "LIMIT", "ROOMEQ", "ALLOC", "TAP"])]
 SYSTEM_IDS = ("slow", "macro_src", "macro_amt")
 def is_system(pid): return pid in SYSTEM_IDS or pid[:3] in ("m1_", "m2_")
@@ -431,8 +431,8 @@ for group, mods in order:
         story.append(H2("USING IT"))
         story += bullets([esc(u) for u in m["use"]])
         if m["models"]:
-            story.append(H2("OBJECTS" if mid == "STRIKE" else "MODELS" if mid not in ("GATE", "ENERGY") else "REFERENCE"))
-            story.append(table([["NAME", "SOUND"]] + [[esc(a), esc(b)] for a, b in m["models"]], [1.55 * inch, W - 1.55 * inch]))
+            story.append(H2("OBJECTS" if mid == "STRIKE" else "CAPTURING A PLACE" if mid == "TERROIR" else "MODELS" if mid not in ("GATE", "ENERGY") else "REFERENCE"))
+            story.append(table([["SOURCE", "HOW"] if mid == "TERROIR" else ["NAME", "SOUND"]] + [[esc(a), esc(b)] for a, b in m["models"]], [1.55 * inch, W - 1.55 * inch]))
         desc = dict(C.COMMON); desc.update(m["desc"])
         def rng(p):
             if p["type"] == "knob": return f"{esc(p['min'])} to {esc(p['max'])}<br/>default {esc(p['def'])}"

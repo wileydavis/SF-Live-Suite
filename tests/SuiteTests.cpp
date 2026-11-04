@@ -1003,13 +1003,26 @@ int main (int argc, char** argv)
     if (argc > 1 && std::string (argv[1]) == "--dump") { dumpSpecs(); return 0; }
     if (argc > 1 && std::string (argv[1]) == "--state") return dumpState (argc, argv);
     if (argc > 1 && std::string (argv[1]) == "--render") return renderModule (argc, argv);
+    if (argc > 2 && std::string (argv[1]) == "--sweep")
+    {
+        // SF TERROIR's sweep file (the same as its SWEEP FILE button writes).
+        const auto b = ir::sweepFile (48000.0);
+        const juce::File f (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
+        f.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), 48000.0, 1, 24, {}, 0));
+        if (w == nullptr) return 1;
+        w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+        std::printf ("%s: %.1f s\n", f.getFullPathName().toRawUTF8(), b.getNumSamples() / 48000.0);
+        return 0;
+    }
     std::vector<std::string> ids = allModuleIds();
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-' && std::string (argv[i]).find_first_of ("abcdefghijklmnopqrstuvwxyz") == std::string::npos) ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testGlideRings(); testRadio(); testPolyrhythm(); }
+                     testThirdReview(); testDrop(); testSlowAll(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -1036,6 +1049,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--rings") { testGlideRings(); }
     else if (std::string (argv[1]) == "--radio") { testRadio(); }
     else if (std::string (argv[1]) == "--poly") { testPolyrhythm(); }
+    else if (std::string (argv[1]) == "--terroir") { testConvolverEngine(); testTerroir(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

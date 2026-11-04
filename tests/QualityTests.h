@@ -10,7 +10,10 @@
 //   --cpu           real-time factor per module (README table)
 //   --radio         RADIO: CRUSH/RATE follow SIGNAL, click-free holes and squeal, RATE counter
 //   --poly          MOTION's odd rates on the song position, DELAY 5/16 and 7/16
+//   --terroir       TERROIR: the engine against direct convolution, captures, knobs, FREEZE, drop / store
 #include "core/BandLimited.h"
+#include "core/Convolver.h"
+#include "core/IrTools.h"
 #include "core/E16Glide.h"
 #include "core/E16Map.h"
 #include "core/Loudness.h"
@@ -2750,5 +2753,489 @@ static void testPolyrhythm()
         const double want = std::string (t) == "5/16" ? 1.25 : 1.75;
         std::printf ("   DELAY TIME %s (menu item %d): first echo %.4f beats after the sound\n", t, idx + 1, beats);
         CHECK (idx < (int) ch.size() && std::abs (beats - want) < 0.002, "DELAY %s echo at %.4f beats", t, beats);
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// SF TERROIR's convolution engine against direct convolution: every tap where it belongs, 512
+// samples late, at any chunk size; a new IR takes over with the whole input history, through a
+// crossfade that is always a mix of the two (never a jump).
+static void testConvolverEngine()
+{
+    std::printf ("-- TERROIR engine\n");
+    std::mt19937 rng (7);
+    std::normal_distribution<float> gauss (0.0f, 1.0f);
+    auto makeIr = [&] (int taps, float rt)
+    {
+        std::vector<float> l ((size_t) taps), r ((size_t) taps);
+        for (int i = 0; i < taps; ++i) { const float e = std::exp (-6.9f * (float) i / (rt * (float) kSr)); l[(size_t) i] = gauss (rng) * e * 0.05f; r[(size_t) i] = gauss (rng) * e * 0.05f; }
+        l[0] = 0.8f; r[3] = -0.6f;
+        return std::make_pair (l, r);
+    };
+    auto direct = [] (const std::vector<float>& h, const std::vector<float>& x, int t)
+    {
+        double acc = 0.0;
+        for (size_t k = 0; k < h.size(); ++k) { const long j = (long) t - Convolver::kLatency - (long) k; if (j < 0) break; acc += (double) h[k] * x[(size_t) j]; }
+        return acc;
+    };
+    // 1. Exactness: a 1.3 s IR (head and 15 tail partitions), chunks of odd sizes.
+    {
+        const int taps = (int) (1.3 * kSr), n = 70000;
+        auto ir = makeIr (taps, 1.0f);
+        std::vector<float> x ((size_t) n);
+        for (auto& v : x) v = gauss (rng) * 0.3f;
+        auto f = makeIrFilter (ir.first.data(), ir.second.data(), taps);
+        Convolver cv;
+        cv.prepare (taps);
+        cv.offer (f.get());
+        std::vector<float> yl ((size_t) n), yr ((size_t) n);
+        const int sizes[] = { 1, 63, 64, 100, 7, 512, 333 };
+        for (int pos = 0, k = 0; pos < n; ++k) { const int m = std::min (sizes[k % 7], n - pos); cv.process (x.data() + pos, yl.data() + pos, yr.data() + pos, m); pos += m; }
+        double err = 0.0, peak = 0.0;
+        for (int t : { 600, 4000, 4700, 9000, 30001, 62000, 69999 })
+            for (int d = 0; d < 300 && t + d < n; ++d)
+            {
+                const double el = direct (ir.first, x, t + d), er = direct (ir.second, x, t + d);
+                err = std::max ({ err, std::abs (el - yl[(size_t) (t + d)]), std::abs (er - yr[(size_t) (t + d)]) });
+                peak = std::max ({ peak, std::abs (el), std::abs (er) });
+            }
+        std::printf ("   1.3 s IR, chunks 1-512: largest error %.2e of a %.2f peak (%.0f dB)\n", err, peak, 20.0 * std::log10 (err / peak + 1e-30));
+        CHECK (err < 2e-5 * peak + 1e-6, "TERROIR engine differs from direct convolution (%.2e)", err);
+    }
+    // 2. Swap: IR a, then b offered mid-stream. Before: a. After: b, with the input history. In
+    //    between: a mix (1-g) a + g b with g rising from 0 to 1.
+    {
+        const int taps = 14000, n = 40000, at = 15000;
+        auto a = makeIr (taps, 0.2f), b = makeIr (taps, 0.15f);
+        std::vector<float> x ((size_t) n);
+        for (auto& v : x) v = gauss (rng) * 0.3f;
+        auto fa = makeIrFilter (a.first.data(), a.second.data(), taps), fb = makeIrFilter (b.first.data(), b.second.data(), taps);
+        Convolver cv;
+        cv.prepare (taps);
+        cv.offer (fa.get());
+        std::vector<float> yl ((size_t) n), yr ((size_t) n);
+        bool offered = false, retiredA = false;
+        for (int pos = 0; pos < n; pos += 64)
+        {
+            if (pos >= at && ! offered) offered = cv.offer (fb.get());
+            cv.process (x.data() + pos, yl.data() + pos, yr.data() + pos, 64);
+            if (auto* r = cv.takeRetired()) retiredA = r == fa.get();
+        }
+        std::vector<double> ya ((size_t) n), yb ((size_t) n);
+        for (int t = 10000; t < n; ++t) { ya[(size_t) t] = direct (a.first, x, t); yb[(size_t) t] = direct (b.first, x, t); }
+        bool before = true;
+        for (int t = 10000; t < at; ++t) before = before && std::abs (yl[(size_t) t] - ya[(size_t) t]) < 1e-4;
+        int firstB = at;                                     // from here on: b alone
+        for (int t = at; t < n; ++t) if (std::abs (yl[(size_t) t] - yb[(size_t) t]) > 1e-4) firstB = t + 1;
+        float gPrev = -1.0f;
+        bool mix = true, rising = true;
+        for (int t = at; t < firstB; ++t)
+        {
+            const double y = yl[(size_t) t], da = ya[(size_t) t], db = yb[(size_t) t];
+            if (std::abs (db - da) < 0.05) continue;
+            const float g = (float) ((y - da) / (db - da));
+            mix = mix && g > -0.002f && g < 1.002f;
+            if (gPrev >= 0.0f && g < gPrev - 0.002f) rising = false;
+            gPrev = g;
+        }
+        const bool after = firstB < n - 1000;
+        std::printf ("   swap offered at %d: IR b alone from %d (%.0f ms later), a mix of a and b in between: %s, rising: %s; old IR returned: %s\n",
+                     at, firstB, (firstB - at) * 1000.0 / kSr, mix ? "yes" : "NO", rising ? "yes" : "NO", retiredA ? "yes" : "NO");
+        CHECK (before && after && mix && rising && firstB > at && firstB - at < 4 * IrFilter::kB2 && retiredA, "TERROIR engine swap is not a clean crossfade");
+    }
+}
+
+// SF TERROIR: captures (a sweep played through a room with a drifting clock, a clap with a second
+// clap after it), what the knobs do to the response, FREEZE, a place dropped on the plugin and kept
+// in the set, offline renders that repeat exactly, and the level against SF REVERB.
+static std::vector<float> roomIr (double sr, float rt, uint32_t seed)
+{
+    std::mt19937 rng (seed);
+    std::normal_distribution<float> g (0.0f, 1.0f);
+    std::vector<float> h ((size_t) (2.0 * sr), 0.0f);
+    h[(size_t) (0.003 * sr)] = 1.0f;
+    const float refl[][2] = { { 0.011f, 0.5f }, { 0.017f, -0.4f }, { 0.026f, 0.3f }, { 0.041f, -0.25f } };
+    for (auto& r : refl) h[(size_t) (r[0] * sr)] += r[1];
+    for (size_t i = (size_t) (0.015 * sr); i < h.size(); ++i) h[i] += g (rng) * 0.05f * std::exp (-6.9078f * (float) (i / sr) / rt);
+    return h;
+}
+static std::vector<float> convolveWith (const std::vector<float>& x, const std::vector<float>& h)
+{
+    auto f = makeIrFilter (h.data(), h.data(), (int) h.size());
+    Convolver cv;
+    cv.prepare ((int) h.size());
+    cv.offer (f.get());
+    std::vector<float> y (x.size() + h.size() + 1024, 0.0f), l (y.size()), r (y.size());
+    std::vector<float> in (y.size(), 0.0f);
+    std::copy (x.begin(), x.end(), in.begin());
+    for (size_t p = 0; p < y.size(); p += 512) { const int m = (int) std::min<size_t> (512, y.size() - p); cv.process (in.data() + p, l.data() + p, r.data() + p, m); }
+    return l;
+}
+static double bandCorrelation (const float* a, const float* b, int n, double sr)
+{
+    // Both band-limited to 80 Hz - 8 kHz, then the normalised correlation (best fractional lag).
+    auto band = [&] (const float* x)
+    {
+        Svf hp1, hp2, lp1, lp2;
+        hp1.set (80.0f, 0.7071f, sr); hp2.set (80.0f, 0.7071f, sr); lp1.set (8000.0f, 0.7071f, sr); lp2.set (8000.0f, 0.7071f, sr);
+        std::vector<double> y ((size_t) n);
+        for (int i = 0; i < n; ++i) y[(size_t) i] = lp2.tickLP (lp1.tickLP (hp2.tickHP (hp1.tickHP (x[i]))));
+        return y;
+    };
+    const auto x = band (a), y = band (b);
+    // At lags -1, 0, +1 and the parabola's top: the two may sit a fraction of a sample apart.
+    double c[3];
+    for (int lag = -1; lag <= 1; ++lag)
+    {
+        double sxy = 0, sxx = 0, syy = 0;
+        for (int i = 2; i < n - 2; ++i) { const double u = x[(size_t) i], v = y[(size_t) (i + lag)]; sxy += u * v; sxx += u * u; syy += v * v; }
+        c[lag + 1] = sxy / std::sqrt (sxx * syy + 1e-30);
+    }
+    const double d = c[0] - 2.0 * c[1] + c[2];
+    return d < 0.0 ? c[1] - 0.125 * (c[0] - c[2]) * (c[0] - c[2]) / d : c[1];
+}
+static int peakIndex (const float* x, int n) { int k = 0; for (int i = 1; i < n; ++i) if (std::fabs (x[i]) > std::fabs (x[k])) k = i; return k; }
+
+static void testTerroir()
+{
+    std::printf ("-- TERROIR\n");
+    const double sr = kSr;
+    std::mt19937 rng (11);
+    std::normal_distribution<float> gauss (0.0f, 1.0f);
+    const auto room = roomIr (sr, 1.2f, 5);
+    // 1. The sweep file, played on a speaker whose clock runs 40 ppm slow, through the room, recorded
+    //    from 0.7 s before it starts, with the noise of a quiet place.
+    {
+        const auto file = ir::sweepFile (sr);
+        float pk = file.getMagnitude (0, 0, file.getNumSamples());
+        const double secs = file.getNumSamples() / sr;
+        auto played = ir::stretch (file.getReadPointer (0), file.getNumSamples(), 1.0 + 40.0e-6);
+        std::vector<float> pre ((size_t) (0.7 * sr), 0.0f);
+        played.insert (played.begin(), pre.begin(), pre.end());
+        auto rec = convolveWith (played, room);
+        for (auto& v : rec) v += gauss (rng) * 3.0e-4f;                         // about -70 dBFS
+        juce::AudioBuffer<float> b (1, (int) rec.size());
+        b.copyFrom (0, 0, rec.data(), (int) rec.size());
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto cap = ir::analyse (b, sr);
+        const double took = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+        bool ok = cap.ok;
+        double corr = 0.0;
+        if (ok)
+        {
+            const float* x = cap.ir.getReadPointer (0);
+            const int px = peakIndex (x, cap.ir.getNumSamples()), ph = peakIndex (room.data(), (int) room.size());
+            const int n = std::min ({ (int) (0.8 * sr), cap.ir.getNumSamples() - px + (int) (0.002 * sr), (int) room.size() - ph + (int) (0.002 * sr) });
+            corr = bandCorrelation (x + px - (int) (0.002 * sr), room.data() + ph - (int) (0.002 * sr), n, sr);
+        }
+        std::printf ("   sweep file: %.1f s, peak %.1f dBFS; recorded through a 1.2 s room at -70 dB noise, clock 40 ppm slow:\n"
+                     "   %s, clock %.1f ppm, RT %.2f s, %.0f dB over the noise, %.2f s long; shape against the room %.4f (%.1f s to analyse)\n",
+                     secs, gainToDb (pk), cap.ok ? cap.kind.toRawUTF8() : cap.error.toRawUTF8(), cap.driftPpm, cap.rt60, cap.snrDb,
+                     cap.ok ? cap.ir.getNumSamples() / sr : 0.0, corr, took);
+        CHECK (std::abs (secs - 43.0) < 0.01 && std::abs (gainToDb (pk) + 6.0f) < 0.1f, "TERROIR sweep file wrong (%.1f s, %.1f dB)", secs, gainToDb (pk));
+        CHECK (ok && cap.kind == "SWEEP x3" && std::abs (cap.driftPpm - 40.0) < 3.0 && std::abs (cap.rt60 - 1.2f) < 0.12f && corr > 0.99,
+               "TERROIR sweep capture wrong");
+    }
+    // 2. A clap (8 ms of band-passed noise) in the room, 4 s of -65 dB noise, a second clap at 2.6 s.
+    {
+        std::vector<float> clap ((size_t) (0.008 * sr));
+        Svf bp; bp.set (2000.0f, 1.0f, sr);
+        for (size_t i = 0; i < clap.size(); ++i) clap[i] = bp.tickBP (gauss (rng)) * std::exp (-(float) i / (float) (0.002 * sr));
+        std::vector<float> src ((size_t) (4.0 * sr), 0.0f);
+        const int at = (int) (0.5 * sr), second = (int) (2.6 * sr);
+        for (size_t i = 0; i < clap.size(); ++i) { src[(size_t) at + i] += clap[i]; src[(size_t) second + i] += clap[i]; }
+        auto rec = convolveWith (src, room);
+        rec.resize ((size_t) (4.0 * sr));
+        for (auto& v : rec) v += gauss (rng) * 5.6e-4f;
+        juce::AudioBuffer<float> b (1, (int) rec.size());
+        b.copyFrom (0, 0, rec.data(), (int) rec.size());
+        const auto cap = ir::analyse (b, sr);
+        const double len = cap.ok ? cap.ir.getNumSamples() / sr : 0.0;
+        std::printf ("   clap in the same room, a second clap 2.1 s later: %s, RT %.2f s, %.0f dB over the noise, %.2f s long\n",
+                     cap.ok ? cap.kind.toRawUTF8() : cap.error.toRawUTF8(), cap.rt60, cap.snrDb, len);
+        CHECK (cap.ok && cap.kind == "IMPULSE" && len > 0.6 && len < 2.1 && std::abs (cap.rt60 - 1.2f) < 0.25f, "TERROIR clap capture wrong");
+    }
+    // The module's response to one impulse (MIX 100 %, DRY off), offline.
+    auto response = [&] (const std::map<std::string, float>& set, double seconds, juce::MemoryBlock* state = nullptr)
+    {
+        resetBus();
+        Rig2 r ("TERROIR");
+        r.head.bpm = 120.0;
+        r.p->setNonRealtime (true);
+        if (state != nullptr) r.p->setStateInformation (state->getData(), (int) state->getSize());
+        r.set ("mix", 1.0f); r.set ("dry", 0.0f); r.set ("duck", 0.0f); r.set ("lo_cut", 20.0f);
+        for (auto& [k, v] : set) r.set (k.c_str(), v);
+        for (int b = 0; b < (int) kSr / kBlock; ++b) r.step (kBlock, nullptr);    // the knobs settle, every swap is done
+        std::vector<float> o;
+        int64_t t = 0;
+        while (t < (int64_t) (seconds * kSr))
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int nn) { for (int i = 0; i < nn; ++i) { const float v = t + i == 0 ? 1.0f : 0.0f; bb.setSample (0, i, v); bb.setSample (1, i, v); } });
+            for (int i = 0; i < kBlock; ++i) o.push_back (0.5f * (r.buf.getSample (0, i) + r.buf.getSample (1, i)));
+            t += kBlock;
+        }
+        return o;
+    };
+    auto rtOf = [&] (const std::vector<float>& o) { juce::AudioBuffer<float> b (1, (int) o.size()); b.copyFrom (0, 0, o.data(), (int) o.size()); return ir::rt60 (b, kSr); };
+    auto lastAbove = [&] (const std::vector<float>& o, float db) { float pk = 0; for (auto v : o) pk = std::max (pk, std::fabs (v)); int k = 0; for (int i = 0; i < (int) o.size(); ++i) if (std::fabs (o[(size_t) i]) > pk * dbToGain (db)) k = i; return (k - Convolver::kLatency) / kSr; };
+    // 3. The knobs on the built-in room.
+    {
+        const auto base = response ({}, 3.0), half = response ({ { "decay", 0.5f } }, 3.0), big = response ({ { "size", 2.0f } }, 4.5);
+        const auto quarter = response ({ { "length", 5.0f } }, 2.0), rev = response ({ { "length", 5.0f }, { "reverse", 1.0f } }, 2.0);
+        const float rt0 = rtOf (base), rtH = rtOf (half), rtB = rtOf (big);
+        const double endQ = lastAbove (quarter, -80.0f);
+        const int pkRev = peakIndex (rev.data(), (int) rev.size()) - Convolver::kLatency;
+        std::printf ("   built-in room RT %.2f s; DECAY 50 %% %.2f s; SIZE 200 %% %.2f s; LENGTH 1/4 at 120 BPM ends %.3f s; REVERSE peaks at %.3f s\n",
+                     rt0, rtH, rtB, endQ, pkRev / kSr);
+        CHECK (std::abs (rtH / rt0 - 0.5f) < 0.08f, "TERROIR DECAY 50 %% gives RT %.2f of %.2f", rtH, rt0);
+        CHECK (std::abs (rtB / rt0 - 2.0f) < 0.25f, "TERROIR SIZE 200 %% gives RT %.2f of %.2f", rtB, rt0);
+        CHECK (endQ <= 0.501 && endQ > 0.4, "TERROIR LENGTH 1/4 ends at %.3f s", endQ);
+        CHECK (pkRev / kSr > 0.4 && pkRev / kSr <= 0.501, "TERROIR REVERSE peaks at %.3f s", pkRev / kSr);
+    }
+    // 4. FREEZE: noise for 2 s, FREEZE, 6 s of silence: the held sound stays near the level it had; off, it goes.
+    {
+        resetBus();
+        Rig2 r ("TERROIR");
+        r.p->setNonRealtime (true);
+        r.set ("mix", 1.0f); r.set ("dry", 0.0f); r.set ("duck", 0.0f);
+        std::vector<float> o;
+        int64_t t = 0;
+        for (int b = 0; b < (int) (10.0 * kSr) / kBlock; ++b)
+        {
+            const double sec = (double) t / kSr;
+            r.set ("freeze", sec >= 2.0 && sec < 8.0 ? 1.0f : 0.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int nn) { for (int i = 0; i < nn; ++i) { const float v = sec < 2.0 ? gauss (rng) * 0.1f : 0.0f; bb.setSample (0, i, v); bb.setSample (1, i, v); } });
+            for (int i = 0; i < kBlock; ++i) o.push_back (r.buf.getSample (0, i));
+            t += kBlock;
+        }
+        auto rms = [&] (double a, double b) { double e = 0; int c = 0; for (int i = (int) (a * kSr); i < (int) (b * kSr); ++i) { e += o[(size_t) i] * o[(size_t) i]; ++c; } return gainToDb ((float) std::sqrt (e / std::max (1, c))); };
+        const float before = rms (1.5, 2.0), held = rms (6.0, 8.0), after = rms (9.5, 10.0);
+        std::printf ("   FREEZE: %.1f dB before, %.1f dB 4-6 s into the hold (no input), %.1f dB 1.5 s after release\n", before, held, after);
+        CHECK (std::abs (held - before) < 3.0f && after < before - 40.0f, "TERROIR FREEZE does not hold (%.1f / %.1f / %.1f dB)", before, held, after);
+    }
+    // 5. A place dropped on the plugin (a clap recording, on the worker thread), kept in the set, and
+    //    renders that repeat exactly, with a knob moving mid-way.
+    {
+        const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_terroir_test");
+        dir.createDirectory();
+        const auto wavFile = dir.getChildFile ("Culvert Clap.wav");
+        {
+            std::vector<float> src ((size_t) (2.0 * sr), 0.0f);
+            src[(size_t) (0.3 * sr)] = 0.7f;
+            const auto shortRoom = roomIr (sr, 0.4f, 9);
+            auto rec = convolveWith (src, std::vector<float> (shortRoom.begin(), shortRoom.begin() + (int) (0.8 * sr)));
+            rec.resize ((size_t) (2.0 * sr));
+            for (auto& v : rec) v += gauss (rng) * 2.0e-4f;
+            juce::AudioBuffer<float> b (1, (int) rec.size());
+            b.copyFrom (0, 0, rec.data(), (int) rec.size());
+            wavFile.deleteFile();
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (wavFile), sr, 1, 24, {}, 0));
+            w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+        }
+        resetBus();
+        Rig2 r ("TERROIR");
+        r.set ("place", 2.0f);                                               // slot 3
+        for (int b = 0; b < 4; ++b) r.step (kBlock, nullptr);
+        r.p->mod().loadFiles (juce::StringArray (wavFile.getFullPathName()));
+        juce::MemoryBlock state;
+        bool stored = false;
+        for (int k = 0; k < 400 && ! stored; ++k)
+        {
+            juce::Thread::sleep (25);
+            r.step (kBlock, nullptr);
+            state.reset();
+            r.p->getStateInformation (state);
+            auto root = juce::ValueTree::readFromData (state.getData(), state.getSize());
+            const auto m = root.getChildWithName ("MODULE");
+            for (int i = 0; i < m.getNumChildren(); ++i)
+                if (m.getChild (i).hasType ("PLACE") && (int) m.getChild (i).getProperty ("slot") == 2 && m.getChild (i).getProperty ("name").toString() == "CULVERT CLAP") stored = true;
+        }
+        const auto a = response ({ { "place", 2.0f } }, 1.5, &state), base = response ({}, 1.5);
+        const float rtA = rtOf (a), rtBase = rtOf (base);
+        std::printf ("   dropped \"Culvert Clap.wav\" on slot 3: %s in the set; it plays (RT %.2f s, built-in %.2f s)\n", stored ? "stored" : "NOT STORED", rtA, rtBase);
+        CHECK (stored && std::abs (rtA - 0.4f) < 0.1f, "TERROIR drop / store / reload failed (RT %.2f)", rtA);
+        auto offline = [&] ()
+        {
+            resetBus();
+            Rig2 q ("TERROIR");
+            q.p->setNonRealtime (true);
+            q.p->setStateInformation (state.getData(), (int) state.getSize());
+            q.set ("place", 2.0f); q.set ("mix", 0.5f);
+            std::vector<float> o;
+            int64_t t = 0;
+            for (int b = 0; b < (int) (3.0 * kSr) / kBlock; ++b)
+            {
+                if (t >= (int64_t) kSr) q.set ("decay", 0.4f);
+                if (t >= (int64_t) (2 * kSr)) q.set ("size", 1.5f);
+                q.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int nn) { for (int i = 0; i < nn; ++i) { uint32_t h = (uint32_t) (t + i) * 2654435761u; h ^= h >> 15; const float v = 0.2f * ((float) (h & 0xffff) / 32768.0f - 1.0f) * ((t + i) % 12000 < 2000 ? 1.0f : 0.0f); bb.setSample (0, i, v); bb.setSample (1, i, v); } });
+                for (int i = 0; i < kBlock; ++i) o.push_back (q.buf.getSample (0, i));
+                t += kBlock;
+            }
+            return o;
+        };
+        const auto o1 = offline(), o2 = offline();
+        double diff = 0.0;
+        for (size_t i = 0; i < std::min (o1.size(), o2.size()); ++i) diff = std::max (diff, (double) std::fabs (o1[i] - o2[i]));
+        std::printf ("   two offline renders with DECAY and SIZE moving: largest difference %.1e\n", diff);
+        CHECK (diff == 0.0, "TERROIR offline render not repeatable (%.1e)", diff);
+        dir.deleteRecursively();
+    }
+    // 6. Level: a held chord through SF REVERB and SF TERROIR (built-in room) at their defaults, wet only.
+    {
+        auto wetRms = [&] (const char* id)
+        {
+            resetBus();
+            Rig2 r (id);
+            r.p->setNonRealtime (true);
+            r.set ("mix", 1.0f); r.set ("dry", 0.0f); r.set ("duck", 0.0f);
+            double e = 0; int c = 0;
+            int64_t t = 0;
+            for (int b = 0; b < (int) (8.0 * kSr) / kBlock; ++b)
+            {
+                r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int nn)
+                {
+                    for (int i = 0; i < nn; ++i)
+                    {
+                        const double q = (double) (t + i) / kSr;
+                        const float v = 0.1f * (float) (std::sin (6.283185307 * 220.0 * q) + std::sin (6.283185307 * 277.18 * q) + std::sin (6.283185307 * 329.63 * q));
+                        bb.setSample (0, i, v); bb.setSample (1, i, v);
+                    }
+                });
+                if (t > (int64_t) (3 * kSr)) for (int i = 0; i < kBlock; ++i) { e += r.buf.getSample (0, i) * r.buf.getSample (0, i); ++c; }
+                t += kBlock;
+            }
+            return gainToDb ((float) std::sqrt (e / c));
+        };
+        const float rv = wetRms ("REVERB"), tr = wetRms ("TERROIR");
+        std::printf ("   held chord, wet only: SF REVERB %.1f dB, SF TERROIR %.1f dB\n", rv, tr);
+        CHECK (std::abs (tr - rv) < 2.0f, "TERROIR level %.1f dB against REVERB %.1f dB", tr, rv);
+    }
+    // 7. A field recorder's poly file, as a MixPre writes it: MixL and MixR (the two mics summed in
+    //    the middle) ahead of a spaced pair, the right mic 1.5 ms later and 3 dB down. Named in the
+    //    bext description, or in iXML. The pair is used and keeps its time and level difference; a
+    //    mono take saved as stereo becomes a mono place (its tail spread).
+    {
+        const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_terroir_poly");
+        dir.deleteRecursively();
+        dir.createDirectory();
+        const auto roomL = roomIr (sr, 0.5f, 21), roomR = roomIr (sr, 0.5f, 22);
+        const int n = (int) (2.0 * sr), at = (int) (0.3 * sr), lag = (int) std::lround (0.0015 * sr);
+        juce::AudioBuffer<float> poly (4, n);
+        poly.clear();
+        for (int i = 0; i < (int) (0.9 * sr); ++i)
+        {
+            poly.setSample (2, at + i, 0.6f * roomL[(size_t) i]);
+            poly.setSample (3, at + lag + i, 0.42f * roomR[(size_t) i]);
+        }
+        for (int c = 2; c < 4; ++c) for (int i = 0; i < n; ++i) poly.addSample (c, i, gauss (rng) * 1.0e-4f);
+        for (int i = 0; i < n; ++i) { const float m = 0.5f * (poly.getSample (2, i) + poly.getSample (3, i)); poly.setSample (0, i, m); poly.setSample (1, i, m); }
+        auto write = [&] (const juce::File& f, const juce::AudioBuffer<float>& b, const juce::StringPairArray& meta)
+        {
+            f.deleteFile();
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), sr, (unsigned) b.getNumChannels(), 24, meta, 0));
+            w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+        };
+        const auto bextFile = dir.getChildFile ("Factory Poly.wav"), ixmlFile = dir.getChildFile ("Factory Ixml.wav"), monoFile = dir.getChildFile ("Shed Mono.wav");
+        write (bextFile, poly, juce::WavAudioFormat::createBWAVMetadata ("sSPEED=048.000-ND\r\nsTRK1=MixL\r\nsTRK2=MixR\r\nsTRK3=Room L\r\nsTRK4=Room R\r\n",
+                                                                         "SOUND DEVICES", {}, juce::Time::getCurrentTime(), 0, {}));
+        write (ixmlFile, poly, {});
+        {
+            // An iXML chunk after the audio (as some recorders write it), the RIFF size patched.
+            const juce::String x = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><BWFXML><TRACK_LIST><TRACK_COUNT>4</TRACK_COUNT>"
+                                   "<TRACK><CHANNEL_INDEX>3</CHANNEL_INDEX><INTERLEAVE_INDEX>3</INTERLEAVE_INDEX><NAME>Factory L</NAME></TRACK>"
+                                   "<TRACK><CHANNEL_INDEX>4</CHANNEL_INDEX><INTERLEAVE_INDEX>4</INTERLEAVE_INDEX><NAME>Factory R</NAME></TRACK>"
+                                   "<TRACK><CHANNEL_INDEX>1</CHANNEL_INDEX><INTERLEAVE_INDEX>1</INTERLEAVE_INDEX><NAME>MixL</NAME></TRACK>"
+                                   "<TRACK><CHANNEL_INDEX>2</CHANNEL_INDEX><INTERLEAVE_INDEX>2</INTERLEAVE_INDEX><NAME>MixR</NAME></TRACK>"
+                                   "</TRACK_LIST></BWFXML>";
+            juce::MemoryBlock mb;
+            ixmlFile.loadFileAsData (mb);
+            {
+                juce::MemoryOutputStream out (mb, true);
+                const auto bytes = x.getNumBytesAsUTF8();
+                out.write ("iXML", 4);
+                out.writeInt ((int) bytes);
+                out.write (x.toRawUTF8(), bytes);
+                if ((bytes & 1) != 0) out.writeByte (0);
+            }
+            const auto riff = (juce::uint32) (mb.getSize() - 8);
+            auto* d = static_cast<juce::uint8*> (mb.getData());
+            for (int k = 0; k < 4; ++k) d[4 + k] = (juce::uint8) ((riff >> (8 * k)) & 0xffu);
+            ixmlFile.replaceWithData (mb.getData(), mb.getSize());
+        }
+        {
+            juce::AudioBuffer<float> mono (2, n);
+            mono.copyFrom (0, 0, poly, 2, 0, n);
+            mono.copyFrom (1, 0, poly, 2, 0, n);
+            write (monoFile, mono, {});
+        }
+        auto namesOf = [&] (const juce::File& f)
+        {
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatReader> r (wav.createReaderFor (new juce::FileInputStream (f), true));
+            return r == nullptr ? juce::StringArray() : ir::trackNames (f, r->metadataValues.getValue (juce::WavAudioFormat::bwavDescription, {}), (int) r->numChannels);
+        };
+        const auto nb = namesOf (bextFile), nx = namesOf (ixmlFile), nm = namesOf (monoFile);
+        const auto pb = ir::pickTracks (nb, 4), px = ir::pickTracks (nx, 4);
+        std::printf ("   poly file names: bext %s, iXML %s, none %d; tracks used %d + %d, %d + %d\n",
+                     nb.joinIntoString ("|").toRawUTF8(), nx.joinIntoString ("|").toRawUTF8(), nm.size(),
+                     pb.size() > 0 ? pb[0] + 1 : 0, pb.size() > 1 ? pb[1] + 1 : 0, px.size() > 0 ? px[0] + 1 : 0, px.size() > 1 ? px[1] + 1 : 0);
+        CHECK (nb.joinIntoString ("|") == "MixL|MixR|Room L|Room R" && nx.joinIntoString ("|") == "MixL|MixR|Factory L|Factory R" && nm.isEmpty(),
+               "TERROIR track names wrong (%s / %s)", nb.joinIntoString ("|").toRawUTF8(), nx.joinIntoString ("|").toRawUTF8());
+        CHECK (pb == (std::vector<int> { 2, 3 }) && px == (std::vector<int> { 2, 3 }) && ir::pickTracks ({}, 4) == (std::vector<int> { 0, 1 })
+                 && ir::pickTracks ({ "MixL", "MixR", "Ch1" }, 3) == (std::vector<int> { 2 }) && ir::pickTracks ({ "MixL", "MixR" }, 2) == (std::vector<int> { 0, 1 })
+                 && ir::pickTracks ({ "L", "R" }, 2) == (std::vector<int> { 0, 1 }) && ir::pickTracks ({}, 1) == (std::vector<int> { 0 }),
+               "TERROIR picks the wrong tracks");
+        // Dropped on the plugin: the place as stored in the set.
+        auto dropped = [&] (const juce::File& f, int slot, const juce::String& name)
+        {
+            resetBus();
+            Rig2 r ("TERROIR");
+            r.set ("place", (float) slot);
+            for (int b = 0; b < 4; ++b) r.step (kBlock, nullptr);
+            r.p->mod().loadFiles (juce::StringArray (f.getFullPathName()));
+            juce::AudioBuffer<float> a;
+            for (int k = 0; k < 400 && a.getNumChannels() == 0; ++k)
+            {
+                juce::Thread::sleep (25);
+                r.step (kBlock, nullptr);
+                juce::MemoryBlock state;
+                r.p->getStateInformation (state);
+                const auto m = juce::ValueTree::readFromData (state.getData(), state.getSize()).getChildWithName ("MODULE");
+                for (int i = 0; i < m.getNumChildren(); ++i)
+                {
+                    const auto c = m.getChild (i);
+                    if (! c.hasType ("PLACE") || (int) c.getProperty ("slot") != slot || c.getProperty ("name").toString() != name) continue;
+                    if (const auto* mb = c.getProperty ("flac").getBinaryData())
+                    {
+                        juce::FlacAudioFormat fmt;
+                        std::unique_ptr<juce::AudioFormatReader> rd (fmt.createReaderFor (new juce::MemoryInputStream (*mb, true), true));
+                        if (rd != nullptr)
+                        {
+                            a.setSize ((int) rd->numChannels, (int) rd->lengthInSamples);
+                            rd->read (a.getArrayOfWritePointers(), a.getNumChannels(), 0, a.getNumSamples());
+                        }
+                    }
+                }
+            }
+            return a;
+        };
+        const auto pair = dropped (bextFile, 3, "FACTORY POLY"), monoPlace = dropped (monoFile, 4, "SHED MONO");
+        int dt = 0;
+        float ild = 0.0f;
+        if (pair.getNumChannels() == 2)
+        {
+            dt = peakIndex (pair.getReadPointer (1), pair.getNumSamples()) - peakIndex (pair.getReadPointer (0), pair.getNumSamples());
+            double el = 0, er = 0;
+            for (int i = 0; i < pair.getNumSamples(); ++i) { el += (double) pair.getSample (0, i) * pair.getSample (0, i); er += (double) pair.getSample (1, i) * pair.getSample (1, i); }
+            ild = (float) (10.0 * std::log10 (er / std::max (el, 1e-30)));
+        }
+        std::printf ("   dropped as a place: the pair %d channels, right %d samples later (want %d), %.2f dB (want %.2f); the mono take %d channel(s)\n",
+                     pair.getNumChannels(), dt, lag, ild, gainToDb (0.42f / 0.6f), monoPlace.getNumChannels());
+        CHECK (pair.getNumChannels() == 2 && std::abs (dt - lag) <= 1 && std::abs (ild - gainToDb (0.42f / 0.6f)) < 0.5f,
+               "TERROIR poly file: %d channels, %d samples apart, %.2f dB", pair.getNumChannels(), dt, ild);
+        CHECK (monoPlace.getNumChannels() == 1, "TERROIR: a mono take saved as stereo stays stereo (%d channels)", monoPlace.getNumChannels());
+        dir.deleteRecursively();
     }
 }

@@ -82,6 +82,7 @@ struct Ctx
     bool recallWaiting = false;   // a song recall is waiting for its bar line in this plugin
     bool recalledThisBlock = false;   // a song recall landed here in this host block, up to this chunk
     bool lastChunk = false;       // the last chunk of the host block
+    bool offline = false;         // Live is rendering (export, freeze): work may block, timing must not depend on threads
     const float* p = nullptr;     // parameter values at block end (glided, macro applied)
     const float* p0 = nullptr;    // values at block start (for per-sample ramps)
     Bus* bus = nullptr;
