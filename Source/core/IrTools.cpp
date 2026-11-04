@@ -15,6 +15,7 @@ namespace
 {
 constexpr double kPiD = 3.14159265358979323846;
 constexpr double kF1 = 20.0, kF2 = 20000.0;     // the sweep, in Hz (the same at every sample rate)
+constexpr double kSoftHz = 60.0;                 // under this the sweep comes in softer (2nd-order high-pass shape)
 
 int orderFor (int64_t n)
 {
@@ -254,6 +255,12 @@ std::vector<float> sweep (double sr)
     {
         const double t = i / sr;
         double v = std::sin (2.0 * kPiD * kF1 * L * (std::exp (t / L) - 1.0));
+        // The lowest octaves come in softer, shaped like a speaker's own roll-off (2nd-order high-pass at
+        // kSoftHz on the sweep's frequency at that moment: -19 dB at 20 Hz, -3 dB at 60 Hz, flat above
+        // ~120 Hz). A small speaker isn't driven where it can't play; a big one still plays its lows.
+        // The inverse is built from this same sweep, so the analysis takes the shape out again.
+        const double r = kF1 * std::exp (t / L) / kSoftHz, r2 = r * r;
+        v *= r2 / std::sqrt (1.0 + r2 * r2);
         if (i < fadeIn) v *= 0.5 - 0.5 * std::cos (kPiD * i / fadeIn);
         if (i >= n - fadeOut) v *= 0.5 - 0.5 * std::cos (kPiD * (n - 1 - i) / fadeOut);
         s[(size_t) i] = (float) v;

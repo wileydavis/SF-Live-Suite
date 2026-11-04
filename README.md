@@ -128,6 +128,7 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 ### Changes in the Nov 4 update that affect existing sets
 
 - **New: SF TERROIR**, a convolution reverb for places you capture (manual: SF TERROIR). It is a new plugin: nothing in an existing set changes. Rebuild and install the whole suite (31 plugins).
+- **SF TERROIR's sweep file changed the same day:** its lowest octaves now come in softer, so a small speaker isn't pushed below what it can play. Use the file this build writes (SWEEP FILE on the display); a take recorded with the earlier file comes out with too much sub-bass, so record it again. Places already stored in a set are not affected.
 
 - **SF RADIO: CRUSH and RATE follow SIGNAL.** They are the damage at SIGNAL 0; at 100 % the sound is 16-bit and full rate. A RADIO set to a constant crunch now cleans up as SIGNAL rises: lower SIGNAL (or CRUSH) for the old sound. At their defaults (16 bit, 48 kHz) nothing changes.
 - **SF RADIO: SQUELCH is a squeal**, not a burst of noise: a whistle sliding down as each dropout ends, with smooth edges. Its peaks are lower (the old burst reached -2 dBFS at SQUELCH 100 %); dropouts fade over ~10 ms instead of 2 ms.

@@ -26,7 +26,9 @@ constexpr double kMaxSeconds = 12.0;           // a captured IR is at most this 
 constexpr double kMaxRecording = 90.0;         // longer recordings are refused (trim them)
 constexpr float kEnergy = 0.85f;               // mean per-channel energy of every IR (sum of squares): SF REVERB's level
 
-// The exponential sine sweep, 20 Hz to 20 kHz (or 0.45 of the rate) over kSweepSec, with fades.
+// The exponential sine sweep, 20 Hz to 20 kHz (or 0.45 of the rate) over kSweepSec, with fades. Under
+// 60 Hz it comes in softer (a 2nd-order high-pass shape: -19 dB at 20 Hz), so a small speaker isn't
+// pushed below what it can play; the inverse is built from it, so captures come out flat.
 std::vector<float> sweep (double sr);
 // The file to play from the speaker: kLeadSec of silence, then kRepeats x (sweep, kGapSec silence), -6 dBFS.
 juce::AudioBuffer<float> sweepFile (double sr);

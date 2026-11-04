@@ -2936,6 +2936,43 @@ static void testTerroir()
         CHECK (ok && cap.kind == "SWEEP x3" && std::abs (cap.driftPpm - 40.0) < 3.0 && std::abs (cap.rt60 - 1.2f) < 0.12f && corr > 0.99,
                "TERROIR sweep capture wrong");
     }
+    // 1b. The sweep comes in softer under 60 Hz (a small speaker isn't driven where it can't play), and
+    //     the analysis takes that out again: the file straight into the recorder gives one click, flat
+    //     from 40 Hz to 16 kHz in third-octave bands.
+    {
+        const auto file = ir::sweepFile (sr);
+        const int lead = (int) std::lround (ir::kLeadSec * sr);
+        const float pk = file.getMagnitude (0, 0, file.getNumSamples()), pkStart = file.getMagnitude (0, lead, (int) (0.5 * sr));
+        juce::AudioBuffer<float> rec (1, file.getNumSamples() + (int) (2.0 * sr));
+        rec.clear();
+        rec.copyFrom (0, (int) (0.3 * sr), file, 0, 0, file.getNumSamples());
+        for (int i = 0; i < rec.getNumSamples(); ++i) rec.addSample (0, i, gauss (rng) * 1.0e-5f);
+        const auto cap = ir::analyse (rec, sr);
+        double worst = 99.0, worstF = 0.0;
+        if (cap.ok)
+        {
+            constexpr int order = 16, N = 1 << order;
+            juce::dsp::FFT fft (order);
+            std::vector<float> d ((size_t) N * 2, 0.0f);
+            for (int i = 0; i < std::min (N, cap.ir.getNumSamples()); ++i) d[(size_t) i] = cap.ir.getSample (0, i);
+            fft.performFrequencyOnlyForwardTransform (d.data());
+            auto bandDb = [&] (double fc)
+            {
+                const int k0 = std::max (1, (int) std::floor (fc / std::pow (2.0, 1.0 / 6.0) * N / sr)), k1 = (int) std::ceil (fc * std::pow (2.0, 1.0 / 6.0) * N / sr);
+                double e = 0.0;
+                for (int k = k0; k <= k1; ++k) e += (double) d[(size_t) k] * d[(size_t) k];
+                return 10.0 * std::log10 (e / (k1 - k0 + 1) + 1e-30);
+            };
+            const double ref = bandDb (1000.0);
+            worst = 0.0;
+            for (double fc = 40.0; fc <= 16000.0 * 1.01; fc *= std::pow (2.0, 1.0 / 3.0))
+                if (std::abs (bandDb (fc) - ref) > std::abs (worst)) { worst = bandDb (fc) - ref; worstF = fc; }
+        }
+        std::printf ("   sweep's first 0.5 s %.1f dB under its peak; straight into the recorder: %s, flat 40 Hz-16 kHz within %.2f dB (at %.0f Hz)\n",
+                     gainToDb (pkStart / pk), cap.ok ? cap.kind.toRawUTF8() : cap.error.toRawUTF8(), worst, worstF);
+        CHECK (gainToDb (pkStart / pk) < -12.0f, "TERROIR sweep's low start not softened (%.1f dB)", gainToDb (pkStart / pk));
+        CHECK (cap.ok && std::abs (worst) < 1.0, "TERROIR loopback capture not flat (%.2f dB at %.0f Hz)", worst, worstF);
+    }
     // 2. A clap (8 ms of band-passed noise) in the room, 4 s of -65 dB noise, a second clap at 2.6 s.
     {
         std::vector<float> clap ((size_t) (0.008 * sr));
