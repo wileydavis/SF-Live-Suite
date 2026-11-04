@@ -13,7 +13,7 @@
 #include <array>
 #include <atomic>
 
-class SFProcessor : public juce::AudioProcessor, private juce::Timer
+class SFProcessor : public juce::AudioProcessor, private juce::Timer, private juce::AudioProcessorParameter::Listener
 {
     // Declared first: the parameter layout is built from these.
     sf::ModulePtr module;
@@ -103,6 +103,9 @@ private:
     static BusesProperties busesFor (const sf::Module&);
     juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
     void timerCallback() override;
+    void parameterValueChanged (int index, float) override;
+    void parameterGestureChanged (int, bool) override {}
+    bool movedSinceRecall (size_t i) const;
     void applySong (int s);
     void updateParams (const sf::Ctx&, int n, float motionInput);
     void processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
@@ -110,8 +113,17 @@ private:
 
     std::vector<juce::RangedAudioParameter*> params;
     std::vector<std::atomic<float>*> raw;
-    std::vector<float> cur, prev, base, macroOff, glideFrom, glideTo, modAmt, ovrFrom;
+    std::vector<float> cur, prev, base, macroOff, glideFrom, glideTo, modAmt;
     std::unique_ptr<std::atomic<float>[]> ovr;     // read by the message thread (host notification)
+    // A recall's value holds until Live reports it back, unless Live's value is moved after the
+    // recall (the performer, automation): extGen counts every change that isn't this plugin's own
+    // notification; ovrGen / ovrFrom are the count and Live's value at the recall.
+    // recallGen counts recalls per parameter, reportedGen is the last one reported to Live: the
+    // 3 s give-up runs only once Live has been told (a message thread busy saving the set mustn't
+    // undo a recall).
+    std::unique_ptr<std::atomic<float>[]> ovrFrom;
+    std::unique_ptr<std::atomic<uint32_t>[]> extGen, ovrGen, recallGen, reportedGen;
+    std::atomic<int> notifying { -1 };            // the parameter flushHostNotifications is writing
     std::vector<double> glideElapsed;
     std::vector<int> ovrAge;
     double internalPpq = 0.0, barPhase = 0.0;
@@ -143,7 +155,9 @@ private:
     bool panicDown = false;
     int panicLen = 240;
     double pendingAt = -1.0;               // ppq of the bar line the pending song lands on (-1 = own)
-    double pendingFrom = 0.0;              // where the transport was when the request arrived
+    bool pendingJumped = false;            // the pending song already lost its bar line to a jump back
+    bool recalledInBlock = false;          // a recall landed in this host block (SF CONTROL's STORE ALL waits)
+    bool lastPlaying = false;              // the transport was playing in the last block
     int pendingKey = -2;                   // the KEY the pending song brings (-2 = no change)
     int keyUsed = -1, keyHold = 0;         // the key in force here; samples it holds against the bus
     uint64_t streamPos = 0;

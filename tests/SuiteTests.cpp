@@ -48,6 +48,7 @@ static void resetBus()
     d.keyRoot = -1;
     d.songAtPpq = -1.0;
     d.panicHeld = 0;
+    d.dropPpq = -1.0; d.dropDb = 0.0f; d.storeSong = -1;
 }
 
 struct Rig
@@ -894,7 +895,8 @@ int main (int argc, char** argv)
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
-                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview(); }
+                     testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
+                     testThirdReview(); testDrop(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -915,6 +917,8 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--review") { testReviewFixes(); testAuditFixes(); testSecondReview(); }
     else if (std::string (argv[1]) == "--audit") { testAuditFixes(); testSecondReview(); }
     else if (std::string (argv[1]) == "--second") { testSecondReview(); }
+    else if (std::string (argv[1]) == "--third") { testThirdReview(); }
+    else if (std::string (argv[1]) == "--drop") { testDrop(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

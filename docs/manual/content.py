@@ -296,12 +296,13 @@ MODULES["DECK"] = dict(
 
 MODULES["CONTROL"] = dict(
     group="INSTRUMENTS",
-    summary="The suite's brain. Six macros every SF plugin can follow, song select (Program Change), STORE ALL. Makes no sound.",
+    summary="The suite's brain. Six macros every SF plugin can follow, song select (Program Change), STORE ALL and STORE TO. Makes no sound.",
     use=[
         "Put it on its own MIDI track receiving the OXI One.",
         "Program Change on channel 16 selects the song. AU: in any Live version. VST3: Live 12.2 and later deliver it as a program change (SF CONTROL lists SONG 01-16); older versions don't.",
         "Every plugin changes on the same bar line, whatever order Live processes the tracks in. A change sent within 30 ms after a bar line (on the downbeat) counts for that bar; later in the bar, for the next one.",
-        "To save a song: set every plugin, choose the song number, press STORE ALL.",
+        "To save a song: set every plugin and press STORE ALL. It goes into the song in force (SONG).",
+        "To save into another song, choose it in STORE TO first, then press STORE ALL. That song isn't recalled, so nothing you hear changes; it becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. If a song change is waiting for its bar, that change still lands and stays the song in force.",
         "The display shows macro levels, the song, the key, and whether the bus is shared, SF KICK is reporting and SF ALLOC is running.",
         "KEY: write parts in C and set each song's key here. Every pitched SF instrument follows; KICK, RUMBLE and STRIKE tune themselves to the key root.",
         "PANIC: map it to a button you can find in the dark. Every SF plugin fades out over 5 ms, clears every voice, tail and delay line, and stays silent while you hold it.",
@@ -311,7 +312,8 @@ MODULES["CONTROL"] = dict(
         "macro1": "Macro 1. Any SF plugin with MACRO SRC = MACRO 1 follows it.",
         "macro2": "Macro 2.", "macro3": "Macro 3.", "macro4": "Macro 4.", "macro5": "Macro 5.", "macro6": "Macro 6.",
         "song": "Selects the song (01-16). Every SF plugin recalls its stored values on the next bar. A recalled knob is yours again the moment you turn it.",
-        "store_all": "Stores every SF plugin's current values into the selected song.",
+        "store_all": "Stores every SF plugin's current values into the song STORE TO names: ACTIVE SONG, the song in force, unless you chose another.",
+        "store_to": "Where STORE ALL stores: ACTIVE SONG (the song in force) or SONG 01-16. Storing into another song doesn't recall it: what plays now goes in, that song becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. (Choosing the song on SONG first would recall it and lose what you set.)",
         "pc_channel": "MIDI channel that Program Change is read from (default 16).",
         "pc_enable": "Turns Program Change song select on or off.",
         "pocket_offset": "Timing calibration for Pocket and RUMBLE, -20 to +20 ms (+ = later). Set once, by ear, if the pump lands early or late in your Live setup; leave at 0 otherwise.",
@@ -435,11 +437,19 @@ MODULES["ISOLATOR"] = dict(group="MASTER AND MIX", summary="3-band DJ kill EQ (L
     "low": "0 = kill, 75 % = 0 dB, 100 % = +6 dB.", "mid": "Same for mids.", "high": "Same for highs.",
     "low_kill": "Kill the low band.", "mid_kill": "Kill the mid band.", "high_kill": "Kill the high band.",
     "xover_lo": "Low/mid crossover.", "xover_hi": "Mid/high crossover."})
-MODULES["BUILD"] = dict(group="MASTER AND MIX", summary="One knob for a whole-mix build: high-pass sweep, noise riser, reverb wash and width. DROP resets it on the next bar line.",
-    use=["Turn BUILD up over the build. Hold DROP: the build snaps off exactly on the next bar.", "After a drop the build stays off until BUILD is back below 5 % (display: RETURN KNOB), so you can bring the knob down without re-building."],
+MODULES["BUILD"] = dict(group="MASTER AND MIX", summary="One knob for a whole-mix build: high-pass sweep, noise riser, reverb wash and width. DROP lands on the next bar line, with an optional silent GAP before it, the riser's TAIL ringing on, and DROP DUCK clearing the way for the first kicks.",
+    use=["Turn BUILD up over the build. Hold DROP: the drop lands exactly on the next bar line. The display shows DROP ON BAR, then GAP during the gap.",
+         "GAP silences everything through BUILD for that long before the bar line: in the show template the whole LIVE BUS, returns included (BRIDGE and DECK play on). Pressed later than that, the gap starts on the next 1/16.",
+         "TAIL: the riser's noise and the wash ring on for that long after the build stops (where the gap starts, or on the bar with GAP OFF), fading out. Shorter than the GAP, it dies away in the silence; longer, it carries into the drop, DROP DUCK lower. CUT: gone in 5 ms.",
+         "DROP DUCK: for DUCK TIME after the drop, every SF part with Pocket dips this far under each kick, whatever its POCKET DEPTH, so the first kicks land on top of everything that comes back. It starts with the first kick on the bar line (a roll into the drop doesn't duck): full depth for the first half of DUCK TIME, easing out over the second. The parts: BASS, LEAD, PAD, VOICE, RUMBLE, the wet signal of DELAY and REVERB, DUCK, and TAP and STRIP unless their ROLE is KICK, PERC or DECK. Not KICK, PERC, STRIKE, DECK or tracks without an SF plugin. It needs SF KICK reporting (KICK REPORTING on SF CONTROL). 0 dB: off.",
+         "After a drop the build stays off until BUILD is back below 5 % (display: RETURN KNOB), so you can bring the knob down without re-building. An Arrangement loop that wraps while a drop waits lands it on the wrap; looping back over a drop doesn't duck again."],
     models=[], desc={
-        "build": "The build amount.", "drop": "Arms the reset for the next bar line.", "noise": "Noise riser level.",
-        "space": "Reverb wash.", "width": "Stereo widening.", "hp_max": "How high the high-pass goes at full build."})
+        "build": "The build amount.", "drop": "Arms the drop for the next bar line.", "noise": "Noise riser level.",
+        "space": "Reverb wash.", "width": "Stereo widening.", "hp_max": "How high the high-pass goes at full build.",
+        "gap": "Silence before the drop's bar line: OFF, 1/16, 1/8, 1/4, 1/2 or 1 BAR.",
+        "tail": "How long the noise and the wash ring on after the build stops, fading out: CUT (5 ms), 1/16 to 2 BARS.",
+        "drop_duck": "How far every SF part with Pocket dips under each kick after the drop, and how much lower the tail runs into it. 0 = off.",
+        "duck_time": "How long the drop duck lasts after the bar line: full depth for the first half, easing out over the second."})
 MODULES["GLUE"] = dict(group="MASTER AND MIX", summary="Bus compressor with one PUSH knob (threshold and makeup together). 6 dB soft knee.", use=["PUSH 20-40 % for glue; more for audible pump."], models=[], desc={
     "push": "Compression and makeup together.", "attack": "0.1 to 30 ms.", "release": "0.1 to 1.2 s or AUTO (dual-stage).",
     "ratio": "2:1, 4:1, 10:1.", "sc_hpf": "High-pass on the detector so the kick doesn't drive it.", "mix": "Parallel compression."})

@@ -16,6 +16,8 @@ constexpr int kConflictSlots = 3;
 
 // Default ALLOC priority, highest first.
 enum Role { ROLE_KICK = 0, ROLE_BASS, ROLE_VOICE, ROLE_LEAD, ROLE_PERC, ROLE_RUMBLE, ROLE_PAD, ROLE_DECK, ROLE_OTHER, kNumRoles };
+// Drums and whole tracks don't duck under SF KICK after SF BUILD's drop (Pocket::dropDuck).
+inline bool dropDucks (int role) { return role != ROLE_KICK && role != ROLE_PERC && role != ROLE_DECK; }
 extern const char* const kRoleNames[kNumRoles];
 extern const float kBandCentres[kBands];     // Hz
 extern const float kBandEdges[kBands + 1];   // Hz
@@ -74,6 +76,22 @@ struct BusData
     SourceSlot src[kSources];
     std::atomic<int64_t> allocSeenMs;
     ConflictSlot conflicts[kConflictSlots];
+
+    // SF BUILD's DROP (v5): for dropBeats after the drop's bar line every Pocket stage ducks
+    // dropDb harder to each kick, so the kick lands on top. Published when DROP is pressed,
+    // ahead of the bar; from/wall reject it after a jump back (as for kick reports).
+    std::atomic<double> dropPpq;              // the bar line the drop lands on (-1 = none)
+    std::atomic<double> dropFromPpq;          // song position when BUILD planned it
+    std::atomic<double> dropWall;             // steady-clock seconds then
+    std::atomic<float> dropDb;                // 0..12 dB
+    std::atomic<float> dropBeats;             // length of the duck window
+
+    // SF CONTROL's STORE TO (v5): the song its STORE ALL writes into, set before storeSeq moves
+    // (-1: the bus song). A plugin's own STORE ignores it.
+    std::atomic<int> storeSong;
+    // Where the transport was when SF CONTROL asked for the song (v5): a plugin that sees the
+    // request just after a jump back can tell whether it was asked for before or after the jump.
+    std::atomic<double> songFromPpq;
 };
 
 class Bus

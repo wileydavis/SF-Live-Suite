@@ -66,12 +66,20 @@ ModulePtr makeISOLATOR() { return std::make_unique<IsolatorModule>(); }
 
 // =====================================================================================  BUILD
 // One knob for the whole mix: high-pass sweep, noise riser, reverb wash, width.
-// DROP arms a reset that lands on the next bar line; the build stays off until BUILD is
-// turned back below 5 %, so the knob can be returned without re-building.
+// DROP lands on the next bar line (a jump back while it waits lands it at once); the build stays
+// off until BUILD is turned back below 5 %, so the knob can be returned without re-building.
+//   GAP        the mix goes silent for this long before the drop's bar line (pressed later than
+//              that: from the next 1/16; the drop stays on the bar).
+//   TAIL       the riser's noise and reverb wash ring on for this long when the build ends (from
+//              the gap, or from the drop without one) instead of stopping dead; whatever reaches
+//              into the drop sits DROP DUCK lower.
+//   DROP DUCK  for DUCK TIME after the drop every SF part with POCKET (and SF DELAY / REVERB
+//   DUCK TIME  returns) ducks this much harder, full band, to each kick: the kick lands on top.
+//              Published on the SF BUS when DROP is pressed; needs SF KICK reporting.
 class BuildModule : public Module
 {
 public:
-    enum { BUILD, DROP, NOISE, SPACE, WIDTH, HPMAX, LEVEL };
+    enum { BUILD, DROP, NOISE, SPACE, WIDTH, HPMAX, LEVEL, GAP, TAIL, DROPDUCK, DUCKTIME };
     std::string id() const override { return "BUILD"; }
     std::vector<ParamSpec> params() const override
     {
@@ -81,46 +89,108 @@ public:
                  pct ("space", "SPACE", 0.4f).prim(),
                  pct ("width", "WIDTH", 0.4f).prim(),
                  knob ("hp_max", "HP MAX", 200.0f, 4000.0f, 1200.0f, "Hz", 900.0f).prim(),
-                 levelParam().prim() };
+                 levelParam().prim(),
+                 choice ("gap", "GAP", { "OFF", "1/16", "1/8", "1/4", "1/2", "1 BAR" }, 0).prim(),
+                 choice ("tail", "TAIL", { "CUT", "1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BARS" }, 2),
+                 knob ("drop_duck", "DROP DUCK", 0.0f, 12.0f, 6.0f, "dB"),
+                 choice ("duck_time", "DUCK TIME", { "1/4", "1/2", "1 BAR", "2 BARS", "4 BARS" }, 2) };
     }
+    // Lengths in beats (1/16 = a sixteenth note); bar-long choices follow the time signature.
+    static double gapBeats (int i, double bpb)  { static const double b[] = { 0.0, 0.25, 0.5, 1.0, 2.0, -1.0 }; const double v = b[juce::jlimit (0, 5, i)]; return v < 0.0 ? bpb : v; }
+    static double tailBeats (int i, double bpb) { static const double b[] = { 0.0, 0.25, 0.5, 1.0, 2.0, -1.0, -2.0 }; const double v = b[juce::jlimit (0, 6, i)]; return v < 0.0 ? -v * bpb : v; }
+    static double duckBeats (int i, double bpb) { static const double b[] = { 1.0, 2.0, -1.0, -2.0, -4.0 }; const double v = b[juce::jlimit (0, 4, i)]; return v < 0.0 ? -v * bpb : v; }
+
     double tailSeconds() const override { return 8.0; }
     void prepare (double rate, int) override { sr = rate; fdn.prepare (rate); armed = released = false; reset(); }
-    void reset() override { fdn.clear(); for (auto& h : hp) for (auto& f : h) f.reset(); nbp.reset(); }
+    void reset() override
+    {
+        fdn.clear(); for (auto& h : hp) for (auto& f : h) f.reset(); nbp.reset();
+        armed = planned = inGap = tailOn = false;
+        dryG = 1.0f; tailDuck = tailDuckTarget = 1.0f;
+    }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const float knobV = c.v (BUILD);
-        if (c.b (DROP) && ! released) armed = true;
+        const double bps = c.beatsPerSample(), spb = c.samplesPerBeat();
+        // A jump back while a drop waits (an Arrangement loop wrapped, a relocate): the bar line
+        // it was planned on may never come (a loop with no bar line in it), and a gap under way
+        // would stay silent. It lands here, at once: on the bar line a loop wraps to, if it does.
+        if (armed && c.playing && c.ppq < lastEnd - 0.01) { dropAt = gapAt = c.ppq; planned = true; publish (c); }
+        if (c.b (DROP) && ! released && ! armed) { armed = true; planned = false; }
+        if (armed && ! c.playing) planned = false;
         if (released && knobV < 0.05f) released = false;
-        int dropAt = -1;
-        if (armed) { dropAt = c.playing ? c.nextGrid (c.beatsPerBar) : 0; if (dropAt >= 0) { armed = false; } }
+        if (armed && ! planned) plan (c, spb);
+        lastEnd = c.ppq + c.n * bps;
+
         const float bTarget = released ? 0.0f : knobV;
         const float noise = c.v (NOISE), space = c.v (SPACE), width = c.v (WIDTH);
+        const float duckGain = dbToGain (-c.v (DROPDUCK));
+        const float downStep = 1.0f / (0.003f * (float) sr), upStep = 1.0f / (0.00025f * (float) sr);
+        const float duckStep = 1.0f / (0.005f * (float) sr);
+        const double tol = 1e-3 * bps;
         fdn.set (0.9f, 6.0f, 0.3f, 0.4f, false);
         for (int i = 0; i < c.n; ++i)
         {
-            if (i == dropAt) { released = true; bz = 0.0f; fdn.clear(); }
-            const float t = released ? 0.0f : bTarget;
+            if (armed && planned)
+            {
+                const double q = c.ppq + i * bps;
+                // The build ends where the silence starts (or on the bar): its tail takes over, and
+                // nothing new reaches the wash or the noise.
+                if (! inGap && gapAt < dropAt && q >= gapAt - tol) { startTail (c, spb, noise); inGap = true; bz = 0.0f; }
+                if (q >= dropAt - tol)
+                {
+                    if (! inGap) startTail (c, spb, noise);
+                    armed = inGap = false;
+                    released = true;
+                    bz = 0.0f;
+                    tailDuckTarget = duckGain;           // what reaches into the drop sits under it
+                }
+            }
+            const float t = released || inGap ? 0.0f : bTarget;
             bz = t + 0.999f * (bz - t);
             if (((c.samplePos + i) & 15) == 0)
             {
                 const float hz = expMap (std::pow (bz, 1.5f), 20.0f, c.v (HPMAX));
                 for (int k = 0; k < 2; ++k) { hp[k][0].set (hz, 0.7071f, sr); hp[k][1].set (hz, 0.9f + bz * 1.5f, sr); }
-                nbp.set (expMap (bz, 400.0f, 9000.0f), 2.0f, sr);
+                if (! tailOn) nbp.set (expMap (bz, 400.0f, 9000.0f), 2.0f, sr);     // the tail keeps its colour
             }
-            const float nz = nbp.tickBP (rng.next()) * noise * bz * bz * 0.35f;
+            // The tail: noise and wash fade out over TAIL (raised cosine) with no new input.
+            float tailG = 1.0f;
+            if (tailOn)
+            {
+                const float x = (float) tailPos / (float) tailLen;
+                tailDuck = tailDuckTarget < tailDuck ? std::max (tailDuckTarget, tailDuck - duckStep) : tailDuckTarget;
+                tailG = (x < 1.0f ? 0.5f + 0.5f * std::cos (3.14159265f * x) : 0.0f) * tailDuck;
+            }
+            const float nz = nbp.tickBP (rng.next()) * (tailOn ? tailNoise * tailG : noise * bz * bz * 0.35f);
             float l = hp[0][1].tickHP (hp[0][0].tickHP (io.getSample (0, i)));
             float r = hp[1][1].tickHP (hp[1][0].tickHP (io.getSample (1, i)));
             float rl, rr;
-            fdn.tick (l * bz * space, r * bz * space, rl, rr, false);
-            l += rl + nz; r += rr + nz * 0.9f;
+            fdn.tick (tailOn ? 0.0f : l * bz * space, tailOn ? 0.0f : r * bz * space, rl, rr, false);
+            // GAP: the mix fades out over 3 ms at its start and is back within 0.25 ms on the bar.
+            const float dryTarget = inGap ? 0.0f : 1.0f;
+            dryG = dryTarget < dryG ? std::max (dryTarget, dryG - downStep) : std::min (dryTarget, dryG + upStep);
+            float tl = 0.0f, tr = 0.0f;
+            if (tailOn) { tl = rl * tailG + nz; tr = rr * tailG + nz * 0.9f; }
+            else { l += rl + nz; r += rr + nz * 0.9f; }
             const float m = 0.5f * (l + r), s = 0.5f * (l - r) * (1.0f + bz * width * 1.5f);
             const float lift = 1.0f + bz * 0.25f;
-            io.setSample (0, i, (m + s) * lift);
-            io.setSample (1, i, (m - s) * lift);
+            float outL = (m + s) * lift * dryG, outR = (m - s) * lift * dryG;
+            if (tailOn)
+            {
+                // The tail keeps the width and lift the build had when it ended.
+                const float tm = 0.5f * (tl + tr), ts = 0.5f * (tl - tr) * (1.0f + tailBz * width * 1.5f);
+                const float tLift = 1.0f + tailBz * 0.25f;
+                outL += (tm + ts) * tLift;
+                outR += (tm - ts) * tLift;
+                if (++tailPos >= tailLen) { tailOn = false; fdn.clear(); tailDuck = tailDuckTarget = 1.0f; }
+            }
+            io.setSample (0, i, outL);
+            io.setSample (1, i, outR);
         }
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
-        disp = bz; dispArmed = armed; dispReleased = released;
+        disp = bz; dispArmed = armed; dispGap = inGap; dispReleased = released;
     }
     int displayHeight() const override { return 60; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
@@ -128,18 +198,62 @@ public:
         ui::frame (g, r, "BUILD");
         auto in = r.reduced (12, 20);
         ui::valueBar (g, in.removeFromLeft (in.getWidth() * 0.6f).withSizeKeepingCentre (in.getWidth() * 0.6f, 8), disp.load());
-        const juce::String st = dispArmed.load() ? "DROP ON BAR" : dispReleased.load() ? "RETURN KNOB" : "LIVE";
-        ui::label (g, st, in, dispArmed.load() ? ui::kGreen : dispReleased.load() ? ui::kAmber : ui::kDim, 12.0f, juce::Justification::centredRight);
+        const juce::String st = dispGap.load() ? "GAP" : dispArmed.load() ? "DROP ON BAR" : dispReleased.load() ? "RETURN KNOB" : "LIVE";
+        ui::label (g, st, in, dispArmed.load() || dispGap.load() ? ui::kGreen : dispReleased.load() ? ui::kAmber : ui::kDim, 12.0f, juce::Justification::centredRight);
     }
 private:
+    // The drop's bar line and the gap before it, from where the transport is now.
+    void plan (const Ctx& c, double spb)
+    {
+        planned = true;
+        if (! c.playing) { dropAt = gapAt = c.ppq; return; }
+        const double bpb = c.beatsPerBar;
+        double inBar = std::fmod (c.ppq - c.barPhase, bpb);
+        if (inBar < 0.0) inBar += bpb;
+        dropAt = inBar * spb < 1e-3 ? c.ppq - inBar : c.ppq + (bpb - inBar);
+        gapAt = dropAt - gapBeats (c.ci (GAP), bpb);
+        if (gapAt < c.ppq)
+        {
+            // Pressed inside the gap: it starts on the next sixteenth instead (or not at all).
+            double g16 = std::ceil ((c.ppq - c.barPhase) / 0.25 - 1e-9) * 0.25 + c.barPhase;
+            gapAt = std::min (dropAt, g16);
+        }
+        publish (c);
+    }
+    // DROP DUCK: every Pocket stage learns of the drop now, ahead of its bar line. The bar line
+    // goes last: a stage that sees it sees the rest.
+    void publish (const Ctx& c)
+    {
+        auto& d = c.bus->d();
+        d.dropBeats = (float) duckBeats (c.ci (DUCKTIME), c.beatsPerBar);
+        d.dropDb = c.v (DROPDUCK);
+        d.dropFromPpq = c.ppq;
+        d.dropWall = Bus::nowSec();
+        d.dropPpq = dropAt;
+    }
+    void startTail (const Ctx& c, double spb, float noise)
+    {
+        if (tailOn) return;
+        tailOn = true;
+        tailPos = 0;
+        const double beats = tailBeats (c.ci (TAIL), c.beatsPerBar);
+        tailLen = std::max (1, beats > 0.0 ? (int) std::lround (beats * spb) : (int) (0.005 * sr));    // CUT: 5 ms
+        tailBz = bz;
+        tailNoise = noise * bz * bz * 0.35f;
+        tailDuck = tailDuckTarget = 1.0f;
+    }
+
     double sr = 48000.0;
     Svf hp[2][2], nbp;
     Fdn fdn;
     Noise rng;
     float bz = 0.0f;
-    bool armed = false, released = false;
+    bool armed = false, released = false, planned = false, inGap = false, tailOn = false;
+    double dropAt = 0.0, gapAt = 0.0, lastEnd = 0.0;
+    int tailPos = 0, tailLen = 1;
+    float tailBz = 0.0f, tailNoise = 0.0f, dryG = 1.0f, tailDuck = 1.0f, tailDuckTarget = 1.0f;
     std::atomic<float> disp { 0 };
-    std::atomic<bool> dispArmed { false }, dispReleased { false };
+    std::atomic<bool> dispArmed { false }, dispGap { false }, dispReleased { false };
 };
 ModulePtr makeBUILD() { return std::make_unique<BuildModule>(); }
 

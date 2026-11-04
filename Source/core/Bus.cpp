@@ -19,9 +19,9 @@ const float kBandEdges[kBands + 1] = { 20.0f, 60.0f, 100.0f, 150.0f, 220.0f, 320
 const float kBandCentres[kBands] = { 40.0f, 78.0f, 122.0f, 182.0f, 265.0f, 392.0f, 600.0f, 1060.0f, 2450.0f, 8900.0f };
 
 static constexpr uint32_t kMagic = 0x5346424Bu;   // "SFBK"
-static constexpr uint32_t kVersion = 4;
+static constexpr uint32_t kVersion = 5;
 // Short name: macOS limits POSIX shm names to 31 chars. Bump with kVersion.
-static constexpr const char* kShmName = "/sf_live_suite_bus_v4";
+static constexpr const char* kShmName = "/sf_live_suite_bus_v5";
 
 double Bus::nowSec()
 {
@@ -93,6 +93,9 @@ Bus::Bus()
         data->songAtPpq = -1.0;
         data->songKey = -2;
         data->panicHeld = 0;
+        data->dropPpq = -1.0;
+        data->storeSong = -1;
+        data->songFromPpq = -1.0;
         for (auto& m : data->macro) m = 0.0f;
     }
 }

@@ -1770,3 +1770,594 @@ static void testCpu()
     }
 }
 
+
+// =====================================================================================
+// Third review (Nov 3): a recall's report to Live against a newer knob move, a recall asked for
+// across a loop wrap, DRIVE's LOW KEEP at partial MIX, STORE TO.
+static void testThirdReview()
+{
+    std::printf ("-- third review regressions\n");
+    auto& d = Bus::get().d();
+    auto dc = [] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n) { for (int c2 = 0; c2 < 2; ++c2) for (int i = 0; i < n; ++i) b.setSample (c2, i, 0.5f); };
+    auto recall = [&] (int s) { d.song = s; d.songAtPpq = -1.0; d.songKey = -2; d.songSeq.fetch_add (1); };
+
+    // 1. A recall is reported to Live by a timer; a value Live gets after the recall (a knob, automation)
+    //    is newer and stays, whether the timer or the next audio block comes first.
+    {
+        auto run = [&] (bool reportFirst, const char* what, const std::function<void (Rig2&)>& between, float want)
+        {
+            resetBus();
+            Rig2 r ("FILTER");
+            r.head.playing = false;
+            auto blocks = [&] (int k) { for (int i = 0; i < k; ++i) r.step (kBlock, dc); };
+            d.song = 1; r.set ("level", -6.0f); blocks (2); r.p->storeSong(); blocks (2);    // song 2: -6 dB
+            d.song = 2; r.set ("level", 2.0f); blocks (2); r.p->storeSong(); blocks (2);     // song 3: +2 dB
+            r.set ("level", 0.0f); blocks (130); r.p->flushHostNotifications();
+            between (r);
+            if (reportFirst) { r.p->flushHostNotifications(); blocks (1); }
+            else { blocks (1); r.p->flushHostNotifications(); }
+            blocks (130); r.p->flushHostNotifications(); blocks (2);
+            const float live = r.p->apvts.getRawParameterValue ("level")->load(), heard = r.p->currentValue (r.p->paramIndex ("level"));
+            std::printf ("   %s (%s): Live %.2f dB, heard %.2f dB, want %.2f\n", what, reportFirst ? "report first" : "audio first", live, heard, want);
+            CHECK (std::abs (live - want) < 0.01f && std::abs (heard - want) < 0.01f, "%s (%s): Live %.2f, heard %.2f dB, want %.2f",
+                   what, reportFirst ? "report first" : "audio first", live, heard, want);
+        };
+        for (const bool reportFirst : { true, false })
+        {
+            run (reportFirst, "recall -6, knob to +3", [&] (Rig2& r) { recall (1); r.step (kBlock, dc); r.set ("level", 3.0f); }, 3.0f);
+            run (reportFirst, "recall -6, knob to +3 then +1", [&] (Rig2& r) { recall (1); r.step (kBlock, dc); r.set ("level", 3.0f); r.set ("level", 1.0f); }, 1.0f);
+            run (reportFirst, "recall -6, recall +2", [&] (Rig2& r) { recall (1); r.step (kBlock, dc); recall (2); r.step (kBlock, dc); }, 2.0f);
+            run (reportFirst, "recall -6 reported, recall +2, Live echoes -6",
+                 [&] (Rig2& r) { recall (1); r.step (kBlock, dc); r.p->flushHostNotifications(); r.step (kBlock, dc); recall (2); r.step (kBlock, dc); r.set ("level", -6.0f); }, 2.0f);
+        }
+    }
+
+    // 2. A song asked for in the last block before an Arrangement loop wraps lands at the wrap in SF
+    //    CONTROL and in every plugin, before or after it in Live's order ([0, 4) loop, 120 BPM). It
+    //    used to leave CONTROL and the plugins before it waiting for beat 4 for ever. In a loop with
+    //    no bar line in it ([1, 4)) the song lands at the next wrap, everywhere at once.
+    for (const double loopStart : { 0.0, 1.0 })
+    {
+        resetBus();
+        const int blk = 250;                                   // a whole number of blocks per loop
+        Rig2 before ("FILTER", kSr, blk), ctl ("CONTROL", kSr, blk), after ("FILTER", kSr, blk);
+        for (auto* r : { &before, &ctl, &after }) { r->head.bpm = 120.0; r->head.playing = false; }
+        auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+        auto cycle = [&] { before.step (blk, dc); ctl.step (blk, quiet); after.step (blk, dc); };
+        ctl.set ("song", 1.0f); for (int k = 0; k < 3; ++k) cycle();
+        before.set ("level", -6.0f); after.set ("level", -6.0f); cycle();
+        ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f); cycle();
+        ctl.set ("song", 0.0f); for (int k = 0; k < 3; ++k) cycle();
+        before.set ("level", 0.0f); after.set ("level", 0.0f);
+        for (int k = 0; k < 130; ++k) cycle();
+        for (auto* r : { &before, &ctl, &after }) r->p->flushHostNotifications();
+        const double bps = before.bps(), blockBeats = blk * bps;
+        for (auto* r : { &before, &ctl, &after }) { r->head.playing = true; r->ppq = 4.0 - blockBeats; }
+        ctl.set ("song", 1.0f);
+        cycle();                                               // the last block before the wrap
+        const int perLoop = (int) std::lround ((4.0 - loopStart) / blockBeats);
+        int firstB = -1, firstA = -1;
+        for (int k = 0; k < 3 * perLoop; ++k)
+        {
+            for (auto* r : { &before, &ctl, &after }) r->ppq = loopStart + (k % perLoop) * blockBeats;
+            cycle();
+            if (firstB < 0 && before.p->currentValue (before.p->paramIndex ("level")) < -0.001f) firstB = k;
+            if (firstA < 0 && after.p->currentValue (after.p->paramIndex ("level")) < -0.001f) firstA = k;
+            if (k % 6 == 5) for (auto* r : { &before, &ctl, &after }) r->p->flushHostNotifications();
+        }
+        const int want = loopStart == 0.0 ? 0 : perLoop;
+        std::printf ("   song asked for in the last block of a [%.0f, 4) loop: lands %d / %d blocks after the wrap (want %d), CONTROL still waiting %d\n",
+                     loopStart, firstB, firstA, want, (int) ctl.p->recallWaiting());
+        CHECK (firstB == want && firstA == want && ! before.p->recallWaiting() && ! after.p->recallWaiting() && ! ctl.p->recallWaiting(),
+               "song across a loop wrap ([%.0f, 4)): blocks %d / %d, CONTROL waiting %d", loopStart, firstB, firstA, (int) ctl.p->recallWaiting());
+    }
+
+    // 3. DRIVE, LOW KEEP at partial MIX, linear range (-60 dBFS, DRIVE 0, TAPE, TONE 0, AUTO off): flat
+    //    at every MIX and LOW KEEP. (Blending the crossover's sum with the unsplit dry cancelled
+    //    -104 dB at the crossover frequency at MIX 50 %.)
+    {
+        float worst = 0.0f;
+        double wHz = 0.0, wKeep = 0.0, wMix = 0.0;
+        for (const float keep : { 60.0f, 120.0f, 250.0f })
+            for (const float mix : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
+                for (const double hz : { 30.0, 60.0, 90.0, 120.0, 180.0, 250.0, 400.0, 1000.0, 6000.0 })
+                {
+                    resetBus();
+                    Rig2 r ("DRIVE");
+                    r.set ("drive", 0.0f); r.set ("character", 0.0f); r.set ("tone", 0.0f); r.set ("low_keep", keep);
+                    r.set ("mix", mix); r.set ("auto_gain", 0.0f); r.set ("level", 0.0f);
+                    int64_t t = 0;
+                    double ein = 0.0, eout = 0.0;
+                    while (t < (int64_t) (0.8 * kSr))
+                    {
+                        r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+                        { for (int i = 0; i < n; ++i) { const float v = 0.001f * (float) std::sin (6.283185307 * hz * (double) (t + i) / kSr); b.setSample (0, i, v); b.setSample (1, i, v); } });
+                        for (int i = 0; i < kBlock; ++i)
+                            if (t + i >= (int64_t) (0.4 * kSr))
+                            {
+                                const double x = 0.001 * std::sin (6.283185307 * hz * (double) (t + i) / kSr), y = r.buf.getSample (0, i);
+                                ein += x * x; eout += y * y;
+                            }
+                        t += kBlock;
+                    }
+                    const float g = (float) (10.0 * std::log10 (eout / ein));
+                    if (std::abs (g) > std::abs (worst)) { worst = g; wHz = hz; wKeep = keep; wMix = mix; }
+                }
+        std::printf ("   DRIVE LOW KEEP 60/120/250 Hz x MIX 0-100 %%, linear range: largest deviation %.3f dB (%.0f Hz, LOW KEEP %.0f, MIX %.0f %%)\n",
+                     worst, wHz, wKeep, wMix * 100.0);
+        CHECK (std::abs (worst) < 0.1f, "DRIVE LOW KEEP not flat at partial MIX (%.3f dB at %.0f Hz, LOW KEEP %.0f, MIX %.0f %%)", worst, wHz, wKeep, wMix * 100.0);
+
+        // LOW KEEP switched on and off under a 100 Hz tone at MIX 50 %: no step.
+        resetBus();
+        Rig2 r ("DRIVE");
+        r.set ("drive", 0.0f); r.set ("auto_gain", 0.0f); r.set ("mix", 0.5f);
+        std::vector<float> o;
+        int64_t t = 0;
+        for (int b = 0; b < (int) (1.5 * kSr) / kBlock; ++b)
+        {
+            const double sec = (double) t / kSr;
+            r.set ("low_keep", sec > 0.5 && sec < 1.0 ? 80.0f : 0.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int n)
+            { for (int i = 0; i < n; ++i) { const float v = 0.3f * (float) std::sin (6.283185307 * 100.0 * (double) (t + i) / kSr); bb.setSample (0, i, v); bb.setSample (1, i, v); } });
+            for (int i = 0; i < kBlock; ++i) o.push_back (r.buf.getSample (0, i));
+            t += kBlock;
+        }
+        float stepMax = 0.0f;
+        for (size_t i = (size_t) (0.2 * kSr); i < o.size(); ++i) stepMax = std::max (stepMax, std::fabs (o[i] - o[i - 1]));
+        const float natural = 0.3f * 6.2831853f * 100.0f / (float) kSr;
+        std::printf ("   LOW KEEP on / off under a 100 Hz tone, MIX 50 %%: largest step %.5f (the tone's own %.5f)\n", stepMax, natural);
+        CHECK (stepMax < 1.5f * natural, "LOW KEEP switching steps (%.5f against %.5f)", stepMax, natural);
+    }
+
+    // 4. STORE TO a song that already holds a sound stores what plays now; the song isn't recalled
+    //    first (choosing SONG recalls it: the edits were gone before STORE ALL could take them). It
+    //    becomes the song in force; SONG follows and STORE TO goes back to ACTIVE SONG.
+    {
+        resetBus();
+        Rig2 ctl ("CONTROL"), f ("FILTER");
+        for (auto* r : { &ctl, &f }) r->head.playing = false;
+        auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+        float lowest = 1.0f;
+        auto cycle = [&] { ctl.step (kBlock, quiet); f.step (kBlock, dc); lowest = std::min (lowest, f.buf.getMagnitude (0, 0, kBlock) / 0.5f); };
+        const int lvl = f.p->paramIndex ("level");
+        for (int k = 0; k < 4; ++k) cycle();                                  // song 1 in force
+        f.set ("level", -12.0f); for (int k = 0; k < 130; ++k) cycle();
+        ctl.set ("store_to", 3.0f); ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f); cycle(); cycle();
+        const float first = f.p->mod().getSongValue (2, lvl);
+        ctl.set ("store_to", 0.0f); ctl.set ("song", 0.0f); for (int k = 0; k < 4; ++k) cycle();      // back on song 1
+        f.set ("level", 0.0f); for (int k = 0; k < 130; ++k) cycle();
+        f.p->flushHostNotifications();
+        lowest = 1.0f;
+        const uint32_t seq = d.songSeq.load();
+        ctl.set ("store_to", 3.0f); ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f);
+        for (int k = 0; k < 130; ++k) cycle();
+        const float second = f.p->mod().getSongValue (2, lvl);
+        const bool recalled = d.songSeq.load() != seq;
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (150);    // CONTROL's timer: SONG, STORE TO
+        for (int k = 0; k < 130; ++k) cycle();
+        const bool recalledLater = d.songSeq.load() != seq;                  // SONG following the store is no request
+        const int songParam = (int) ctl.p->apvts.getRawParameterValue ("song")->load(), storeTo = (int) ctl.p->apvts.getRawParameterValue ("store_to")->load();
+        std::printf ("   STORE TO song 3 (held -12 dB) while playing 0 dB: song 3 now %.1f dB (first store %.1f), quietest %.2f dB, a recall sent %d,"
+                     " song in force %d, SONG %d, STORE TO %d\n", second, first, gainToDb (lowest), (int) recalled, d.song.load() + 1, songParam + 1, storeTo);
+        CHECK (std::abs (first + 12.0f) < 0.01f && std::abs (second) < 0.01f, "STORE TO stored %.1f / %.1f dB", first, second);
+        CHECK (lowest > 0.999f && ! recalled && ! recalledLater, "STORE TO recalled the song (quietest %.2f dB, recall %d / %d)", gainToDb (lowest), (int) recalled, (int) recalledLater);
+        CHECK (d.song.load() == 2 && f.p->activeSong() == 2 && songParam == 2 && storeTo == 0,
+               "after STORE TO: song in force %d, FILTER %d, SONG %d, STORE TO %d", d.song.load(), f.p->activeSong(), songParam, storeTo);
+    }
+
+    // 5. STORE TO while a song change waits for its bar (a Program Change from the OXI at a
+    //    pattern change): the sound playing now goes into the STORE TO song, the change still
+    //    lands on the bar, and the song in force stays the one it brings. (It used to become the
+    //    STORE TO song: SF CONTROL showed it while every plugin played the other, and the next
+    //    STORE ALL wrote that one's sound over it.) A plugin's own STORE afterwards goes into the
+    //    song in force, not the STORE TO song.
+    {
+        resetBus();
+        Rig2 ctl ("CONTROL"), f ("FILTER");
+        for (auto* r : { &ctl, &f }) { r->head.playing = false; r->head.bpm = 120.0; }
+        auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+        auto cycle = [&] { ctl.step (kBlock, quiet); f.step (kBlock, dc); };
+        const int lvl = f.p->paramIndex ("level");
+        auto song = [&] (int s) { ctl.set ("song", (float) s); for (int k = 0; k < 4; ++k) cycle(); };
+        auto storeAll = [&] { ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f); for (int k = 0; k < 3; ++k) cycle(); };
+        auto settle = [&] { for (int k = 0; k < 130; ++k) cycle(); f.p->flushHostNotifications(); ctl.p->flushHostNotifications(); };
+        for (int k = 0; k < 4; ++k) cycle();
+        f.set ("level", -3.0f); settle(); storeAll();                     // song 1: -3 dB
+        song (1); f.set ("level", 2.0f); settle(); storeAll();          // song 2: +2 dB
+        song (2); f.set ("level", -6.0f); settle(); storeAll();         // song 3: -6 dB
+        song (0); settle();                                             // song 1 in force: -3 dB
+        for (auto* r : { &ctl, &f }) { r->head.playing = true; r->ppq = 1.0; }
+        ctl.set ("song", 1.0f);                                         // song 2, on the bar at beat 4
+        for (int k = 0; k < 8; ++k) cycle();
+        const bool waiting = f.p->recallWaiting() && ctl.p->recallWaiting();
+        ctl.set ("store_to", 3.0f); storeAll();                         // STORE TO song 3 meanwhile
+        while (f.ppq < 4.3) cycle();
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (150);
+        for (int k = 0; k < 130; ++k) cycle();                          // the level settles
+        const float song3 = f.p->mod().getSongValue (2, lvl), heard = f.p->currentValue (lvl);
+        const int songParam = (int) ctl.p->apvts.getRawParameterValue ("song")->load(), storeTo = (int) ctl.p->apvts.getRawParameterValue ("store_to")->load();
+        std::printf ("   STORE TO song 3 while song 2 waits for the bar: song 3 now %.2f dB (want -3), heard after the bar %.2f dB (want +2),"
+                     " song in force %d / FILTER %d / SONG %d (want 2), STORE TO %d\n", song3, heard, d.song.load() + 1, f.p->activeSong() + 1, songParam + 1, storeTo);
+        CHECK (waiting && std::abs (song3 + 3.0f) < 0.01f && std::abs (heard - 2.0f) < 0.01f, "STORE TO during a waiting song change (waiting %d, song 3 %.1f, heard %.1f dB)",
+               (int) waiting, song3, heard);
+        CHECK (d.song.load() == 1 && f.p->activeSong() == 1 && ctl.p->activeSong() == 1 && songParam == 1 && storeTo == 0,
+               "STORE TO during a waiting song change: song in force %d, FILTER %d, CONTROL %d, SONG %d, STORE TO %d",
+               d.song.load(), f.p->activeSong(), ctl.p->activeSong(), songParam, storeTo);
+        f.set ("level", 1.0f); settle();
+        f.p->storeSong(); for (int k = 0; k < 3; ++k) cycle();          // FILTER's own STORE
+        const float s2 = f.p->mod().getSongValue (1, lvl), s3 = f.p->mod().getSongValue (2, lvl);
+        std::printf ("   then FILTER's own STORE at +1 dB: song 2 %.1f dB (want +1), song 3 %.1f dB (want -3)\n", s2, s3);
+        CHECK (std::abs (s2 - 1.0f) < 0.01f && std::abs (s3 + 3.0f) < 0.01f, "a plugin's STORE after STORE TO (song 2 %.1f, song 3 %.1f dB)", s2, s3);
+    }
+
+    // Found by a review of the above. Song positions on a fixed grid of host blocks, as Live plays
+    // an Arrangement loop: the last block of a pass is cut at the loop end, the next starts at the
+    // loop start exactly.
+    auto songSetup = [&] (Rig2& before, Rig2& ctl, Rig2& after, int blk, float s1, float s2)
+    {
+        auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+        auto cycle = [&] { before.step (blk, dc); ctl.step (blk, quiet); after.step (blk, dc); };
+        for (auto* r : { &before, &ctl, &after }) r->head.playing = false;
+        ctl.set ("song", 1.0f); for (int k = 0; k < 3; ++k) cycle();
+        before.set ("level", s2); after.set ("level", s2); for (int k = 0; k < 3; ++k) cycle();
+        ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f); for (int k = 0; k < 3; ++k) cycle();
+        ctl.set ("song", 0.0f); for (int k = 0; k < 3; ++k) cycle();
+        before.set ("level", s1); after.set ("level", s1); for (int k = 0; k < 130; ++k) cycle();
+        ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f); for (int k = 0; k < 130; ++k) cycle();
+        for (auto* r : { &before, &ctl, &after }) r->p->flushHostNotifications();
+    };
+
+    // 6. 127 BPM: bar lines fall between two samples, so the last block of a loop can end a fraction
+    //    of a sample past the loop end. A song asked for in that block lands at the wrap everywhere
+    //    (SF CONTROL and the plugins before it used to wait for good). Asked for in the first block
+    //    after a wrap of a loop with no bar line in it, everywhere on the same later wrap (the plugins
+    //    after CONTROL took it for a request from before the wrap and landed a loop early).
+    for (const double loopStart : { 0.0, 1.0 })
+        for (const bool first : { false, true })
+        {
+            resetBus();
+            const int blk = 256;
+            const double bpm = 127.0, bps = bpm / 60.0 / kSr;
+            Rig2 before ("FILTER", kSr, blk), ctl ("CONTROL", kSr, blk), after ("FILTER", kSr, blk);
+            for (auto* r : { &before, &ctl, &after }) r->head.bpm = bpm;
+            songSetup (before, ctl, after, blk, 0.0f, -6.0f);
+            auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+            const int lvl = before.p->paramIndex ("level");
+            for (auto* r : { &before, &ctl, &after }) r->head.playing = true;
+            double q = loopStart;
+            int wraps = 0, landB = -1, landC = -1, landA = -1, cycles = 0;
+            bool asked = false;
+            while (wraps < 8)
+            {
+                const int toEnd = std::max (1, (int) std::ceil ((4.0 - q) / bps - 1e-9));     // the sample straddling the end is in
+                const int n = std::min (blk, toEnd);
+                const bool lastOfPass = n == toEnd;
+                if (! asked && wraps == 2 && (first ? q == loopStart : lastOfPass)) { ctl.set ("song", 1.0f); asked = true; }
+                for (auto* r : { &before, &ctl, &after }) r->ppq = q;
+                before.step (n, dc); ctl.step (n, quiet); after.step (n, dc);
+                if (asked)
+                {
+                    if (landB < 0 && before.p->currentValue (lvl) < -0.001f) landB = wraps;
+                    if (landC < 0 && ctl.p->activeSong() == 1) landC = wraps;
+                    if (landA < 0 && after.p->currentValue (lvl) < -0.001f) landA = wraps;
+                }
+                if (++cycles % 6 == 0) for (auto* r : { &before, &ctl, &after }) r->p->flushHostNotifications();
+                q += n * bps;
+                if (lastOfPass) { q = loopStart; ++wraps; }
+            }
+            std::printf ("   127 BPM, [%.0f, 4) loop, song asked for in the %s block %s wrap 2: lands after wrap %d / %d / %d (FILTER before CONTROL, CONTROL, FILTER after)\n",
+                         loopStart, first ? "first" : "last", first ? "after" : "before", landB, landC, landA);
+            CHECK (landB >= 0 && landB == landC && landC == landA && ! ctl.p->recallWaiting() && ! before.p->recallWaiting(),
+                   "a [%.0f, 4) loop at 127 BPM, asked in the %s block: wraps %d / %d / %d", loopStart, first ? "first" : "last", landB, landC, landA);
+        }
+
+    // 7. STORE TO, then a Program Change from the OXI before SF CONTROL's timer has moved SONG, or
+    //    in the same block: the Program Change's song lands and stays, and SONG shows it (SONG
+    //    following STORE TO used to be taken for a request and won). The store has what played.
+    for (const bool sameBlock : { false, true })
+    {
+        resetBus();
+        Rig2 before ("FILTER"), ctl ("CONTROL"), after ("FILTER");
+        songSetup (before, ctl, after, kBlock, -1.0f, 2.0f);
+        bool pcNow = false;
+        auto cycle = [&]
+        {
+            before.step (kBlock, dc);
+            ctl.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (pcNow) m.addEvent (juce::MidiMessage::programChange (16, 1), 0); });
+            pcNow = false;
+            after.step (kBlock, dc);
+        };
+        ctl.set ("store_to", 3.0f); ctl.set ("store_all", 1.0f); pcNow = sameBlock;
+        cycle(); ctl.set ("store_all", 0.0f);
+        if (! sameBlock) { pcNow = true; cycle(); }
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (150);
+        for (int k = 0; k < 130; ++k) cycle();
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (150);
+        for (int k = 0; k < 130; ++k) cycle();
+        const int lvl = before.p->paramIndex ("level");
+        const int songParam = (int) ctl.p->apvts.getRawParameterValue ("song")->load(), storeTo = (int) ctl.p->apvts.getRawParameterValue ("store_to")->load();
+        const float hb = before.p->currentValue (lvl), ha = after.p->currentValue (lvl);
+        const float s3b = before.p->mod().getSongValue (2, lvl), s3a = after.p->mod().getSongValue (2, lvl);
+        std::printf ("   STORE TO song 3, Program Change to song 2 %s: song in force %d, SONG %d, STORE TO %d, heard %.1f / %.1f dB (want +2), song 3 %.1f / %.1f dB (want -1)\n",
+                     sameBlock ? "in the same block" : "a block later", d.song.load() + 1, songParam + 1, storeTo, hb, ha, s3b, s3a);
+        CHECK (d.song.load() == 1 && songParam == 1 && storeTo == 0 && std::abs (hb - 2.0f) < 0.01f && std::abs (ha - 2.0f) < 0.01f
+                 && std::abs (s3b + 1.0f) < 0.01f && std::abs (s3a + 1.0f) < 0.01f,
+               "STORE TO then a Program Change (%s): song %d, SONG %d, heard %.1f / %.1f, song 3 %.1f / %.1f", sameBlock ? "same block" : "later",
+               d.song.load() + 1, songParam + 1, hb, ha, s3b, s3a);
+    }
+
+    // 8. STORE ALL in the very block a song change lands in (the bar line inside it): every plugin
+    //    stores the same sound and agrees on the song. (The plugins after SF CONTROL stored before
+    //    the recall, those before it after; with STORE ALL into the arriving song, those after
+    //    CONTROL wrote the old sound over it and kept playing it.) It goes out after the bar.
+    for (const bool storeTo : { false, true })
+    {
+        resetBus();
+        const int blk = 300;
+        Rig2 before ("FILTER", kSr, blk), ctl ("CONTROL", kSr, blk), after ("FILTER", kSr, blk);
+        songSetup (before, ctl, after, blk, -3.0f, 2.0f);
+        auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+        auto cycle = [&] { before.step (blk, dc); ctl.step (blk, quiet); after.step (blk, dc); };
+        for (auto* r : { &before, &ctl, &after }) { r->head.playing = true; r->ppq = 1.0; }
+        ctl.set ("song", 1.0f);                                          // song 2, on the bar at beat 4
+        while (before.ppq + blk * before.bps() <= 4.0) cycle();
+        if (storeTo) ctl.set ("store_to", 3.0f);
+        ctl.set ("store_all", 1.0f); cycle(); ctl.set ("store_all", 0.0f);   // the block with beat 4 in it
+        for (int k = 0; k < 130; ++k) cycle();
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (150);
+        for (int k = 0; k < 130; ++k) cycle();
+        const int lvl = before.p->paramIndex ("level"), target = storeTo ? 2 : 1;
+        const float vb = before.p->mod().getSongValue (target, lvl), va = after.p->mod().getSongValue (target, lvl);
+        const float hb = before.p->currentValue (lvl), ha = after.p->currentValue (lvl);
+        std::printf ("   STORE ALL%s in the block song 2 lands in: song %d holds %.1f / %.1f dB, heard %.1f / %.1f dB, song in force %d / %d / %d / bus %d\n",
+                     storeTo ? " (STORE TO song 3)" : "", target + 1, vb, va, hb, ha, before.p->activeSong() + 1, ctl.p->activeSong() + 1, after.p->activeSong() + 1, d.song.load() + 1);
+        CHECK (std::abs (vb - va) < 0.01f && std::abs (hb - 2.0f) < 0.01f && std::abs (ha - 2.0f) < 0.01f
+                 && before.p->activeSong() == 1 && ctl.p->activeSong() == 1 && after.p->activeSong() == 1 && d.song.load() == 1,
+               "STORE ALL in the bar-line block (%s): song %d %.1f / %.1f, heard %.1f / %.1f", storeTo ? "STORE TO" : "active", target + 1, vb, va, hb, ha);
+    }
+
+    // 9. A recall Live hasn't been told about yet holds, however long Live's message thread is busy
+    //    (saving the set): it used to give up after 3 s, and the old song came back.
+    {
+        resetBus();
+        Rig2 f ("FILTER");
+        f.head.playing = false;
+        const int lvl = f.p->paramIndex ("level");
+        d.song = 1; f.set ("level", -6.0f); for (int k = 0; k < 3; ++k) f.step (kBlock, dc);
+        f.p->storeSong(); f.step (kBlock, dc);
+        d.song = 0; f.set ("level", 0.0f); for (int k = 0; k < 130; ++k) f.step (kBlock, dc);
+        f.p->flushHostNotifications();
+        recall (1);
+        for (int k = 0; k < (int) (3.5 * kSr) / kBlock; ++k) f.step (kBlock, dc);       // 3.5 s without a report
+        const float during = f.p->currentValue (lvl);
+        f.p->flushHostNotifications();
+        for (int k = 0; k < 130; ++k) f.step (kBlock, dc);
+        const float after = f.p->currentValue (lvl), live = f.p->apvts.getRawParameterValue ("level")->load();
+        std::printf ("   recall with Live's message thread busy for 3.5 s: heard %.2f dB then, %.2f dB after the report, Live %.2f dB (want -6)\n", during, after, live);
+        CHECK (std::abs (during + 6.0f) < 0.01f && std::abs (after + 6.0f) < 0.01f && std::abs (live + 6.0f) < 0.01f,
+               "a recall during a busy message thread (%.2f, %.2f, Live %.2f dB)", during, after, live);
+    }
+    resetBus();
+}
+
+// SF BUILD's drop: GAP (silence before the bar), TAIL (into the gap, or into the drop), DROP DUCK
+// (every Pocket stage ducks to the kick after the drop).
+static void testDrop()
+{
+    std::printf ("-- BUILD drop: gap, tail, drop duck\n");
+    const double bpm = 120.0, spb = kSr * 60.0 / bpm;
+    // BUILD from beat 0, DROP pressed at `press`; input a 200 Hz sine at 0.3 until `inputUntil`.
+    auto render = [&] (const std::function<void (Rig2&)>& setup, double press, double inputUntil, double beats)
+    {
+        resetBus();
+        Rig2 r ("BUILD");
+        r.head.bpm = bpm;
+        setup (r);
+        std::vector<float> o;
+        int64_t t = 0;
+        bool pressed = false;
+        while (r.ppq < beats)
+        {
+            const double q0 = r.ppq;
+            if (! pressed && q0 >= press) { r.set ("drop", 1.0f); pressed = true; }
+            else r.set ("drop", 0.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    const float v = q0 + i * r.bps() < inputUntil ? 0.3f * (float) std::sin (6.283185307 * 200.0 * (double) (t + i) / kSr) : 0.0f;
+                    b.setSample (0, i, v); b.setSample (1, i, v);
+                }
+            });
+            for (int i = 0; i < kBlock; ++i) o.push_back (r.buf.getSample (0, i));
+            t += kBlock;
+        }
+        return o;
+    };
+    auto db = [&] (const std::vector<float>& o, double b0, double b1)
+    {
+        double e = 0.0; int n = 0;
+        for (size_t i = (size_t) (b0 * spb); i < (size_t) (b1 * spb) && i < o.size(); ++i) { e += (double) o[i] * o[i]; ++n; }
+        return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
+    };
+    const double sineDb = 20.0 * std::log10 (0.3 / std::sqrt (2.0));
+
+    // 1. GAP 1/4: silent for the beat before the bar line, the mix back in full on it.
+    {
+        const auto o = render ([] (Rig2& r) { r.set ("build", 0.5f); r.set ("gap", 3.0f); r.set ("tail", 0.0f); }, 1.3, 99.0, 8.0);
+        const double pre = db (o, 2.0, 2.95), gap = db (o, 3.02, 3.99), post = db (o, 4.05, 7.9);
+        std::printf ("   GAP 1/4: before %.1f dB, in the gap %.1f dB, after the drop %.2f dB (input %.2f)\n", pre, gap, post, sineDb);
+        CHECK (pre > -30.0 && gap < -120.0 && std::abs (post - sineDb) < 0.3, "GAP 1/4 (before %.1f, gap %.1f, after %.2f dB)", pre, gap, post);
+        CHECK (std::fabs (o[(size_t) std::ceil (4.0 * spb) + 2]) > 1e-4f || std::fabs (o[(size_t) std::ceil (4.0 * spb) + 30]) > 1e-4f, "nothing on the drop's bar line");
+    }
+    // 2. DROP pressed inside the gap's beat: the gap starts on the next sixteenth; the drop stays on the bar.
+    {
+        const auto o = render ([] (Rig2& r) { r.set ("build", 0.5f); r.set ("gap", 3.0f); r.set ("tail", 0.0f); }, 3.6, 99.0, 6.0);
+        const double before = db (o, 3.62, 3.74), gap = db (o, 3.77, 3.99), post = db (o, 4.05, 5.9);
+        std::printf ("   GAP 1/4 pressed at beat 3.6: until 3.75 %.1f dB, 3.75-4 %.1f dB, after the drop %.2f dB\n", before, gap, post);
+        CHECK (before > -30.0 && gap < -120.0 && std::abs (post - sineDb) < 0.3, "late GAP (%.1f / %.1f / %.2f dB)", before, gap, post);
+    }
+    // 3. TAIL 1/4 in a GAP 1/2: the noise and wash ring into the silence for a beat and stop; nothing
+    //    of the build comes back on the drop (input stops at the gap).
+    {
+        const auto o = render ([] (Rig2& r) { r.set ("build", 1.0f); r.set ("noise", 1.0f); r.set ("space", 1.0f); r.set ("gap", 4.0f); r.set ("tail", 3.0f); }, 0.5, 2.0, 6.0);
+        const double ring = db (o, 2.05, 2.5), after = db (o, 3.05, 3.99), drop = db (o, 4.0, 5.5);
+        std::printf ("   TAIL 1/4 in GAP 1/2: first half beat of the gap %.1f dB, its second beat %.1f dB, after the drop %.1f dB\n", ring, after, drop);
+        CHECK (ring > -60.0 && after < -120.0 && drop < -120.0, "TAIL into the gap (%.1f / %.1f / %.1f dB)", ring, after, drop);
+    }
+    // 4. TAIL 1 BAR past a GAP 1/16: the tail carries into the drop, DROP DUCK (6 dB) lower, and ends.
+    {
+        const auto o = render ([] (Rig2& r) { r.set ("build", 1.0f); r.set ("noise", 1.0f); r.set ("space", 0.5f); r.set ("gap", 1.0f); r.set ("tail", 5.0f); r.set ("drop_duck", 6.0f); },
+                               0.5, 3.75, 9.0);
+        const double before = db (o, 3.80, 3.99), after = db (o, 4.01, 4.20), late = db (o, 5.0, 6.0), gone = db (o, 7.8, 8.9);
+        std::printf ("   TAIL 1 BAR past a GAP 1/16: tail before the bar %.1f dB, after %.1f dB (%.1f dB lower), a beat on %.1f dB, after its bar %.1f dB\n",
+                     before, after, before - after, late, gone);
+        CHECK (std::abs (before - after - 6.0) < 1.5 && late > -90.0 && gone < -120.0, "TAIL into the drop (%.1f / %.1f / %.1f / %.1f dB)", before, after, late, gone);
+    }
+    // 5. TAIL CUT without a gap: the riser stops within 5 ms of the bar line (no click: a fade).
+    {
+        const auto o = render ([] (Rig2& r) { r.set ("build", 1.0f); r.set ("noise", 1.0f); r.set ("tail", 0.0f); }, 0.5, 0.0, 6.0);
+        const double riser = db (o, 3.5, 3.99), after = db (o, 4.011, 5.0);
+        std::printf ("   TAIL CUT, no gap: riser %.1f dB, from 5 ms after the bar %.1f dB\n", riser, after);
+        CHECK (riser > -40.0 && after < -120.0, "TAIL CUT (%.1f / %.1f dB)", riser, after);
+    }
+    // 5b. An Arrangement loop that wraps while a drop waits (GAP 1/4, DROP at 1.3): the drop lands
+    //     on the wrap and the mix is back. In a loop with no bar line in it ([1, 4)) the bar the
+    //     drop was planned on never comes: the gap used to stay on, the mix silent for good.
+    for (const double loopStart : { 0.0, 1.0 })
+    {
+        resetBus();
+        Rig2 r ("BUILD");
+        r.head.bpm = bpm;
+        r.set ("build", 0.5f); r.set ("gap", 3.0f); r.set ("tail", 0.0f);
+        std::vector<float> o; std::vector<double> at;
+        int64_t t = 0;
+        bool pressed = false;
+        int wraps = 0;
+        while (wraps < 2 || r.ppq < loopStart + 1.0)
+        {
+            const double q0 = r.ppq;
+            if (! pressed && q0 >= 1.3) { r.set ("drop", 1.0f); pressed = true; } else r.set ("drop", 0.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            { for (int i = 0; i < n; ++i) { const float v = 0.3f * (float) std::sin (6.283185307 * 200.0 * (double) (t + i) / kSr); b.setSample (0, i, v); b.setSample (1, i, v); } });
+            for (int i = 0; i < kBlock; ++i) { o.push_back (r.buf.getSample (0, i)); at.push_back (q0 + i * r.bps() + wraps * 100.0); }
+            t += kBlock;
+            if (r.ppq >= 4.0 - 1e-9) { r.ppq = loopStart; ++wraps; }
+        }
+        auto lvl = [&] (double b0, double b1)
+        {
+            double e = 0.0; int n = 0;
+            for (size_t i = 0; i < o.size(); ++i) if (at[i] >= b0 && at[i] < b1) { e += (double) o[i] * o[i]; ++n; }
+            return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
+        };
+        const double gap = lvl (3.02, 3.98), back = lvl (100.0 + loopStart + 0.05, 100.0 + 2.9), next = lvl (200.0 + loopStart + 0.05, 200.0 + loopStart + 0.9);
+        std::printf ("   DROP waiting as a [%.0f, 4) loop wraps: gap %.1f dB, after the wrap %.2f dB, a loop later %.2f dB (input %.2f)\n", loopStart, gap, back, next, sineDb);
+        CHECK (gap < -120.0 && std::abs (back - sineDb) < 0.3 && std::abs (next - sineDb) < 0.3, "drop across a loop wrap ([%.0f, 4): gap %.1f, after %.2f, later %.2f dB)", loopStart, gap, back, next);
+    }
+    // 5c. The drop duck starts without a step, also after a 1/16 roll into the bar (it started at
+    //     the depth the roll's last kick still had: a click on pads and bass). 73 Hz tone, DROP
+    //     DUCK 12 dB: the largest sample step around the bar line against the tone's own.
+    {
+        static double simSec2 = 9000.0;
+        Bus::testClock = [] { return simSec2; };
+        resetBus();
+        Rig2 kick ("KICK"), duck ("DUCK"), build ("BUILD");
+        for (auto* r : { &kick, &duck, &build }) r->head.bpm = bpm;
+        duck.set ("depth", 0.0f);
+        build.set ("drop_duck", 12.0f); build.set ("duck_time", 2.0f);
+        const int lat = duck.p->getLatencySamples();
+        float stepMax = 0.0f, prevY = 0.0f;
+        int64_t t = 0;
+        bool pressed = false, havePrev = false;
+        while (kick.ppq < 8.6)
+        {
+            const double q0 = kick.ppq, bps = kick.bps();
+            if (! pressed && q0 >= 5.0) { build.set ("drop", 1.0f); pressed = true; } else build.set ("drop", 0.0f);
+            kick.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    const double q = q0 + i * bps, grid = q >= 7.0 && q < 8.0 ? 0.25 : 1.0;
+                    if (std::floor (q / grid) != std::floor ((q - bps) / grid)) m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 127), i);
+                }
+            });
+            build.step (kBlock, nullptr);
+            duck.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            { for (int i = 0; i < n; ++i) { const float v = 0.3f * (float) std::sin (6.283185307 * 73.0 * (double) (t + i) / kSr); b.setSample (0, i, v); b.setSample (1, i, v); } });
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const float y = duck.buf.getSample (0, i);
+                const double qOut = q0 + (i - lat) * bps;
+                if (havePrev && qOut > 7.99 && qOut < 8.02) stepMax = std::max (stepMax, std::fabs (y - prevY));
+                prevY = y; havePrev = true;
+            }
+            t += kBlock;
+            simSec2 += kBlock / kSr;
+        }
+        const float natural = 0.3f * 6.2831853f * 73.0f / (float) kSr;
+        std::printf ("   DROP DUCK 12 dB after a 1/16 roll into the bar: largest step at the bar %.5f (the tone's own %.5f)\n", stepMax, natural);
+        CHECK (stepMax < 1.5f * natural, "the drop duck steps at the bar line (%.5f against %.5f)", stepMax, natural);
+        Bus::testClock = nullptr;
+    }
+    // 6. DROP DUCK: an SF part with POCKET DEPTH 0 ducks 6 dB to each kick for the first half of
+    //    DUCK TIME (1 bar) after the drop, less in the second, not at all before or after. A jump back
+    //    into the window later (an Arrangement loop) doesn't duck again. Simulated clock.
+    {
+        static double simSec = 7000.0;
+        Bus::testClock = [] { return simSec; };
+        resetBus();
+        Rig2 kick ("KICK"), duck ("DUCK"), build ("BUILD"), tapOther ("TAP"), tapKick ("TAP");
+        for (auto* r : { &kick, &duck, &build, &tapOther, &tapKick }) r->head.bpm = bpm;
+        duck.set ("depth", 0.0f);
+        tapKick.set ("role", (float) ROLE_KICK);      // a kick layer on a TAP never ducks under SF KICK
+        build.set ("drop_duck", 6.0f); build.set ("duck_time", 2.0f);
+        const int lat = duck.p->getLatencySamples();
+        std::vector<float> out, outOther, outKick, beatAt;     // DUCK, TAP OTHER, TAP KICK; the song position of each output sample
+        bool pressed = false, jumped = false;
+        int64_t t = 0;
+        while (! jumped || kick.ppq < 12.0)
+        {
+            if (! jumped && kick.ppq >= 14.0) { for (auto* r : { &kick, &duck, &build, &tapOther, &tapKick }) r->ppq = 8.0; jumped = true; }
+            const double q0 = kick.ppq, bps = kick.bps();
+            if (! pressed && q0 >= 5.0) { build.set ("drop", 1.0f); pressed = true; } else build.set ("drop", 0.0f);
+            kick.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n)
+            { for (int i = 0; i < n; ++i) if (std::floor (q0 + i * bps) != std::floor (q0 + (i - 1) * bps)) m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 127), i); });
+            build.step (kBlock, nullptr);
+            auto tone = [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            { for (int i = 0; i < n; ++i) { const float v = 0.3f * (float) std::sin (6.283185307 * 1000.0 * (double) (t + i) / kSr); b.setSample (0, i, v); b.setSample (1, i, v); } };
+            duck.step (kBlock, tone); tapOther.step (kBlock, tone); tapKick.step (kBlock, tone);
+            for (int i = 0; i < kBlock; ++i)
+            {
+                out.push_back (duck.buf.getSample (0, i)); outOther.push_back (tapOther.buf.getSample (0, i)); outKick.push_back (tapKick.buf.getSample (0, i));
+                beatAt.push_back ((float) (q0 + (i - lat) * bps) + (jumped ? 100.0f : 0.0f));
+            }
+            t += kBlock;
+            simSec += kBlock / kSr;
+        }
+        // Lowest gain (2 ms RMS against the input's) in the first quarter beat after kick k (second pass: k + 100).
+        auto lowest = [&] (double k, const std::vector<float>& o = {})
+        {
+            const auto& out2 = o.empty() ? out : o;
+            float lo = 9.0f;
+            const int w = (int) (0.002 * kSr);
+            for (size_t i = (size_t) w; i < out.size(); i += (size_t) w)
+                if (beatAt[i - (size_t) w] >= (float) k && beatAt[i] < (float) (k + 0.25))
+                {
+                    double e = 0.0;
+                    for (size_t j = i - (size_t) w; j < i; ++j) e += (double) out2[j] * out2[j];
+                    lo = std::min (lo, (float) (std::sqrt (e / w) / (0.3 / std::sqrt (2.0))));
+                }
+            return gainToDb (lo);
+        };
+        const float b7 = lowest (7.0), b8 = lowest (8.0), b9 = lowest (9.0), b11 = lowest (11.0), b12 = lowest (12.0), again = lowest (108.0);
+        std::printf ("   DROP DUCK 6 dB, 1 bar, on a POCKET at DEPTH 0: kick 7 %.1f, kick 8 (the drop) %.1f, kick 9 %.1f, kick 11 %.1f, kick 12 %.1f dB; looped back to 8: %.1f dB\n",
+                     b7, b8, b9, b11, b12, again);
+        CHECK (b7 > -0.5f && b8 < -4.5f && b8 > -7.0f && b9 < -4.5f && b11 > b9 + 1.0f && b12 > -0.5f && again > -0.5f,
+               "DROP DUCK (kick 7 %.1f, 8 %.1f, 9 %.1f, 11 %.1f, 12 %.1f, loop %.1f dB)", b7, b8, b9, b11, b12, again);
+        const float other8 = lowest (8.0, outOther), kick8 = lowest (8.0, outKick);
+        std::printf ("   the drop's first kick on a TAP at POCKET DEPTH 0: ROLE OTHER %.1f dB, ROLE KICK %.1f dB (never ducks)\n", other8, kick8);
+        CHECK (other8 < -4.5f && other8 > -7.0f && kick8 > -0.5f, "DROP DUCK on TAP (OTHER %.1f, KICK %.1f dB)", other8, kick8);
+        Bus::testClock = nullptr;
+    }
+    resetBus();
+}

@@ -293,7 +293,7 @@ story.append(H2("NOTHING CAN HURT THE PA"))
 story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Resonance is level-compensated. Feedback above 100 % saturates instead of exploding. Every output is clamped at +12 dBFS. If a plugin ever produces an invalid value, or sits at the clamp for 250 ms (a runaway), it outputs silence, resets itself and shows <b>FAULT</b> in red in its header; it carries on working. <b>PANIC</b> on SF CONTROL fades every SF plugin out over 5 ms and clears every voice, tail and delay line: for a runaway feedback loop, a stuck note or a wrong recall in front of a crowd. Everything stays silent while you hold it (no input, no new notes; DECK keeps its place in time; every header shows PANIC in red) and fades back in over 5 ms when you let go. A set never reopens with PANIC held. Grab any knob in the dark."))
 _cc_head = [H2("THE COLOUR CODE"), P("The plugins are black, white and grey. Colour only carries information:")]
 cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, FAULT (the plugin reset itself), missing file, true peak at the ceiling."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
-      [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall waiting for the bar, a value gliding (SLOW)."],
+      [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall or a drop waiting for the bar, a value gliding (SLOW)."],
       [Swatch(CYAN), "CYAN", "The value of the control you are touching."]]
 story.append(KeepTogether(_cc_head + [table(cc, [0.3 * inch, 0.8 * inch, W - 1.1 * inch])]))
 story.append(PageBreak())
@@ -302,7 +302,9 @@ story.append(H1("2  SONGS AND PRESETS"))
 story.append(Rule())
 story.append(P("Every SF plugin stores 16 song slots of its own settings, saved with the Live set. SF CONTROL chooses the song; every plugin recalls its slot on the same bar line while Live plays (at once when stopped).", "summary"))
 story.append(H2("SAVING A SONG"))
-story += bullets(["Set every plugin how the song should start.", "Choose the song number on SF CONTROL (SONG).", "Press <b>STORE ALL</b> on SF CONTROL. Every SF plugin stores its current values into that song.",
+story += bullets(["Set every plugin how the song should start.", "Press <b>STORE ALL</b> on SF CONTROL. Every SF plugin stores its current values into the song in force (SONG).",
+                  "<b>Into another song:</b> choose it in <b>STORE TO</b> on SF CONTROL, then press STORE ALL. That song isn't recalled first, so nothing you hear changes; it becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. Choosing the song on SONG instead would recall it, and what you had set would be gone before you stored it.",
+                  "If a song change is waiting for its bar (WAIT BAR) when you STORE TO, the change still lands and stays the song in force.",
                   "STORE in any plugin's header stores just that plugin into the selected song."])
 story.append(H2("RECALLING A SONG"))
 story += bullets(["Send Program Change on MIDI channel 16 to SF CONTROL (program 1 = song 01). Or turn SF CONTROL's SONG.",
@@ -340,6 +342,8 @@ story.append(H2("WHO HAS POCKET"))
 story.append(P("BASS, LEAD, PAD, VOICE (POCKET DEPTH / SHAPE), RUMBLE (PUMP), DELAY and REVERB (DUCK, on the wet signal only), DUCK (on anything), TAP (on any track). SF DUCK can also follow a sidechain input instead of the kick."))
 story.append(H2("TIMING"))
 story.append(P("Pocket looks 512 samples ahead (about 11 ms at 48 kHz) so a kick report is always there before it's needed. Live compensates the delay. Keep Live's buffer size at 512 or less. If the pump lands early or late in your setup, trim POCKET OFFSET on SF CONTROL (+/-20 ms) once, by ear."))
+story.append(H2("AFTER A DROP"))
+story.append(P("SF BUILD's DROP DUCK (default 6 dB) makes every Pocket stage dip under each kick for DUCK TIME after the drop (default 1 bar), whatever its DEPTH, so the first kicks of the drop land on top of the parts and the tail coming back. It follows the kick: back within half a beat of each hit, and easing out over the second half of DUCK TIME. It starts with the first kick on the drop's bar line: a roll into the drop doesn't duck. TAP and STRIP set to ROLE KICK, PERC or DECK don't dip, like SF KICK, PERC, STRIKE and DECK."))
 story.append(H2("LOOPS, RESTARTS AND JUMPS"))
 story.append(P("Everything follows Live's song position. When it jumps (arrangement loop brace, stop and restart, clicking to a new position), kick reports from before the jump are ignored, so nothing ducks for a kick that is no longer playing. RUMBLE re-arms. Playing DECK tracks keep running and are re-anchored by whole beats, so they stay on the beat."))
 story.append(PageBreak())
@@ -518,7 +522,7 @@ story += bullets(["Live is the clock master. On the ONE: USB device mode, sync f
 
 story.append(H2("THE E16"))
 story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README); SF SHOW.als has every address mapped. The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
-PRESS_DOES = {"DROP": "the build resets on the next bar line", "PANIC": "every SF plugin silent while held",
+PRESS_DOES = {"DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "PANIC": "every SF plugin silent while held",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
               "ROLL": "the drums roll while held"}
 def press_text(p, full=True):
@@ -556,7 +560,7 @@ story += bullets(["On every single-instrument page 13 is DENSITY, 14 FILTER and 
 
 story.append(H2("THE E16: ADDRESSES AND SETTINGS"))
 story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB, 10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 the groups (LOW, DRUMS, MUSIC and DRUMS' REPEAT), 15 LIVE BUS and BRIDGE, 16 CONTROL.",
-                  "<b>CC = block base + the parameter's place in its plugin's own order</b>, counting from 0. One plugin on a channel: base 20, so its performance row (its first eight parameters) is CC 20-27. Channel 14: LOW ENERGY 20, DRUMS ENERGY 30, MUSIC ENERGY 40, REPEAT 50. Channel 15: BUILD 20, with 30-79 kept for the master devices. Channel 16: CONTROL 20 (MACRO 1-6 are 20-25). The plugins never reorder their parameters, so an address never moves. The appendix lists every address.",
+                  "<b>CC = block base + the parameter's place in its plugin's own order</b>, counting from 0. One plugin on a channel: base 20, so its performance row (its first eight parameters) is CC 20-27. Channel 14: LOW ENERGY 20, DRUMS ENERGY 30, MUSIC ENERGY 40, REPEAT 50. Channel 15: BUILD 20 (DUCK TIME, its eleventh, has no address), with 30-79 kept for the master devices. Channel 16: CONTROL 20 (MACRO 1-6 are 20-25). The plugins never reorder their parameters, so an address never moves. The appendix lists every address.",
                   "<b>Mixer:</b> CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC volumes; channel 15: 100 LIVE BUS, 101 BRIDGE (102 kept for DECK). A parameter on two pages sends the same address from both: two ways to one mapping.",
                   "<b>Presses:</b> a hold is a CC, 127 on press and 0 on release, so the parameter is on while the knob is down. A toggle is a note: Live flips a switch on every Note On, so the E16 can never think FREEZE is on while Live has it off. SF SHOW sets every turn; until the OXI App's press format is known, the presses are added in the App (the README lists them), and again after loading a new scene file.",
                   "<b>On the E16:</b> Auto Transmit off, for the scene and globally (stored values sent on a page change would pull Live's faders to them), MIDI Thru off. Stay in SF SHOW for the whole show.",
@@ -593,7 +597,7 @@ story.append(table([["SYSTEM", "RESPONSIBLE FOR"],
     ["Live Arrangement", "Recording the performance."]], [2.0 * inch, W - 2.0 * inch], mono_first=False))
 story.append(Spacer(1, 6))
 story += bullets(["The roles stay put for the whole set: a new track changes what they play, not where they are.",
-                  "Rehearse song recall and SF REPEAT in your Live before relying on them in a transition: both changed on Nov 3."])
+                  "Rehearse song recall, SF REPEAT and SF BUILD's drop (GAP, TAIL, DROP DUCK) in your Live before relying on them in a transition: all three changed on Nov 3."])
 
 story.append(H2("RECORDING AND REHEARSAL"))
 story += bullets(["Instrument tracks on Monitor In: they play from the ONE whether or not they're armed.",

@@ -70,6 +70,24 @@ RESERVED = [
     (16, "40-99", "free"),
 ]
 
+def block_end(ch, base):
+    """The last number of the block that starts at base on channel ch: one before the next block or
+    reservation on that channel, 99 at most (100-102 are the mixer)."""
+    starts = [b for (_, _, c, b) in PLUGINS.values() if c == ch]
+    starts += [int(r.split("-")[0]) for (c, r, _) in RESERVED if c == ch]
+    later = [s for s in starts if s > base]
+    return min(later) - 1 if later else 99
+
+
+def number(dest, pid):
+    """The address number of an SF plugin parameter: block base + its place in the plugin. A parameter
+    past the end of its block has no address (BUILD's DUCK TIME, the 11th, would be ISOLATOR's 30)."""
+    track, module, ch, base = PLUGINS[dest]
+    n = base + module_params(module).index(pid)
+    assert n <= block_end(ch, base), f"{module} {pid}: number {n} is past its block on channel {ch} ({base}-{block_end(ch, base)})"
+    return n
+
+
 # Live mixer controls: (track, control) -> (channel, number).
 MIXER = {
     ("01 KICK", "volume"): (1, 100),
@@ -137,7 +155,7 @@ def P(dest, pid, name=None, abbr=None, live_range="", label=None, max_value=None
     """A turn on an SF plugin parameter."""
     track, module, ch, base = PLUGINS[dest]
     pname = param_name(module, pid)
-    return Ctl(name or pname[:8], abbr or ABBR.get(pid, pname[:4]), ch, base + module_params(module).index(pid),
+    return Ctl(name or pname[:8], abbr or ABBR.get(pid, pname[:4]), ch, number(dest, pid),
                f"{track} > SF {module} > {pname}", LIGHT_BLUE if pid == "level" else WHITE,
                anchor(module, pid), live_range, label or pname, track, module, pid, None, max_value)
 
@@ -156,7 +174,7 @@ class Press:
         track, module, ch, base = PLUGINS[dest]
         assert mode in ("HOLD", "TOGGLE")
         self.mode, self.channel = mode, ch
-        self.number = base + module_params(module).index(pid)
+        self.number = number(dest, pid)
         self.name = param_name(module, pid)
         self.target = f"{track} > SF {module} > {self.name}"
         self.track, self.module, self.pid = track, module, pid

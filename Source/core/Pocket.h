@@ -3,6 +3,8 @@
 // decay, filter) and carves a kick-shaped hole in this module's audio. Falls back to sidechain
 // audio when no SF KICK is reporting. Adds a fixed lookahead (kLatency) so reports from the same
 // audio cycle arrive before they are needed; the latency is reported to Live, which compensates.
+// After an SF BUILD drop (DROP DUCK), every Pocket stage also ducks the whole band to each kick
+// for a while, whatever its own DEPTH, so the kick lands on top of everything that comes back.
 #include "Bus.h"
 #include "Dsp.h"
 #include "Module.h"
@@ -15,6 +17,9 @@ class Pocket
 public:
     static constexpr int kLatency = 512;
     static constexpr int kTrace = 128;
+    // Takes part in SF BUILD's drop duck. Off on a TAP or STRIP whose ROLE is KICK, PERC or DECK:
+    // like SF KICK, PERC, STRIKE and DECK, which have no Pocket, they never duck under the kick.
+    bool dropDuck = true;
 
     void prepare (double rate, int maxBlock)
     {
@@ -35,7 +40,7 @@ public:
         sideFollow.z = 0.0f;
         for (auto& x : xo) x.reset();
         for (auto& b : bell) b.reset();
-        presence = 0.0f; duty = 0.0f; envHold = 0.0f; sidePeak = 0.05f; act = 0.0f;
+        presence = 0.0f; duty = 0.0f; envHold = 0.0f; sidePeak = 0.05f; act = 0.0f; dropDip = 1.0f;
     }
 
     // depth 0..1, shape 0..1 (0 transparent pitch-tracking cut .. 1 full-band pump).
@@ -75,6 +80,25 @@ public:
         if (s > 0.8f) lowPresence = lerp (lowPresence, 1.0f, (s - 0.8f) * 5.0f);   // pump ignores it
         for (int ci = 0; ci < 2; ++ci) xo[ci].set (fc, sr);
 
+        // SF BUILD's drop: full-band duck to each kick, dropDb deep, for dropBeats after the drop's
+        // bar line (full for the first half, easing out over the second). Kick reports only: the
+        // drop is musical time. Rejected after a jump back, like a stale kick report.
+        const auto& bd = bus.d();
+        float dropDb = bd.dropDb.load();
+        const double dropAt = bd.dropPpq.load(), dropBeats = bd.dropBeats.load();
+        if (! dropDuck || ! busKick || ! (dropDb > 0.01f) || dropAt < 0.0 || ! (dropBeats > 0.0)) dropDb = 0.0f;
+        else
+        {
+            const double from = bd.dropFromPpq.load();
+            const double played = (c.ppq - from) * secPerBeat, elapsed = Bus::nowSec() - bd.dropWall.load();
+            if (c.ppq < from - 1e-6 || elapsed > played + lookSec + 0.35 || c.ppq - lookBeats > dropAt + dropBeats) dropDb = 0.0f;
+        }
+        dropDb = std::min (dropDb, 24.0f);
+        if (dropDb == 0.0f) dropDip = 1.0f;
+        // The drop's kicks: from its bar line, or up to 10 ms early (MIDI timing). A roll before
+        // the drop doesn't count, and the duck fades in over 5 ms from the bar line: never a step.
+        const double dropEarly = 0.010 / secPerBeat, dropFade = 0.005 / secPerBeat;
+
         // The band split (an all-pass when summed back) only runs while the band duck is in use;
         // otherwise the audio passes untouched (crossfaded over 10 ms when that changes).
         const float actTarget = enabled && bandAmt > 0.0005f ? 1.0f : 0.0f;
@@ -86,7 +110,7 @@ public:
         for (int i = 0; i < n; ++i)
         {
             const double tq = c.ppqAt (i) - lookBeats;    // musical time of the sample leaving now
-            float env = 0.0f, pitch = f1;
+            float env = 0.0f, pitch = f1, kickEnv = 0.0f;
             bool anyRecent = false;
             if (busKick)
             {
@@ -103,6 +127,12 @@ public:
                     const float att = std::min (1.0f, dt / 0.001f);
                     const float e = hits[h].vel * att * std::exp (-dt / dec);
                     env = std::max (env, e);
+                    if (dropDb > 0.0f && hits[h].ppq >= dropAt - dropEarly)
+                    {
+                        // The drop duck follows the kick itself: back within half a beat at most.
+                        const float decK = std::max (0.05f, std::min (hits[h].decay, 0.5f * (float) secPerBeat));
+                        kickEnv = std::max (kickEnv, juce::jlimit (0.0f, 1.0f, hits[h].vel) * att * std::exp (-dt / decK));
+                    }
                     if (hits[h].ppq > best)
                     {
                         best = hits[h].ppq;
@@ -133,6 +163,22 @@ public:
                 for (int ci = 0; ci < 2; ++ci) bell[ci].peak (std::max (30.0f, pitch), 2.2f, g, sr);
             }
             const float lowGain = 1.0f - bandAmt * e * lowPresence;
+            float dropGain = 1.0f;
+            if (dropDb > 0.0f)
+            {
+                const double x = (tq - dropAt) / dropBeats;
+                if (x >= 0.0 && x < 1.0)
+                {
+                    if (((c.samplePos + i) & 15) == 0 || dropDip >= 1.0f)
+                    {
+                        const float w = x < 0.5 ? 1.0f : (float) (0.5 + 0.5 * std::cos (6.283185307179586 * (x - 0.5)));
+                        dropDip = dbToGain (-dropDb * w);
+                    }
+                    const float fadeIn = (float) std::min (1.0, (tq - dropAt) / dropFade);
+                    dropGain = 1.0f - (1.0f - dropDip) * kickEnv * fadeIn;
+                }
+                else dropDip = 1.0f;
+            }
             act = actTarget + actCoef * (act - actTarget);
             if (act < 1.0e-4f && actTarget == 0.0f) act = 0.0f;
             for (int ci = 0; ci < std::min (numCh, 2); ++ci)
@@ -146,9 +192,9 @@ public:
                     x = x + act * ((lo * lowGain + hi) - x);
                 }
                 else xo[ci].reset();
-                ch[ci][i] = bell[ci].tick (x);
+                ch[ci][i] = bell[ci].tick (x) * dropGain;
             }
-            traceAcc = std::max (traceAcc, e * std::max (bandAmt, bellAmt));
+            traceAcc = std::max ({ traceAcc, e * std::max (bandAmt, bellAmt), 1.0f - dropGain });
             if (++traceCount >= 256)
             {
                 trace[(size_t) traceWrite].store (traceAcc);
@@ -173,7 +219,7 @@ private:
     Biquad bell[2];
     Svf sideLp;
     Follower sideFollow;
-    float presence = 0, duty = 0, envHold = 0, sidePeak = 0.05f, traceAcc = 0, act = 0;
+    float presence = 0, duty = 0, envHold = 0, sidePeak = 0.05f, traceAcc = 0, act = 0, dropDip = 1.0f;
     int traceCount = 0;
 };
 } // namespace sf

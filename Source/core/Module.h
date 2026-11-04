@@ -79,6 +79,9 @@ struct Ctx
     int keyRoot = -1;             // SF CONTROL KEY: 0..11 = C..B, -1 = not set
     int64_t samplePos = 0;        // stream position of this chunk (chunks sit on a fixed 64-sample grid)
     double barPhase = 0.0;        // ppq of a bar line (Live's last bar start, mod the bar)
+    bool recallWaiting = false;   // a song recall is waiting for its bar line in this plugin
+    bool recalledThisBlock = false;   // a song recall landed here in this host block, up to this chunk
+    bool lastChunk = false;       // the last chunk of the host block
     const float* p = nullptr;     // parameter values at block end (glided, macro applied)
     const float* p0 = nullptr;    // values at block start (for per-sample ramps)
     Bus* bus = nullptr;

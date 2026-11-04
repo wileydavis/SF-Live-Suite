@@ -10,10 +10,14 @@ namespace sf
 // Suite brain: six macros, song select (Program Change on the chosen channel, default 16),
 // STORE ALL, KEY (every pitched SF instrument follows) and PANIC (every SF plugin silences its
 // voices, tails and delay lines). Put it on its own MIDI track receiving the OXI One.
+// STORE TO: the song STORE ALL writes into, chosen without recalling it (choosing SONG recalls
+// a stored song, which would replace the sound before it could be stored). That song becomes
+// the one in force (unless a song change is waiting for its bar), and STORE TO goes back to
+// ACTIVE SONG.
 class ControlModule : public Module, private juce::Timer
 {
 public:
-    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC };
+    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO };
     ControlModule() { startTimerHz (20); }
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
@@ -38,17 +42,20 @@ public:
         // KEY: parts written in C play in this key (each song can store its own).
         p.push_back (choice ("key", "KEY", { "OFF", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
         p.push_back (momentary ("panic", "PANIC"));
+        std::vector<std::string> to { "ACTIVE SONG" }; for (auto& sn : songs) to.push_back (sn);
+        auto st = choice ("store_to", "STORE TO", to, 0); st.song = false; st.preset = false; p.push_back (st);
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
     int numPrograms() const override { return kSongs; }
     int currentProgram() const override { return std::max (0, (int) Bus::get().d().song.load()); }
-    // (Host thread: published from the next audio block, which knows the song position.)
+    // (Host thread: published, and SONG then follows, from the next audio block, which knows the
+    // song position.)
     void setProgram (int p) override
     {
         const int s = juce::jlimit (0, kSongs - 1, p);
         if (Bus::get().d().song.load() != s) programRequest.store (s);
-        pcSong = s;
+        else pcSong = s;
     }
     void prepare (double, int) override {}
     void process (Ctx& c, juce::AudioBuffer<float>&, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
@@ -62,15 +69,20 @@ public:
         d.panicHeld = pn ? 1 : 0;
         panicWas = pn;
         // Song changes carry the bar line they land on, decided here once for every plugin, so
-        // the order Live processes the tracks in can't split a transition across two bars.
+        // the order Live processes the tracks in can't split a transition across two bars, and
+        // where they were asked for (a plugin that sees one just after a loop wrapped can tell
+        // whether it came before or after the wrap).
+        bool published = false;
         auto publishSong = [&] (int s, int offset)
         {
             // The key the song brings switches on the same bar in every plugin (-2: no change).
             const float k = getSongValue ? getSongValue (s, KEY) : NAN;
             d.songKey = std::isnan (k) ? -2 : (int) std::lround (k) - 1;
+            d.songFromPpq = c.ppqAt (offset);
             d.songAtPpq = songTarget (c, c.ppqAt (offset));
             d.song = s;
             d.songSeq.fetch_add (1);
+            published = true;
         };
 
         for (int i = 0; i < kMacros; ++i) d.macro[i] = c.v (M1 + i);
@@ -86,23 +98,53 @@ public:
                     pcSong = s;
                 }
             }
-        // A change of the SONG parameter (knob, menu, automation) selects that song. The
-        // Program Change mirror arriving later matches the bus already and does nothing.
+        // A change of the SONG parameter (knob, menu, automation) selects that song. SONG
+        // following the bus (the timer, after a Program Change or STORE TO) is no request: a
+        // Program Change that arrived meanwhile is newer and stays.
         const int sp = c.ci (SONG);
         if (sp != lastSongParam)
         {
             lastSongParam = sp;
-            if (sp != d.song.load()) publishSong (sp, 0);
+            songParamNow = sp;
+            if (sp != mirroredSong.exchange (-1) && sp != d.song.load()) publishSong (sp, 0);
         }
         // A host program change (VST3), last: it is the newest request.
-        if (const int pr = programRequest.exchange (-1); pr >= 0) publishSong (pr, 0);
+        if (const int pr = programRequest.exchange (-1); pr >= 0) { publishSong (pr, 0); pcSong = pr; }
+
+        // STORE ALL, into STORE TO's song or the song in force. It goes out at the end of a host
+        // block in which no song recall landed: in such a block the plugins Live processes before
+        // SF CONTROL would store after the recall, and those after it before.
         const bool st = c.b (STOREALL);
         if (st && ! storeWas)
         {
-            if (d.song.load() < 0) publishSong (sp, 0);
-            d.storeSeq.fetch_add (1);
+            storeHeld = true;
+            storeTo = c.ci (STORETO) - 1;
+            storeKeepSong = c.recallWaiting || published;     // a song change under way stays the song in force
         }
         storeWas = st;
+        if (storeHeld && c.lastChunk)
+        {
+            if (c.recalledThisBlock) storeKeepSong = true;   // a song landed as you stored: it stays in force
+            else
+            {
+                storeHeld = false;
+                if (storeTo >= 0 && storeTo < kSongs)
+                {
+                    // STORE TO: the sound playing now goes into that song, which isn't recalled. It
+                    // is the song in force from now (SONG follows), unless a song change is under way.
+                    const bool keep = storeKeepSong || c.recallWaiting;
+                    d.storeSong = storeTo;
+                    if (! keep) d.song = storeTo;
+                    storeMirror = keep ? kSongs : storeTo;
+                }
+                else
+                {
+                    d.storeSong = -1;
+                    if (d.song.load() < 0) publishSong (sp, 0);
+                }
+                d.storeSeq.fetch_add (1);
+            }
+        }
     }
     int displayHeight() const override { return 150; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
@@ -151,11 +193,25 @@ public:
 private:
     void timerCallback() override
     {
-        // Mirror a Program Change into the SONG parameter so Live (and the E16) follow.
-        const int pc = pcSong.exchange (-1);
-        if (pc >= 0 && setParam) setParam (SONG, (float) pc);
+        // SONG follows the bus after a Program Change or STORE TO, so Live (and the E16) show the
+        // song in force; only while it still is (a newer request since stays). STORE TO goes back
+        // to ACTIVE SONG.
+        const auto& d = Bus::get().d();
+        if (const int pc = pcSong.exchange (-1); pc >= 0 && d.song.load() == pc) mirrorSong (pc);
+        if (const int s = storeMirror.exchange (-1); s >= 0 && setParam)
+        {
+            if (s < kSongs && d.song.load() == s) mirrorSong (s);
+            setParam (STORETO, 0.0f);
+        }
     }
-    std::atomic<int> pcSong { -1 }, programRequest { -1 };
+    // Marked, so the audio thread never takes it for a request.
+    void mirrorSong (int s)
+    {
+        if (! setParam || s == songParamNow.load()) return;
+        mirroredSong = s;
+        setParam (SONG, (float) s);
+    }
+    std::atomic<int> pcSong { -1 }, programRequest { -1 }, storeMirror { -1 }, mirroredSong { -1 }, songParamNow { -1 };
 
     // The bar line a song change lands on. Stopped: at once (-1). Within 30 ms after a bar line
     // (a Program Change sent on the downbeat, plus MIDI and buffer latency): that bar, and plugins
@@ -169,8 +225,8 @@ private:
         const double barStart = reqPpq - since;
         return since * c.samplesPerBeat() < 0.030 * c.sr ? barStart : barStart + bpb;
     }
-    int lastSongParam = -1;
-    bool storeWas = false, panicWas = false;
+    int lastSongParam = -1, storeTo = -1;
+    bool storeWas = false, panicWas = false, storeHeld = false, storeKeepSong = false;
 };
 ModulePtr makeCONTROL() { return std::make_unique<ControlModule>(); }
 
@@ -570,6 +626,7 @@ public:
     {
         const int role = c.ci (ROLE);
         if (role != lastRole) { lastRole = role; tap.setIdentity (role, (std::string ("TAP ") + kRoleNames[role]).c_str()); }
+        pocket.dropDuck = dropDucks (role);
         pocket.process (c, io.getArrayOfWritePointers(), 2, c.n, c.v (PDEPTH), c.v (PSHAPE), nullptr, c.v (PDEPTH) > 0.001f);
         tap.process (io.getArrayOfWritePointers(), 2, c.n, c.b (ALLOCON), &c);
         float g0; const float g1 = levelDb (c, LEVEL, g0);

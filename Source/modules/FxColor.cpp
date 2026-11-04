@@ -50,6 +50,7 @@ public:
         for (auto& t : tilt) for (auto& b : t) b.reset();
         inF.z = outF.z = 0.0f;
         autoG = 1.0f;
+        keepAmt = 0.0f;
     }
     static float shape (float x, float ch, float bias)
     {
@@ -88,6 +89,12 @@ public:
             tilt[k][0].lowShelf (800.0f, 0.6f, -t * 6.0f, sr);
             tilt[k][1].highShelf (800.0f, 0.6f, t * 6.0f, sr);
         }
+        // LOW KEEP: the lows come from the dry signal, the highs blend dry and driven by MIX, and
+        // all of it comes out of one crossover (dry and driven split alike), so the bands sum
+        // flat at every MIX. (Blending that sum with the unsplit dry cancelled at the crossover
+        // frequency: -100 dB at MIX 50 %.) Switching it on or off crossfades over 10 ms.
+        const float keepTarget = lowKeep > 20.0f ? 1.0f : 0.0f;
+        const float keepStep = 1.0f / (0.01f * (float) sr);
         if (lowKeep > 20.0f) { for (auto& x : xo) x.set (lowKeep, sr); for (auto& x : xoDry) x.set (lowKeep, sr); }
         // AUTO GAIN, per sample: the driven signal is brought back to the dry signal's level
         // (stereo peak followers, ~30 ms smoothing). It applies to the driven signal only; the
@@ -104,22 +111,25 @@ public:
             const float outLvl = outF.tick (std::max (std::fabs (y[0]), std::fabs (y[1])));
             const float target = autoOn && outLvl > 1e-4f && inLvl > 1e-4f ? juce::jlimit (0.1f, 2.0f, inLvl / outLvl) : 1.0f;
             autoG = target + sm * (autoG - target);
+            keepAmt = keepTarget > keepAmt ? std::min (keepTarget, keepAmt + keepStep) : std::max (keepTarget, keepAmt - keepStep);
             for (int k = 0; k < 2; ++k)
             {
-                float wet = y[k] * autoG;
-                if (lowKeep > 20.0f)
+                const float wet = y[k] * autoG;
+                float out = d[k] * (1.0f - mix) + wet * mix;
+                if (keepAmt > 0.0f)
                 {
                     float lo, hi, dlo, dhi;
                     xo[k].split (wet, lo, hi);
                     xoDry[k].split (d[k], dlo, dhi);
-                    wet = hi + dlo;
+                    out += keepAmt * (dlo + dhi * (1.0f - mix) + hi * mix - out);
                 }
-                y[k] = d[k] * (1.0f - mix) + wet * mix;
+                y[k] = out;
             }
             const float g = g0 + (g1 - g0) * (float) i / (float) n;
             xl[i] = y[0] * g;
             xr[i] = y[1] * g;
         }
+        if (keepAmt == 0.0f) { for (auto& x : xo) x.reset(); for (auto& x : xoDry) x.reset(); }   // off: start clean next time
         dispCh = ch;
     }
     int displayHeight() const override { return 60; }
@@ -137,7 +147,7 @@ private:
     Biquad tilt[2][2];
     Crossover xo[2], xoDry[2];
     Follower inF, outF;
-    float autoG = 1.0f;
+    float autoG = 1.0f, keepAmt = 0.0f;
     std::atomic<float> dispCh { 0 };
 };
 ModulePtr makeDRIVE() { return std::make_unique<DriveModule>(); }

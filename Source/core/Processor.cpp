@@ -80,8 +80,12 @@ SFProcessor::SFProcessor (ModulePtr m)
     macroOff.assign (specs.size(), 0.0f);
     modAmt.assign (specs.size(), 0.0f);
     ovr = std::make_unique<std::atomic<float>[]> (specs.size());
-    for (size_t i = 0; i < specs.size(); ++i) ovr[i] = NAN;
-    ovrFrom.assign (specs.size(), 0.0f);
+    ovrFrom = std::make_unique<std::atomic<float>[]> (specs.size());
+    extGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
+    ovrGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
+    recallGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
+    reportedGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
+    for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; }
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
@@ -108,10 +112,38 @@ SFProcessor::SFProcessor (ModulePtr m)
     chunkMidi.ensureSize (65536);
     sf::Bus::get();     // map the shared bus here, not on the audio thread
     sf::SincKernel::get();   // build the band-limited sample reader's table here, not on the audio thread
+    for (size_t i = 0; i < params.size(); ++i)
+    {
+        jassert (params[i]->getParameterIndex() == (int) i);
+        params[i]->addListener (this);
+    }
     startTimerHz (30);
 }
 
-SFProcessor::~SFProcessor() { stopTimer(); }
+SFProcessor::~SFProcessor()
+{
+    stopTimer();
+    for (auto* p : params) p->removeListener (this);
+}
+
+// Any thread: Live (automation, a MIDI-mapped knob, the host's own controls), the editor, a
+// preset. Not this plugin's own report of a recalled value back to Live.
+void SFProcessor::parameterValueChanged (int index, float)
+{
+    if (index < 0 || index >= (int) specs.size()) return;
+    if (index == notifying.load() && juce::MessageManager::existsAndIsCurrentThread()) return;
+    extGen[(size_t) index].fetch_add (1);
+}
+
+// Live's value was changed since the recall, and moved away from what it was then: that change
+// is newer than the recall and wins. (Both: a host echoing a value it already had changes
+// nothing, and a count alone can't tell an echo from a move.)
+bool SFProcessor::movedSinceRecall (size_t i) const
+{
+    if (extGen[i].load() == ovrGen[i].load()) return false;
+    const float t = raw[i]->load(), from = ovrFrom[i].load();
+    return std::abs (t - from) > 1e-4f * (1.0f + std::abs (from));
+}
 
 int SFProcessor::paramIndex (const std::string& id) const
 {
@@ -210,9 +242,11 @@ void SFProcessor::applySong (int s)
     for (size_t i = 0; i < specs.size(); ++i)
     {
         if (! specs[i].song) continue;
-        ovr[i] = songVals[(size_t) s][i];
         ovrFrom[i] = raw[i]->load();          // the host's value at the recall
+        ovrGen[i] = extGen[i].load();
         ovrAge[i] = 0;
+        ovr[i] = songVals[(size_t) s][i];     // the message thread reads it first
+        recallGen[i].fetch_add (1);           // after it: a report marked with this count carried this value
     }
     songIndex = s;
     notifyHost = true;
@@ -223,12 +257,19 @@ void SFProcessor::flushHostNotifications()
     if (! notifyHost.exchange (false)) return;
     for (size_t i = 0; i < specs.size(); ++i)
     {
+        const uint32_t g = recallGen[i].load();    // before the value: a newer recall is never marked reported
         const float v = ovr[i];
         if (std::isnan (v)) continue;
+        // Moved in Live after the recall (a knob turned before this timer came round): the newer
+        // value stays, and the next audio block drops the recall for this parameter.
+        if (movedSinceRecall (i)) continue;
         auto* p = params[i];
+        notifying = (int) i;
         p->beginChangeGesture();
         p->setValueNotifyingHost (p->convertTo0to1 (v));
         p->endChangeGesture();
+        notifying = -1;
+        reportedGen[i] = g;
     }
 }
 
@@ -275,6 +316,11 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         ppq0 = internalPpq;
     }
     const double bps = c.beatsPerSample();
+    // This block starts before the last one ended: the transport jumped back (an Arrangement
+    // loop wrapped, a relocate). Tempo changes move the position far less than 0.01 beat.
+    const double lastEnd = internalPpq;
+    const bool jumpedBack = c.playing && lastPlaying && ppq0 < lastEnd - 0.01;
+    lastPlaying = c.playing;
     internalPpq = ppq0 + total * bps;
     clockAnchored = true;
     c.barPhase = barPhase;
@@ -289,21 +335,46 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         seqInit = true;
         if (songIndex.load() < 0) songIndex = d.song.load();
     }
+    // A song still waiting when the transport jumps back (an Arrangement loop wrapped, a
+    // relocate): SF CONTROL's bar line may never come, so this plugin's next bar line instead.
+    // Jumped back again before that came (a loop with no bar line in it): here, at the jump.
+    bool recallNow = false;
+    if (jumpedBack && pendingSong.load() >= 0)
+    {
+        if (pendingJumped) recallNow = true;
+        else { pendingAt = -1.0; pendingJumped = true; }
+    }
     if (d.songSeq.load() != lastSongSeq)
     {
         lastSongSeq = d.songSeq.load();
         pendingSong = d.song.load();
         pendingAt = d.songAtPpq.load();
         pendingKey = d.songKey.load();
-        pendingFrom = ppq0;
+        pendingJumped = false;
+        recallNow = false;
+        // Asked for before the jump back this block made, seen only now (SF CONTROL asked in its
+        // last block before an Arrangement loop wrapped; Live processed this plugin after the
+        // wrap): as if the jump had come after the request, like everywhere else. Its bar line
+        // lay where the transport jumped from (within a sample: a bar line between two samples
+        // may end the loop's last block just past it): this plugin's next bar line. It lay
+        // before (the loop ends just after a bar line): it has landed everywhere else, so here.
+        if (jumpedBack && pendingAt >= 0.0 && d.songFromPpq.load() >= ppq0 + total * bps - 1e-9)
+        {
+            if (pendingAt >= lastEnd - 1.5 * bps) { pendingAt = -1.0; pendingJumped = true; }
+            else recallNow = true;
+        }
     }
-    if (d.storeSeq.load() != lastStoreSeq) { lastStoreSeq = d.storeSeq.load(); storeRequested = true; }
+    int storeTo = -1;                       // SF CONTROL's STORE TO song, for its STORE ALL only
+    if (const uint32_t ss = d.storeSeq.load(); ss != lastStoreSeq) { lastStoreSeq = ss; storeTo = d.storeSong.load(); storeRequested = true; }
     if (storeRequested.exchange (false))
     {
-        // Store into the selected song (the bus song), even if its recall is still waiting for the bar.
-        int s = d.song.load();
+        // Store into the selected song (the bus song), even if its recall is still waiting for the
+        // bar; or into the song STORE TO names, which isn't recalled. That one is in force from
+        // now if SF CONTROL made it the bus song (not while a song change is under way).
+        const bool toOther = storeTo >= 0 && storeTo < kSongs;
+        int s = toOther ? storeTo : d.song.load();
         if (s < 0) s = std::max (0, songIndex.load());
-        songIndex = s;
+        if (! toOther || d.song.load() == s) songIndex = s;
         // What is in force: a value just recalled that Live hasn't reported back yet counts.
         for (size_t i = 0; i < specs.size(); ++i) { const float o = ovr[i].load(); songVals[(size_t) s][i] = std::isnan (o) ? raw[i]->load() : o; }
         songHas[(size_t) s] = true;
@@ -323,6 +394,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         if (sideAll.getNumChannels() > 0) side = &sideAll;
     }
 
+    recalledInBlock = false;
     for (int start = 0; start < total;)
     {
         // Chunks sit on a fixed grid of the stream (multiples of kChunk since prepare), so the
@@ -334,10 +406,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         {
             // Recall exactly on the bar line while playing (the chunk is cut there), at once when stopped.
             const double spb = c.samplesPerBeat();
-            // The transport went back to before the request (an Arrangement loop, a relocate):
-            // the bar SF CONTROL chose may never come, so this plugin's next bar line instead.
-            if (pendingAt >= 0.0 && c.ppq < pendingFrom - 1e-6) pendingAt = -1.0;
-            if (! c.playing) { applySong (ps); pendingSong = -1; recalled = true; }
+            if (! c.playing || (recallNow && start == 0)) { applySong (ps); pendingSong = -1; recalled = true; }
             else if (pendingAt >= 0.0 && pendingAt - c.ppq < 2.0 * c.beatsPerBar)
             {
                 // SF CONTROL's bar line: one target for every plugin, whatever order Live
@@ -365,6 +434,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         // its own bar chunk, which Live may process before or after this plugin): until then the
         // key in force stays, from then on the song's, until the bus agrees (1 s at most).
         // Otherwise (KEY turned by hand) the bus.
+        recalledInBlock = recalledInBlock || recalled;
         if (recalled)
         {
             if (pendingKey != -2) { keyUsed = pendingKey; keyHold = (int) sr; }
@@ -425,9 +495,11 @@ void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
         {
             // The recalled value holds until Live reports it back. It gives way at once when the
             // host's value moves away from what it was at the recall (the performer turned the
-            // knob, or automation), and after 3 s if Live never catches up.
+            // knob, or automation), and if Live still disagrees 3 s after it was told (the clock
+            // starts at the report: Live's message thread can be busy for seconds, saving the set).
             const float eps = 1e-4f * (1.0f + std::abs (t));
-            if (std::abs (t - o) < eps || std::abs (t - ovrFrom[i]) > eps || (ovrAge[i] += n) > (int) (3.0 * sr)) ovr[i] = NAN;
+            if (reportedGen[i].load() == recallGen[i].load()) ovrAge[i] += n;
+            if (std::abs (t - o) < eps || movedSinceRecall (i) || ovrAge[i] > (int) (3.0 * sr)) ovr[i] = NAN;
             else t = o;
         }
         if (s.type != PType::Float) { cur[i] = t; base[i] = t; continue; }
@@ -543,6 +615,9 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
         panicInPos = std::min (panicLen, panicInPos + n);
     }
 
+    c.recallWaiting = pendingSong.load() >= 0;
+    c.recalledThisBlock = recalledInBlock;
+    c.lastChunk = lastChunk;
     module->process (c, mainView, side, extra, chunkMidi);
 
     // Safety: never pass NaN/Inf, never exceed +12 dBFS. A fault resets the module.

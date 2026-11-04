@@ -86,6 +86,7 @@ public:
             std::strncat (nm, kRoleNames[juce::jlimit (0, kNumRoles - 1, role)], 16);
             tap.setIdentity (role, nm);
         }
+        pocket.dropDuck = dropDucks (role);
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
 
         // ---- onsets (shared by GATE HITS and DENSITY PROB)
