@@ -137,4 +137,5 @@ accident (a throw, a roll, a freeze, a drop); what would stop the set is on a co
 Edit `layout.py`: `TOP` is rows 1-2, `PAGES` is rows 3-4 of each page, `PRESSES_*` the presses, `KEYS`
 the computer keys. Run `python3 make_scene.py` (it checks that every address names one Live target),
 load the new file, add the presses again, and map only what changed. `python3
-docs/manual/build_manual.py` puts the new layout in the manual.
+docs/manual/build_manual.py` and `python3 docs/manual/build_show_manual.py` put the new layout in the
+manuals.

@@ -29,7 +29,7 @@ cmake --build build-test --target SFTests SFSnapshot
 ./build-test/SFSnapshot_artefacts/Release/SFSnapshot    # editor images -> docs/snapshots
 ```
 
-Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/build_manual.py` (needs reportlab).
+Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/build_manual.py` (needs reportlab). The show's operator's manual (the template, the E16 scene page by page, the OXI One MkII, performance): `python3 docs/manual/build_show_manual.py` > `docs/SF-SHOW-Operators-Manual.pdf`. Both share `docs/manual/manual_style.py`.
 
 ## Setting up the live set
 

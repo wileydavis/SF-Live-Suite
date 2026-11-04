@@ -1,8 +1,8 @@
 """SF SHOW: the OXI E16 layout for the show template (manual, chapter 7).
 
 The one source of truth for the scene file and the address map (make_scene.py) and for the manual's
-E16 tables (docs/manual/build_manual.py). Change the layout here, then run make_scene.py and rebuild
-the manual.
+E16 tables (docs/manual/build_manual.py) and the operator's manual's page drawings (build_show_manual.py).
+Change the layout here, then run make_scene.py and rebuild both manuals.
 
 The grid
   The E16 is a 4 x 4 grid, numbered row by row from the top left: 1-4 the top row, 13-16 the bottom
