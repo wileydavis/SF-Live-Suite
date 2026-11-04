@@ -82,7 +82,9 @@ and turn it, Cmd-M off, save.
 
 **The show set comes mapped.** `controllers/live/SF SHOW.als` holds every address below, presses
 included, with every volume at Max 0 dB and DUB FEEDBACK at 0-70 %: open it and go to its README
-(MIDI From, outputs, the two keys of item 5). Map by hand only in a set of your own:
+(MIDI From, outputs, the two keys of item 5). Map by hand only in a set of your own;
+`python3 controllers/live/check_set.py "My Show.als"` lists what it is missing (a set saved before
+SLOW ALL or the presses existed lacks those):
 
 1. Open the show set (tracks named as in chapter 7).
 2. Unfold every SF plugin's parameter panel (the triangle in its title bar). A parameter that isn't

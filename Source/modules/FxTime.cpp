@@ -300,7 +300,7 @@ public:
     std::string id() const override { return "DELAY"; }
     std::vector<ParamSpec> params() const override
     {
-        return { choice ("time", "TIME", divisionNames (divIndex ("1 BAR"), divIndex ("1/32")), divIndex ("1/8D") - divIndex ("1 BAR")).prim(),
+        return { choice ("time", "TIME", divisionNames (divIndex ("1 BAR"), divIndex ("7/16")), divIndex ("1/8D") - divIndex ("1 BAR")).prim(),
                  knob ("feedback", "FEEDBACK", 0.0f, 1.15f, 0.45f, "%").prim().dir (1),
                  bip ("tone", "TONE").prim(),
                  pct ("drive", "DRIVE", 0.2f).prim(),

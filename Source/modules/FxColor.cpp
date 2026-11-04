@@ -153,7 +153,12 @@ private:
 ModulePtr makeDRIVE() { return std::make_unique<DriveModule>(); }
 
 // =====================================================================================  RADIO
-// Transmission processor. SIGNAL 0 = barely there, 1 = clear.
+// Transmission processor. SIGNAL 0 = barely there, 1 = clear: it narrows the band, adds drive and
+// hiss, makes the dropouts, and (squared) takes CRUSH and RATE from their setting at 0 to clean at 1.
+// A dropout fades out and back in on an S-curve (two one-poles, ~10 ms). SQUELCH: just before a
+// dropout ends, a squeal: a sine that slides down from about the band's upper edge (a receiver
+// pulling back onto the station) with a little band-passed breath around it; 6 ms raised-cosine
+// onset, raised-cosine fall over 0.1-0.2 s (longer with more SQUELCH). Nothing starts or stops on a step.
 class RadioModule : public Module
 {
 public:
@@ -173,30 +178,60 @@ public:
                  knob ("rate", "RATE", 2000.0f, 48000.0f, 48000.0f, "Hz", 12000.0f) };
     }
     void prepare (double rate, int) override { sr = rate; reset(); }
-    void reset() override { for (auto& b : bp) for (auto& f : b) f.reset(); sqf.reset(); dropLeft = 0; burst = 0; gz = 1.0f; held[0] = held[1] = 0.0f; }
+    void reset() override
+    {
+        for (auto& b : bp) for (auto& f : b) f.reset();
+        sq = {};
+        dropLeft = 0; sqAt = -1;
+        g1 = g2 = 1.0f; held[0] = held[1] = 0.0f; holdCount = 0.0f;
+    }
+    // CRUSH / RATE as SIGNAL sets them (squared: the crunch starts as soon as SIGNAL leaves the top).
+    static float bitsAt (float crush, float sig) { return crush + (16.0f - crush) * sig * sig; }
+    static float rateAt (float rate, float sig, double sr) { return rate * std::pow (std::max (48000.0f, (float) sr) / rate, sig * sig); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         const float sig = c.v (SIGNAL), mix = c.v (MIX);
         const float widthOct = 0.6f + c.v (WIDTH) * 3.0f * (0.4f + 0.6f * sig);
         const float lo = c.v (BAND) / std::pow (2.0f, widthOct * 0.5f), hi = c.v (BAND) * std::pow (2.0f, widthOct * 0.5f);
         for (int k = 0; k < 2; ++k) { bp[k][0].set (lo, 0.8f, sr); bp[k][1].set (lo, 0.8f, sr); bp[k][2].set (std::min (hi, 18000.0f), 0.8f, sr); bp[k][3].set (std::min (hi, 18000.0f), 0.8f, sr); }
-        sqf.set (2200.0f, 3.0f, sr);
         const float noiseAmt = c.v (NOISE) * (1.0f - sig * 0.75f) * 0.12f;
         const float dropProb = c.v (DROPOUT) * (1.0f - sig) * 6.0f / (float) sr;   // events per sample
-        const float ring = c.v (RING), sq = c.v (SQUELCH);
-        const float bits = std::pow (2.0f, c.v (CRUSH) - 1.0f);
-        const float hold = (float) (sr / c.v (RATE));
+        const float ring = c.v (RING);
+        const float sq0 = c.v0 (SQUELCH), sq1 = c.v (SQUELCH);
+        const float bits = std::pow (2.0f, bitsAt (c.v (CRUSH), sig) - 1.0f);
+        const float hold = (float) (sr / rateAt (c.v (RATE), sig, sr));
+        const bool sampleHold = hold > 1.0001f;
+        const float gk = 1.0f - std::exp (-1.0f / (0.003f * (float) sr));         // hole fade: 2 x 3 ms
+        const float sqTop = juce::jlimit (700.0f, 4200.0f, hi);                     // the squeal starts at the band's top
+        const float breathNorm = 6.0f * std::sqrt ((float) sr / 48000.0f);         // white noise per Hz, any rate
+        const float invN = 1.0f / (float) c.n;
         for (int i = 0; i < c.n; ++i)
         {
-            if (dropLeft <= 0 && rng.uni() < dropProb) { dropLeft = (int) ((0.02 + rng.uni() * 0.13) * sr); }
+            if (dropLeft <= 0 && rng.uni() < dropProb)
+            {
+                dropLeft = (int) ((0.02 + rng.uni() * 0.13) * sr);
+                sqAt = std::min (dropLeft / 2, (int) (0.03 * sr));                  // the squeal leads the signal back in
+            }
             float gate = 1.0f;
-            if (dropLeft > 0) { gate = 0.0f; if (--dropLeft == 0) burst = (int) (0.04 * sr); }
-            gz += 0.01f * (gate - gz);
+            if (dropLeft > 0)
+            {
+                gate = 0.0f;
+                if (dropLeft == sqAt) startSqueal (sqTop, sq1);
+                --dropLeft;
+            }
+            g1 += gk * (gate - g1);
+            g2 += gk * (g1 - g2);
             ringPh += 47.0f / (float) sr; if (ringPh > 1.0f) ringPh -= 1.0f;
             const float rm = lerp (1.0f, std::sin (kTwoPi * ringPh), ring);
-            float sqBurst = 0.0f;
-            if (burst > 0) { sqBurst = sqf.tickBP (rng.next()) * sq * 0.6f * (float) burst / (float) (0.04 * sr); --burst; }
-            if (++holdCount >= hold) { holdCount -= hold; for (int k = 0; k < 2; ++k) held[k] = io.getSample (k, i); }
+            const float squeal = sq.active ? tickSqueal (breathNorm) * (sq0 + (sq1 - sq0) * (float) i * invN) * 0.17f : 0.0f;
+            bool take = true;
+            if (sampleHold)
+            {
+                holdCount += 1.0f;
+                take = holdCount >= hold;
+                if (take) { holdCount -= hold; if (holdCount >= hold) holdCount = 0.0f; }
+            }
+            if (take) for (int k = 0; k < 2; ++k) held[k] = io.getSample (k, i);
             for (int k = 0; k < 2; ++k)
             {
                 const float dry = io.getSample (k, i);
@@ -205,11 +240,11 @@ public:
                 x = bp[k][3].tickLP (bp[k][2].tickLP (x));
                 x = fastTanh (x * (2.0f - sig)) * rm;
                 if (bits < 32000.0f) x = std::round (x * bits) / bits;
-                x = x * gz + rng.next() * noiseAmt + sqBurst;
+                x = x * g2 + rng.next() * noiseAmt + squeal;
                 io.setSample (k, i, dry * (1.0f - mix) + x * mix);
             }
         }
-        dispDrop = gz;
+        dispDrop = g2;
     }
     int displayHeight() const override { return 50; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
@@ -218,11 +253,63 @@ public:
         ui::label (g, dispDrop.load() > 0.5f ? "LOCK" : "DROP", r.reduced (10, 14), dispDrop.load() > 0.5f ? ui::kGreen : ui::kAmber, 14.0f, juce::Justification::centred);
     }
 private:
+    struct Squeal
+    {
+        bool active = false;
+        int stage = 0, t = 0, onsetN = 1, fallN = 1, coefIn = 0;   // stage 1: onset, 2: fall
+        float amp = 0.0f, a0 = 0.0f;
+        float oct = 11.0f, octEnd = 10.0f, glideK = 0.001f;     // pitch as log2 Hz
+        double phase = 0.0;
+        float vib = 0.0f;
+        Svf breath[2];
+    };
+    // A new squeal takes over from wherever the last one is (level, phase), so it never jumps.
+    void startSqueal (float topHz, float amount)
+    {
+        if (amount <= 0.0f) return;
+        const float len = 0.10f + 0.12f * amount;                                   // seconds, onset to silence
+        const float startHz = std::min (4200.0f, topHz * (0.85f + 0.4f * rng.uni()));
+        const float endHz = std::max (220.0f, startHz * (0.35f + 0.25f * rng.uni()));
+        sq.active = true;
+        sq.stage = 1; sq.t = 0;
+        sq.a0 = sq.amp;
+        sq.onsetN = std::max (1, (int) (0.006 * sr));
+        sq.fallN = std::max (1, (int) (len * sr) - sq.onsetN);
+        sq.oct = std::log2 (startHz);
+        sq.octEnd = std::log2 (endHz);
+        sq.glideK = 1.0f - std::exp (-1.0f / (len * 0.33f * (float) sr));
+        sq.coefIn = 0;
+    }
+    // Onset: raised cosine from where it was to full in 6 ms. Fall: raised cosine from full to
+    // silence (it ends on zero, with zero slope). The pitch slides down all the way.
+    float tickSqueal (float breathNorm)
+    {
+        ++sq.t;
+        if (sq.stage == 1)
+        {
+            sq.amp = sq.a0 + (1.0f - sq.a0) * 0.5f * (1.0f - std::cos (kPi * (float) sq.t / (float) sq.onsetN));
+            if (sq.t >= sq.onsetN) { sq.stage = 2; sq.t = 0; }
+        }
+        else
+        {
+            if (sq.t >= sq.fallN) { sq.active = false; sq.stage = 0; sq.amp = 0.0f; return 0.0f; }
+            sq.amp = 0.5f * (1.0f + std::cos (kPi * (float) sq.t / (float) sq.fallN));
+        }
+        sq.oct += sq.glideK * (sq.octEnd - sq.oct);
+        sq.vib += 6.5f / (float) sr; if (sq.vib > 1.0f) sq.vib -= 1.0f;
+        const float hz = std::exp2 (sq.oct) * (1.0f + 0.008f * std::sin (kTwoPi * sq.vib));
+        sq.phase += hz / sr; if (sq.phase >= 1.0) sq.phase -= 1.0;
+        if (sq.coefIn-- <= 0) { for (auto& f : sq.breath) f.set (hz, 6.0f, sr); sq.coefIn = 15; }
+        // Two band-passes: breath close around the tone, nothing hissing above it.
+        const float breath = sq.breath[1].tickBP (sq.breath[0].tickBP (rng.next()) * (1.0f / 6.0f)) * (1.0f / 6.0f) * breathNorm;
+        return (0.8f * std::sin (kTwoPi * (float) sq.phase) + breath) * sq.amp;
+    }
     double sr = 48000.0;
-    Svf bp[2][4], sqf;
+    Svf bp[2][4];
+    Squeal sq;
     Noise rng;
-    int dropLeft = 0, burst = 0;
-    float gz = 1.0f, ringPh = 0.0f, holdCount = 0.0f, held[2] {};
+    int dropLeft = 0, sqAt = -1;
+    float g1 = 1.0f, g2 = 1.0f, ringPh = 0.0f, holdCount = 0.0f, held[2] {};
     std::atomic<float> dispDrop { 1.0f };
 };
 ModulePtr makeRADIO() { return std::make_unique<RadioModule>(); }

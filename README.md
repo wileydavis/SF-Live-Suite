@@ -26,6 +26,7 @@ cmake --build build-test --target SFTests SFSnapshot
 ./build-test/SFTests_artefacts/Release/SFTests          # all checks (about a minute)
 ./build-test/SFTests_artefacts/Release/SFTests --quality   # sound-quality measurements only
 ./build-test/SFTests_artefacts/Release/SFTests --cpu       # CPU table
+./build-test/SFTests_artefacts/Release/SFTests --render RADIO 10 out.wav signal=0.3 squelch=0.8   # listen to one plugin
 ./build-test/SFSnapshot_artefacts/Release/SFSnapshot    # editor images -> docs/snapshots
 ```
 
@@ -50,7 +51,7 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **Slow mode:** turn **SLOW ALL** on SF CONTROL (1-64 bars) and every performance knob glides to where you set it over that many bars; OFF and your moves land at once. A quarter turn becomes a long, even build. A move keeps the length it was made with, so you can set OFF for a direct move and a length for a glide without stopping a knob that is already travelling. Song recalls follow it too. A plugin's own **SLOW** (CONTROL by default) can fix its own length or OFF instead. On the E16 (the SF SHOW scene), a travelling knob's ring turns green and walks with the sound until it arrives.
 
-**Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH in the MOTION row). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. They are saved with songs and presets, and random sources replay the same way every time the set is played.
+**Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH in the MOTION row). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. Odd rates (3/16, 5/16, 7/16, dotted, triplet, 3/5/7 BAR) run against the bar for polyrhythm and line up with it again every few bars. They are saved with songs and presets, and random sources replay the same way every time the set is played.
 
 **Presets:** the PRESET button in every header. 181 factory presets; SAVE USER PRESET writes to `~/Music/SF Live Suite/Presets/<MODULE>/`.
 
@@ -120,6 +121,12 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 6. **KEY and PANIC.** Set KEY on SF CONTROL: BASS, LEAD and PAD transpose (notes already held follow), KICK and RUMBLE retune to the root. Push SF DELAY into feedback and hold PANIC: everything goes quiet within 5 ms and stays quiet until you let go.
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
+
+### Changes in the Nov 4 update that affect existing sets
+
+- **SF RADIO: CRUSH and RATE follow SIGNAL.** They are the damage at SIGNAL 0; at 100 % the sound is 16-bit and full rate. A RADIO set to a constant crunch now cleans up as SIGNAL rises: lower SIGNAL (or CRUSH) for the old sound. At their defaults (16 bit, 48 kHz) nothing changes.
+- **SF RADIO: SQUELCH is a squeal**, not a burst of noise: a whistle sliding down as each dropout ends, with smooth edges. Its peaks are lower (the old burst reached -2 dBFS at SQUELCH 100 %); dropouts fade over ~10 ms instead of 2 ms.
+- **Longer menus: MOTION RATE** (M1 / M2 on every plugin) gains 3/16, 5/16, 7/16, 1/4D, 1/2D, 1/4T, 1/2T, 3 BAR, 5 BAR, 7 BAR; **SF DELAY TIME** gains 5/16 and 7/16. They are added at the end, so saved settings, songs and presets keep their values; an E16 knob or MIDI mapping now sweeps the longer list (DUB TIME's last two steps are the new ones). Live automation already recorded on these menus lands on different items.
 
 ### Changes in the Nov 3 update that affect existing sets
 

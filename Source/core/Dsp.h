@@ -54,13 +54,17 @@ struct AdaaTanh
 };
 inline float hardClip (float x, float c = 1.0f) { return std::max (-c, std::min (c, x)); }
 
-// Tempo divisions (beats). Index lists are shared by every "TIME"/"RATE" menu.
+// Tempo divisions (beats). Index lists are shared by every "TIME"/"RATE" menu: a menu is a run of
+// this table, so new divisions go on the end (a saved index never changes meaning). 5/16 and 7/16
+// (appended) are the odd ones: an echo at 5/16 lands on a different 16th every beat and meets the
+// beat again after 4 repeats (5 beats).
 struct Division { const char* name; double beats; };
 inline const std::vector<Division>& divisions()
 {
     static const std::vector<Division> d {
         { "4 BAR", 16.0 }, { "2 BAR", 8.0 }, { "1 BAR", 4.0 }, { "1/2", 2.0 }, { "1/4", 1.0 }, { "1/4D", 1.5 }, { "1/4T", 2.0 / 3.0 },
-        { "1/8", 0.5 }, { "1/8D", 0.75 }, { "1/8T", 1.0 / 3.0 }, { "1/16", 0.25 }, { "1/16D", 0.375 }, { "1/16T", 1.0 / 6.0 }, { "1/32", 0.125 } };
+        { "1/8", 0.5 }, { "1/8D", 0.75 }, { "1/8T", 1.0 / 3.0 }, { "1/16", 0.25 }, { "1/16D", 0.375 }, { "1/16T", 1.0 / 6.0 }, { "1/32", 0.125 },
+        { "5/16", 1.25 }, { "7/16", 1.75 } };
     return d;
 }
 inline std::vector<std::string> divisionNames (int from = 0, int to = -1)

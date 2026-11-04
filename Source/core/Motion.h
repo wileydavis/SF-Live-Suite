@@ -20,16 +20,27 @@ inline std::vector<std::string> motionSourceNames (bool instrument)
 {
     return { "OFF", "SINE", "TRIANGLE", "SQUARE", "RAMP UP", "RAMP DOWN", "RANDOM", "DRIFT", "KICK", instrument ? "NOTES" : "INPUT" };
 }
+// Rates 0-10 are straight; 11-20 (appended, so saved rates keep their place) run against the bar:
+// 3/16 5/16 7/16 cycle across the beat, 1/4D 1/2D (dotted) and 1/4T 1/2T (triplet) across the bar,
+// 3 5 7 BAR across a 4/8/16-bar phrase. Every one is locked to the song position: 5/16 meets the
+// bar line again every 5 bars, 3 BAR every 3 bars (12 in 4/4 for a 4-bar phrase).
 inline std::vector<std::string> motionRateNames()
 {
-    return { "1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR" };
+    return { "1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR",
+             "3/16", "5/16", "7/16", "1/4D", "1/2D", "1/4T", "1/2T", "3 BAR", "5 BAR", "7 BAR" };
 }
+inline constexpr int kMotionRates = 21;
 inline double motionRateBeats (int i, double beatsPerBar)
 {
     static const double q[] = { 0.25, 0.5, 1.0, 2.0 };
     static const double bars[] = { 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0 };
-    i = std::max (0, std::min (10, i));
-    return i < 4 ? q[i] : bars[i - 4] * beatsPerBar;
+    static const double odd[] = { 0.75, 1.25, 1.75, 1.5, 3.0, 2.0 / 3.0, 4.0 / 3.0 };   // 3/16 .. 1/2T, in beats
+    static const double oddBars[] = { 3.0, 5.0, 7.0 };
+    i = std::max (0, std::min (kMotionRates - 1, i));
+    if (i < 4) return q[i];
+    if (i < 11) return bars[i - 4] * beatsPerBar;
+    if (i < 18) return odd[i - 11];
+    return oddBars[i - 18] * beatsPerBar;
 }
 inline bool motionBipolar (int src) { return src == MOT_SINE || src == MOT_TRI || src == MOT_SQUARE || src == MOT_RANDOM || src == MOT_DRIFT; }
 

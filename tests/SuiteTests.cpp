@@ -886,6 +886,115 @@ static void testTransportJumps()
     Bus::testClock = nullptr;
 }
 
+// --render MODULE SECONDS OUT.wav [source=chord|beat|silence] [sweep=id:from:to] [id=value ...]: one
+// module at 48 kHz and 124 BPM into a 24-bit stereo WAV, for listening. An effect gets a test signal
+// (chord: a held D minor 9 chord of band-limited saws; beat: the suite's kick, chord and hats;
+// silence: nothing, to hear what the effect adds); an instrument gets the test MIDI. Values as --state (number in the parameter's unit, choice name, on/off). sweep
+// ramps one parameter in a straight line across the render.
+static int renderModule (int argc, char** argv)
+{
+    if (argc < 5) { std::fprintf (stderr, "usage: SFTests --render MODULE SECONDS OUT.wav [source=chord|beat|silence] [sweep=id:from:to] [id=value ...]\n"); return 2; }
+    const std::string mid = argv[2];
+    const double seconds = std::atof (argv[3]);
+    const juce::File outFile (juce::File::getCurrentWorkingDirectory().getChildFile (argv[4]));
+    const auto ids = allModuleIds();
+    if (std::find (ids.begin(), ids.end(), mid) == ids.end()) { std::fprintf (stderr, "no module %s\n", mid.c_str()); return 2; }
+    resetBus();
+    FakeHead head;
+    Rig r (mid, head);
+    const auto& sp = r.p->allSpecs();
+    std::string source = "chord", sweepId;
+    float sweepFrom = 0.0f, sweepTo = 0.0f;
+    auto setText = [&] (const std::string& key, const std::string& val) -> bool
+    {
+        const int k = r.p->paramIndex (key);
+        if (k < 0) { std::fprintf (stderr, "%s has no parameter %s\n", mid.c_str(), key.c_str()); return false; }
+        const auto& s = sp[(size_t) k];
+        float v = 0.0f;
+        if (s.type == PType::Choice)
+        {
+            const auto it = std::find (s.choices.begin(), s.choices.end(), val);
+            if (it == s.choices.end()) { std::fprintf (stderr, "%s %s has no choice %s\n", mid.c_str(), key.c_str(), val.c_str()); return false; }
+            v = (float) (it - s.choices.begin());
+        }
+        else if (s.type != PType::Float) v = val == "on" ? 1.0f : 0.0f;
+        else v = juce::jlimit (s.min, s.max, std::stof (val));
+        r.p->param (k)->setValueNotifyingHost (r.p->param (k)->convertTo0to1 (v));
+        return true;
+    };
+    for (int a = 5; a < argc; ++a)
+    {
+        const std::string arg = argv[a];
+        const auto eq = arg.find ('=');
+        if (eq == std::string::npos) { std::fprintf (stderr, "not id=value: %s\n", arg.c_str()); return 2; }
+        const auto key = arg.substr (0, eq), val = arg.substr (eq + 1);
+        if (key == "source") { source = val; continue; }
+        if (key == "sweep")
+        {
+            const auto c1 = val.find (':'), c2 = val.rfind (':');
+            if (c1 == std::string::npos || c2 == c1) { std::fprintf (stderr, "sweep=id:from:to\n"); return 2; }
+            sweepId = val.substr (0, c1); sweepFrom = std::stof (val.substr (c1 + 1, c2 - c1 - 1)); sweepTo = std::stof (val.substr (c2 + 1));
+            if (r.p->paramIndex (sweepId) < 0) { std::fprintf (stderr, "%s has no parameter %s\n", mid.c_str(), sweepId.c_str()); return 2; }
+            continue;
+        }
+        if (! setText (key, val)) return 2;
+    }
+    const bool inst = r.p->mod().instrument();
+    const int total = (int) (seconds * kSr);
+    juce::AudioBuffer<float> out (2, total);
+    // D minor 9 (D3 F3 A3 C4 E4), each note two saws 7 cents apart, harmonics below 9 kHz.
+    static const double chordHz[] = { 146.83, 174.61, 220.0, 261.63, 329.63 };
+    double ph[5][2] {};
+    auto chordAt = [&] (double t)
+    {
+        double y = 0.0;
+        for (int nIdx = 0; nIdx < 5; ++nIdx)
+            for (int d = 0; d < 2; ++d)
+            {
+                const double f = chordHz[nIdx] * (d == 0 ? 0.99796 : 1.00204);
+                double s = 0.0;
+                for (int h = 1; h * f < 9000.0; ++h) s += std::sin (ph[nIdx][d] * h) / h;
+                y += s;
+                ph[nIdx][d] += 2.0 * juce::MathConstants<double>::pi * f / kSr;
+            }
+        return (float) (y * 0.035 * (0.85 + 0.15 * std::sin (2.0 * juce::MathConstants<double>::pi * 0.25 * t)));
+    };
+    double ppq = 0.0;
+    for (int pos = 0; pos < total; pos += kBlock)
+    {
+        const int n = std::min (kBlock, total - pos);
+        if (! sweepId.empty())
+        {
+            const int k = r.p->paramIndex (sweepId);
+            const float v = sweepFrom + (sweepTo - sweepFrom) * (float) pos / (float) total;
+            r.p->param (k)->setValueNotifyingHost (r.p->param (k)->convertTo0to1 (v));
+        }
+        head.ppq = ppq;
+        r.buf.setSize (r.buf.getNumChannels(), n, false, false, true);
+        r.buf.clear();
+        r.midi.clear();
+        if (inst) fillMidi (r.midi, ppq, head.bpm, n);
+        else if (source == "beat") fillAudio (r.buf, ppq, head.bpm, r.p->getTotalNumInputChannels());
+        else if (source != "silence")
+            for (int i = 0; i < n; ++i)
+            {
+                const float x = chordAt ((pos + i) / kSr);
+                for (int c = 0; c < std::min (2, r.p->getTotalNumInputChannels()); ++c) r.buf.setSample (c, i, x);
+            }
+        r.p->processBlock (r.buf, r.midi);
+        for (int c = 0; c < 2; ++c) out.copyFrom (c, pos, r.buf, std::min (c, r.buf.getNumChannels() - 1), 0, n);
+        ppq += n * head.bpm / 60.0 / kSr;
+    }
+    outFile.deleteFile();
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (outFile), kSr, 2, 24, {}, 0));
+    if (w == nullptr) { std::fprintf (stderr, "can't write %s\n", outFile.getFullPathName().toRawUTF8()); return 1; }
+    w->writeFromAudioSampleBuffer (out, 0, total);
+    std::printf ("%s: %s, %.1f s, peak %.1f dB\n", outFile.getFullPathName().toRawUTF8(), mid.c_str(), seconds,
+                 gainToDb (std::max (out.getMagnitude (0, 0, total), out.getMagnitude (1, 0, total))));
+    return 0;
+}
+
 #include "QualityTests.h"
 
 int main (int argc, char** argv)
@@ -893,13 +1002,14 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && std::string (argv[1]) == "--dump") { dumpSpecs(); return 0; }
     if (argc > 1 && std::string (argv[1]) == "--state") return dumpState (argc, argv);
+    if (argc > 1 && std::string (argv[1]) == "--render") return renderModule (argc, argv);
     std::vector<std::string> ids = allModuleIds();
     if (argc > 1) { ids.clear(); for (int i = 1; i < argc; ++i) if (argv[i][0] != '-' && std::string (argv[i]).find_first_of ("abcdefghijklmnopqrstuvwxyz") == std::string::npos) ids.push_back (argv[i]); }
     std::printf ("SF LIVE SUITE offline tests (bus %s)\n", Bus::get().shared() ? "shared" : "local");
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testGlideRings(); }
+                     testThirdReview(); testDrop(); testSlowAll(); testGlideRings(); testRadio(); testPolyrhythm(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -924,6 +1034,8 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--drop") { testDrop(); }
     else if (std::string (argv[1]) == "--slow") { testSlowAll(); testSlowAndMacro(); }
     else if (std::string (argv[1]) == "--rings") { testGlideRings(); }
+    else if (std::string (argv[1]) == "--radio") { testRadio(); }
+    else if (std::string (argv[1]) == "--poly") { testPolyrhythm(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

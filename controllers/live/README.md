@@ -8,6 +8,7 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 |---|---|
 | `SF SHOW.als` | The set. Live 12.1 format: opens in Live 12.1 and later (VST3 song recall needs 12.2). |
 | `make_set.py` | Builds it from the track list in the script, `controllers/e16/layout.py` and the plugins' own code. |
+| `check_set.py` | Checks any Live set's mappings against the E16 scene: what is missing, on the wrong target or the wrong range, and which keys PANIC and 92 PA are on. Reads the set, never writes it. |
 
 ## IN THE SET
 
@@ -95,9 +96,23 @@ For DECK's headphone cue, add an audio track: Audio From 41 DECK, CUE; out to th
    suite isn't installed, or VST3 is off.
 2. Cmd-M: the MIDI Mappings list shows the E16 mappings (108). Turn a few knobs on different pages:
    the parameter named in `sf-show-map.csv` moves, and a volume stops at 0 dB.
+   `python3 controllers/live/check_set.py "SF SHOW.als"` says the same from the file: 108 of 108.
 3. Play the ONE: each instrument plays only its own part; the LIVE BUS, Main and 92 PA meters move;
    93 REC, armed, records the set. Cue a track: it reaches the headphones and not the PA.
 4. Then the manual's chapter 7, BEFORE THE FIRST SHOW.
+
+## A SET OF YOUR OWN
+
+A set you saved before a mapping existed (SLOW ALL, the presses), or one mapped by hand, keeps the
+mappings it was saved with: rebuilding SF SHOW.als doesn't reach it. Check it:
+
+```
+python3 controllers/live/check_set.py "My Show.als"
+```
+
+It lists every E16 address that is missing or on the wrong target, with where it sits on the E16, and
+the keys on PANIC and 92 PA. Map what it lists (Cmd-M: click the target, turn or press the knob), save,
+run it again. It finds targets by the template's track names and plugin names, VST3 or AU.
 
 ## REBUILDING
 

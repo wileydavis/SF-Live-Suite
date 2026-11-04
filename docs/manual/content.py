@@ -364,7 +364,7 @@ MODULES["DENSITY"] = dict(group="EFFECTS", summary="The send-delay hat trick as 
 MODULES["DELAY"] = dict(group="EFFECTS", summary="Tape-style dub delay. Changing TIME bends the pitch as the tape head moves; feedback above 100 % saturates instead of exploding; THROW and FREEZE for live moves. Ducks its repeats around the kick.",
     use=["As a return (DRY off): INPUT THROW ONLY and THROW mapped to a button gives dub throws.", "Turn TIME during a tail for the tape-bend. SLEW sets how long the bend takes.", "FEEDBACK past 100 % with TONE swept = the runaway dub effect, safe."],
     models=[], desc={
-        "time": "Delay time, synced: 1 BAR to 1/32. Changing it slews the head (pitch bend).",
+        "time": "Delay time, synced: 1 BAR to 1/32, then 5/16 and 7/16 (odd lengths: the repeats walk across the beat). Changing it slews the head (pitch bend).",
         "feedback": "Repeats, up to 115 %. Above 100 % the loop saturates instead of growing.",
         "tone": "Bipolar filter inside the feedback loop: left darker, right thinner. Each repeat goes further than the last.",
         "drive": "Saturation inside the feedback loop (2x oversampled): each repeat dirtier than the last.",
@@ -400,14 +400,14 @@ MODULES["DRIVE"] = dict(group="EFFECTS", summary="Saturation with one CHARACTER 
         "tone": "Tilt EQ around 800 Hz.", "low_keep": "Below this frequency the signal stays clean. 0 = off.",
         "mix": "Dry/wet. The dry signal runs through an identical oversampler, so the blend is phase-aligned (no comb filtering) and MIX 0 is the clean input.", "auto_gain": "Holds the driven signal's loudness near the input's, before MIX.",
     })
-MODULES["RADIO"] = dict(group="EFFECTS", summary="Transmission processor: band-limit, dirt, noise, dropouts and squelch. SIGNAL is one knob from lost to clear.",
+MODULES["RADIO"] = dict(group="EFFECTS", summary="Transmission processor: band-limit, dirt, noise, dropouts and squelch. SIGNAL is one knob from lost to clear: it also takes CRUSH and RATE from their setting at 0 to clean at 100 %.",
     use=["On a voice, ride SIGNAL from 0 to 100 % to bring a ghost transmission into focus."],
     models=[], desc={
-        "signal": "Clarity: band width, noise, dropouts and distortion all follow it.",
+        "signal": "Clarity: band width, noise, dropouts, distortion, CRUSH and RATE all follow it.",
         "band": "Centre of the pass band.", "width": "Width of the pass band.", "noise": "Noise floor.",
-        "dropout": "How often the signal drops out (more at low SIGNAL).", "squelch": "Squelch burst after each dropout.",
+        "dropout": "How often the signal drops out (more at low SIGNAL). Each drop fades out and back in over about 10 ms.", "squelch": "A squeal as each dropout ends: a whistle sliding down from the top of the band, a little breath around it, 0.1-0.2 s (longer with more SQUELCH). Fades in and out smoothly: no click.",
         "ring": "Ring modulation (47 Hz) for a metallic voice.", "mix": "Dry/wet.",
-        "crush": "Bit depth (16 = clean).", "rate": "Sample rate reduction.",
+        "crush": "Bit depth at SIGNAL 0; SIGNAL brings it back to 16 bits (16 = off).", "rate": "Sample rate at SIGNAL 0; SIGNAL brings it back to full rate (48 kHz = off).",
     })
 MODULES["REPEAT"] = dict(group="EFFECTS", summary="Beat repeat for fills and builds. Hold ROLL: it captures LENGTH of audio from the next QUANT point and loops it, each pass quieter, lower, darker.",
     use=["Map ROLL to a button; LENGTH 1/16 then 1/32 into a drop.", "PITCH negative = the classic falling roll."],
@@ -504,7 +504,7 @@ SYSTEM = [
     ("MACRO SRC", "OFF, MACRO 1-6", "Which SF CONTROL macro this plugin follows."),
     ("MACRO AMT", "-100 to +100 %", "How strongly and in which direction. Each plugin decides which of its knobs respond (the ones marked M in the tables)."),
     ("M1 / M2 SOURCE", "OFF, SINE, TRIANGLE, SQUARE, RAMP UP, RAMP DOWN, RANDOM, DRIFT, KICK, NOTES or INPUT", "Two modulators (MOTION). Waves, RANDOM (stepped) and DRIFT (smooth) move around the knob; ramps rise or fall from it and restart every RATE; KICK follows SF KICK's hits; NOTES (instruments) follows velocity; INPUT (effects) follows the input level."),
-    ("M1 / M2 RATE", "1/16 to 64 BAR", "Cycle length, locked to Live's song position. For KICK, NOTES and INPUT: the release time."),
+    ("M1 / M2 RATE", "1/16 to 64 BAR, odd", "Cycle length, locked to Live's song position; the odd ones run against the bar (MOTION, below). KICK, NOTES, INPUT: the release."),
     ("M1 / M2 TARGET", "OFF or any knob", "The control the modulator moves."),
     ("M1 / M2 DEPTH", "-100 to +100 %", "How far, as a share of the target's whole range. Negative turns it upside down."),
 ]

@@ -5,6 +5,7 @@
 // MOTION: mot (module, k, source, rate, target parameter id, depth).
 //   sources: 1 SINE 2 TRIANGLE 3 SQUARE 4 RAMP UP 5 RAMP DOWN 6 RANDOM 7 DRIFT 8 KICK 9 INPUT/NOTES
 //   rates:   0 1/16 1 1/8 2 1/4 3 1/2 4 1 BAR 5 2 BAR 6 4 BAR 7 8 BAR 8 16 BAR 9 32 BAR 10 64 BAR
+//            11 3/16 12 5/16 13 7/16 14 1/4D 15 1/2D 16 1/4T 17 1/2T 18 3 BAR 19 5 BAR 20 7 BAR
 #include "../core/Registry.h"
 #include <map>
 #include <mutex>

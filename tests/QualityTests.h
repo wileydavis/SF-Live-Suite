@@ -8,6 +8,8 @@
 //   --panic         SF CONTROL PANIC silences tails and held notes
 //   --rates         44.1 / 96 kHz, odd and huge block sizes, block-size independence
 //   --cpu           real-time factor per module (README table)
+//   --radio         RADIO: CRUSH/RATE follow SIGNAL, click-free holes and squeal, RATE counter
+//   --poly          MOTION's odd rates on the song position, DELAY 5/16 and 7/16
 #include "core/BandLimited.h"
 #include "core/E16Glide.h"
 #include "core/E16Map.h"
@@ -2554,4 +2556,199 @@ static void testGlideRings()
     std::printf ("   KICK removed: %d arrival(s) sent for its knobs\n", left);
     CHECK (left == 8, "removed plugin: %d arrivals, want 8", left);
     resetBus();
+}
+
+// ------------------------------------------------------------------------------------------
+// SF RADIO: CRUSH and RATE follow SIGNAL (clean at 100 %), the holes fade on an S-curve, SQUELCH is
+// a squeal that never starts on a step and slides down, and the RATE counter can't run away.
+static float goertzelDb (const std::vector<float>& x, size_t from, size_t n, double hz, double sr)
+{
+    const double w = 2.0 * 3.14159265358979 * hz / sr, cw = 2.0 * std::cos (w);
+    double s1 = 0.0, s2 = 0.0;
+    for (size_t i = from; i < from + n && i < x.size(); ++i) { const double s0 = x[i] + cw * s1 - s2; s2 = s1; s1 = s0; }
+    const double p = s1 * s1 + s2 * s2 - cw * s1 * s2;
+    return gainToDb ((float) (2.0 * std::sqrt (std::max (0.0, p)) / (double) n));
+}
+
+static void testRadio()
+{
+    std::printf ("-- RADIO\n");
+    // A sine through RADIO; returns the left channel.
+    auto run = [] (double sr, double seconds, double hz, const std::map<std::string, float>& set,
+                   const std::function<void (Rig2&, double)>& during = nullptr)
+    {
+        resetBus();
+        Rig2 r ("RADIO", sr);
+        r.set ("dropout", 0.0f); r.set ("noise", 0.0f); r.set ("squelch", 0.0f); r.set ("ring", 0.0f);
+        for (auto& [k, v] : set) r.set (k.c_str(), v);
+        std::vector<float> o;
+        int64_t t = 0;
+        while (t < (int64_t) (seconds * sr))
+        {
+            if (during) during (r, (double) t / sr);
+            r.step (r.block, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    const float v = hz > 0.0 ? 0.4f * (float) std::sin (6.283185307 * hz * (double) (t + i) / sr) : 0.0f;
+                    bb.setSample (0, i, v); bb.setSample (1, i, v);
+                }
+            });
+            for (int i = 0; i < r.block; ++i) o.push_back (r.buf.getSample (0, i));
+            t += r.block;
+        }
+        return o;
+    };
+    auto residual = [] (const std::vector<float>& a, const std::vector<float>& b)
+    {
+        double e = 0.0, s = 0.0;
+        for (size_t i = 4800; i < std::min (a.size(), b.size()); ++i) { e += (double) (a[i] - b[i]) * (a[i] - b[i]); s += (double) b[i] * b[i]; }
+        return 10.0 * std::log10 (std::max (e, 1e-30) / std::max (s, 1e-30));
+    };
+    // 1. CRUSH 4 bit / RATE 4 kHz: the full damage at SIGNAL 0, less at 50 %, none at 100 %.
+    {
+        double res[3];
+        const float sigs[3] = { 0.0f, 0.5f, 1.0f };
+        for (int k = 0; k < 3; ++k)
+        {
+            const auto crushed = run (kSr, 0.5, 1100.0, { { "signal", sigs[k] }, { "crush", 4.0f }, { "rate", 4000.0f } });
+            const auto clean = run (kSr, 0.5, 1100.0, { { "signal", sigs[k] } });
+            res[k] = residual (crushed, clean);
+        }
+        std::printf ("   CRUSH 4 bit, RATE 4 kHz against clean: SIGNAL 0 %.1f dB, 50 %% %.1f dB, 100 %% %.1f dB\n", res[0], res[1], res[2]);
+        CHECK (res[0] > -15.0 && res[1] < res[0] - 3.0 && res[2] < -200.0, "CRUSH / RATE don't follow SIGNAL (%.1f, %.1f, %.1f dB)", res[0], res[1], res[2]);
+    }
+    // 2. Holes: the dropout fades add no kink. Largest second difference with dropouts against without.
+    {
+        auto d2 = [] (const std::vector<float>& x)
+        {
+            float m = 0.0f;
+            for (size_t i = 4800; i < x.size(); ++i) m = std::max (m, std::fabs (x[i] - 2.0f * x[i - 1] + x[i - 2]));
+            return m;
+        };
+        const auto holes = run (kSr, 8.0, 1100.0, { { "signal", 0.0f }, { "dropout", 1.0f } });
+        const auto none = run (kSr, 8.0, 1100.0, { { "signal", 0.0f } });
+        int dips = 0;
+        for (size_t i = 4800, in = 0; i < holes.size(); i += 480)
+        {
+            float pk = 0.0f;
+            for (size_t j = i; j < i + 480 && j < holes.size(); ++j) pk = std::max (pk, std::fabs (holes[j]));
+            const bool low = pk < 0.01f;
+            if (low && ! in) ++dips;
+            in = low;
+        }
+        std::printf ("   DROPOUT 100 %% at SIGNAL 0: %d holes in 8 s; largest 2nd difference %.4f (%.4f without holes)\n", dips, d2 (holes), d2 (none));
+        CHECK (dips >= 10, "RADIO made only %d holes", dips);
+        CHECK (d2 (holes) < 1.1f * d2 (none), "RADIO holes kink the signal (%.4f against %.4f)", d2 (holes), d2 (none));
+    }
+    // 3. SQUELCH alone (no input): every squeal rises from silence without a step and slides down.
+    {
+        const auto o = run (kSr, 6.0, 0.0, { { "signal", 0.0f }, { "dropout", 1.0f }, { "squelch", 1.0f } });
+        float pk = 0.0f, step = 0.0f;
+        for (size_t i = 1; i < o.size(); ++i) { pk = std::max (pk, std::fabs (o[i])); step = std::max (step, std::fabs (o[i] - o[i - 1])); }
+        // A sine at 4.2 kHz (the highest a squeal starts) of the loudest level moves at most this far per sample.
+        const float sineStep = pk * 2.0f * 3.14159265f * 4200.0f / (float) kSr;
+        size_t first = 0;
+        while (first < o.size() && std::fabs (o[first]) < 1e-6f) ++first;
+        auto pitch = [&] (size_t from, size_t n)
+        {
+            double best = -300.0, bestHz = 0.0;
+            for (double hz = 200.0; hz < 5000.0; hz += 10.0) { const double v = goertzelDb (o, from, n, hz, kSr); if (v > best) { best = v; bestHz = hz; } }
+            return bestHz;
+        };
+        const double early = pitch (first + 288, 1920), late = pitch (first + 4800, 1920);   // 6-46 ms, 100-140 ms
+        int squeals = 0;
+        for (size_t i = 1, quiet = 1; i < o.size(); ++i)
+        {
+            if (std::fabs (o[i]) > 1e-6f && quiet > 480) ++squeals;
+            quiet = std::fabs (o[i]) > 1e-6f ? 0 : quiet + 1;
+        }
+        std::printf ("   SQUELCH 100 %%: %d squeals in 6 s, peak %.1f dB, largest step %.4f (a 4.2 kHz sine at that level: %.4f);\n"
+                     "   the first slides %.0f Hz > %.0f Hz\n", squeals, gainToDb (pk), step, sineStep, early, late);
+        CHECK (squeals >= 5, "RADIO SQUELCH: %d squeals", squeals);
+        CHECK (step < sineStep, "RADIO squeal starts on a step (%.4f, a sine moves %.4f)", step, sineStep);
+        CHECK (early > 1.3 * late && late >= 200.0 && early <= 4300.0, "RADIO squeal doesn't slide down (%.0f > %.0f Hz)", early, late);
+        CHECK (pk > 0.05f && pk < 0.4f, "RADIO squeal level %.1f dB", gainToDb (pk));
+    }
+    // 4. RATE at 44.1 kHz: five minutes at 48 kHz (above the host rate) must not wind up the
+    //    sample-hold counter (it grew 0.08 a sample and took over a second to drain), so RATE 2 kHz
+    //    bites as soon as the knob gets there (its 1100 Hz image of a 900 Hz sine, 0.6 s later).
+    {
+        const double sr = 44100.0;
+        const auto late = run (sr, 301.0, 900.0, { { "signal", 0.0f } }, [] (Rig2& r, double sec) { r.set ("rate", sec < 300.0 ? 48000.0f : 2000.0f); });
+        const auto fresh = run (sr, 1.0, 900.0, { { "signal", 0.0f }, { "rate", 2000.0f } });
+        const double a = goertzelDb (late, (size_t) (300.6 * sr), 2205, 1100.0, sr), b = goertzelDb (fresh, (size_t) (0.6 * sr), 2205, 1100.0, sr);
+        std::printf ("   RATE 2 kHz at 44.1 kHz after five minutes at 48 kHz: image %.1f dB 0.6 s later (from the start: %.1f dB)\n", a, b);
+        CHECK (std::abs (a - b) < 3.0, "RADIO RATE late after a long run above the host rate (%.1f against %.1f dB)", a, b);
+    }
+}
+
+// Polyrhythm: MOTION's odd rates hold to the song position and meet the bar line where they should;
+// DELAY's 5/16 and 7/16 put the first echo 1.25 and 1.75 beats after the sound.
+static void testPolyrhythm()
+{
+    std::printf ("-- POLYRHYTHM\n");
+    {
+        const auto names = motionRateNames();
+        CHECK ((int) names.size() == kMotionRates && names[10] == "64 BAR" && names[12] == "5/16" && names[20] == "7 BAR", "MOTION rate list changed its order");
+    }
+    // SQUARE on FILTER 50 %, depth 25 %: 75 % in the first half of each cycle, 25 % in the second.
+    struct Case { int rate; const char* name; double cycleBeats; };
+    const Case cases[] = { { 11, "3/16", 0.75 }, { 12, "5/16", 1.25 }, { 13, "7/16", 1.75 }, { 14, "1/4D", 1.5 }, { 15, "1/2D", 3.0 },
+                           { 16, "1/4T", 2.0 / 3.0 }, { 17, "1/2T", 4.0 / 3.0 }, { 18, "3 BAR", 12.0 }, { 19, "5 BAR", 20.0 }, { 20, "7 BAR", 28.0 } };
+    for (const auto& cs : cases)
+    {
+        resetBus();
+        Rig2 r ("FILTER");
+        const int fi = r.p->paramIndex ("filter");
+        r.set ("filter", 0.5f); r.set ("m1_src", 3.0f); r.set ("m1_rate", (float) cs.rate); r.set ("m1_target", 1.0f); r.set ("m1_depth", 0.25f);
+        const double span = std::max (cs.cycleBeats * 4.0, 20.0) + 1.0;
+        const double blockBeats = r.bps() * kBlock;
+        int checked = 0, wrong = 0;
+        while (r.ppq < span)
+        {
+            r.step (kBlock, nullptr);
+            const double ph = std::fmod (r.ppq, cs.cycleBeats) / cs.cycleBeats;
+            const double edge = std::min ({ ph, std::abs (ph - 0.5), 1.0 - ph }) * cs.cycleBeats;
+            if (edge < 4.0 * blockBeats) continue;             // the 3 ms slew sits on the edges
+            const float want = ph < 0.5 ? 0.75f : 0.25f;
+            ++checked;
+            if (std::abs (r.p->currentValue (fi) - want) > 0.02f) ++wrong;
+        }
+        // Where it meets the bar line again: the least whole number of bars holding whole cycles.
+        int meet = 1;
+        while (std::abs (std::fmod (meet * 4.0, cs.cycleBeats)) > 1e-6 && std::abs (std::fmod (meet * 4.0, cs.cycleBeats) - cs.cycleBeats) > 1e-6) ++meet;
+        std::printf ("   %-5s cycle %.3f beats, meets the bar line every %d bar%s: %d points, %d off\n", cs.name, cs.cycleBeats, meet, meet == 1 ? "" : "s", checked, wrong);
+        CHECK (checked > 50 && wrong == 0, "MOTION %s off the song position (%d of %d)", cs.name, wrong, checked);
+    }
+    for (const char* t : { "5/16", "7/16" })
+    {
+        resetBus();
+        Rig2 r ("DELAY");
+        r.head.bpm = 120.0;
+        const auto& sp = r.p->allSpecs();
+        const auto& ch = sp[(size_t) r.p->paramIndex ("time")].choices;
+        const int idx = (int) (std::find (ch.begin(), ch.end(), std::string (t)) - ch.begin());
+        r.set ("time", (float) idx); r.set ("mix", 1.0f); r.set ("dry", 1.0f); r.set ("feedback", 0.3f); r.set ("wow", 0.0f); r.set ("duck", 0.0f);
+        std::vector<float> o;
+        int64_t n0 = 0;
+        for (int b = 0; b < (int) (2.0 * kSr) / kBlock; ++b)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& bb, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i) { const float v = (n0 + i) == 2400 ? 0.8f : 0.0f; bb.setSample (0, i, v); bb.setSample (1, i, v); }
+                n0 += n;
+            });
+            for (int i = 0; i < kBlock; ++i) o.push_back (0.5f * (r.buf.getSample (0, i) + r.buf.getSample (1, i)));
+        }
+        // The dry click, then the loudest point after it (the first echo).
+        size_t dry = 0;
+        for (size_t i = 0; i < o.size(); ++i) if (std::fabs (o[i]) > std::fabs (o[dry])) dry = i;
+        size_t echo = dry + 2000;
+        for (size_t i = dry + 2000; i < o.size(); ++i) if (std::fabs (o[i]) > std::fabs (o[echo])) echo = i;
+        const double beats = (double) (echo - dry) / (kSr * 60.0 / 120.0);
+        const double want = std::string (t) == "5/16" ? 1.25 : 1.75;
+        std::printf ("   DELAY TIME %s (menu item %d): first echo %.4f beats after the sound\n", t, idx + 1, beats);
+        CHECK (idx < (int) ch.size() && std::abs (beats - want) < 0.002, "DELAY %s echo at %.4f beats", t, beats);
+    }
 }
