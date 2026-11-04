@@ -101,10 +101,12 @@ MIXER = {
     ("40 BRIDGE", "volume"): (15, 101),
 }
 
-# Ring colours: indexes into the OXI App's 10 x 10 colour picker (34 white, 18 light blue, 50 pink).
-# Light blue marks volume; everything else is white. Pink: the knob is on its second destination
-# (Swap Destination's second colour). Change them here, not in the App: make_scene.py rewrites the file.
-WHITE, LIGHT_BLUE, PINK = 34, 18, 50
+# Ring colours: indexes into the OXI App's 10 x 10 colour picker, read row by row from the top left
+# from 0 (34 white, 18 light blue, 90 green: the bottom row's first). Light blue marks volume;
+# everything else is white. Green, the suite's colour for a glide: the knob is on its second
+# destination, SLOW ALL (Swap Destination's second colour). Change them here, not in the App:
+# make_scene.py rewrites the file.
+WHITE, LIGHT_BLUE, GREEN = 34, 18, 90
 
 FADER = "Max 0 dB"
 BIPOLAR = ("energy", "filter", "tune")      # centre (64) is neutral
@@ -208,7 +210,7 @@ class Swap:
 
     def __init__(self, ctl):
         self.ctl = ctl
-        ctl.second, ctl.colour = True, PINK
+        ctl.second, ctl.colour = True, GREEN
         self.name, self.target = ctl.label, ctl.target
         self.channel, self.number = ctl.channel, ctl.number
 

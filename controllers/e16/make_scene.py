@@ -13,7 +13,8 @@ Pushes follow a test scene exported by the OXI App on 3 Nov 2026 ("presd types")
 9 = Swap Destination, 0 = Off; mode 1 = Press & Release. A CC push keeps its number in nr1, P.Val in
 upper and R.Val in lower; a note push its note in nr1 and its velocity in nr2. Output: 0 = ALL (as the
 turns and pages send), 15 = OFF (sends nothing). The swap push is the App's own, as exported. A swap's
-second destination is turn action 2, with color2 as its ring colour. An encoder with two destinations
+second destination is turn action 2, with color2 as its ring colour, and mode 14 like turn action 1
+(the App's default there; its default for turn action 2 is 3, no acceleration), so both feel the same. An encoder with two destinations
 and no swap press would send both on every turn: check() refuses one.
 """
 import argparse
@@ -89,7 +90,7 @@ def push(p, i):
 
 def second_turn(c, kind):
     t = copy.deepcopy(REF_TURN_2)
-    t.update(type=kind, channel=c.channel, nr1=c.number, nr2=0, defaultValue=c.default)
+    t.update(type=kind, mode=REF_TURN_1["mode"], channel=c.channel, nr1=c.number, nr2=0, defaultValue=c.default)
     return t
 
 

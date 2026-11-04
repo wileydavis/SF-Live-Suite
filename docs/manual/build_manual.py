@@ -293,7 +293,7 @@ story += bullets(["Live is the clock master. On the ONE: USB device mode, sync f
 
 story.append(H2("THE E16"))
 story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README); SF SHOW.als has every address mapped. The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
-PRESS_DOES = {"SLOW ALL": "a quick press flips the knob to SLOW ALL on SF CONTROL (pink ring): how long your next moves take, OFF to 64 BAR; another press flips it back",
+PRESS_DOES = {"SLOW ALL": "a quick press flips the knob to SLOW ALL on SF CONTROL (green ring): how long your next moves take, OFF to 64 BAR; another press flips it back",
               "DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "PANIC": "every SF plugin silent while held",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
               "ROLL": "the drums roll while held"}
@@ -317,7 +317,7 @@ story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(p
                  + ["<b>PANIC and 92 PA's on/off are on computer keys</b> (Key Map, Cmd-K), never on a press: a knob is easily pressed while it is turned, and neither may ever happen by accident. A key flips them: PANIC on, every SF plugin silent; again, back. Every press on the E16 is one the set plays through if it happens by accident."])
 story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
                   "Each instrument's LEVEL belongs to its song; the volumes here are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix, and give every volume mapping a maximum of 0 dB (Max in Live's MIDI Mappings).",
-                  "Rings: light blue is a volume, white is everything else, pink is knob 1 on SLOW ALL."])
+                  "Rings: light blue is a volume, white is everything else, green is knob 1 on SLOW ALL."])
 
 story.append(H2("THE E16: PAGES"))
 rows = [["PAGE", "ROW 3: ENCODERS 9-12", "ROW 4: ENCODERS 13-16", "PRESSES"]]

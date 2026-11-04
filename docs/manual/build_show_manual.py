@@ -515,12 +515,12 @@ for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND",
 story.append(E16Grid(cells))
 story.append(Spacer(1, 8))
 story += bullets(["<b>1-3, the group ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together).",
-                  "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns pink): turn it to set how long your next moves take, OFF (at once) to 64 BAR. Press again: LOW ENERGY. Knobs already travelling keep going.",
+                  "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns green): turn it to set how long your next moves take, OFF (at once) to 64 BAR. Press again: LOW ENERGY. Knobs already travelling keep going.",
                   "<b>4, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page. The drop lands on the next bar line (chapter 7).",
                   "<b>5-8, the volumes:</b> KICK, LOW, DRUMS, MUSIC. Each is mapped with a maximum of 0 dB, so a full turn never runs past the soundcheck balance.",
                   "<b>On an instrument page</b> 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row."])
 story.append(H2T("RINGS, PAGES, PRESSES"))
-story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else, pink is knob 1 on SLOW ALL. Live sends every value back, so the rings follow song recalls and mouse moves.",
+story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else, green is knob 1 on SLOW ALL. Live sends every value back, so the rings follow song recalls and mouse moves.",
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>Changing pages sends nothing.</b> A knob on two pages (LOW ENERGY is on all twelve) sends the same address from both: two ways to one mapping.",
                   "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off.",
@@ -551,7 +551,7 @@ story += numbered(["Every knob: turn it, the right parameter moves. Every press:
                    "Hold DROP, a THROW and ROLL for three seconds each: on for the whole hold, off on release. (A long press also opens the E16's own functions; if one interferes, make that press a toggle.)",
                    "Shared knobs: on page 2 turn LOW ENERGY fully left; on page 1 turn it one step right. The sound moves one step, not jumps. If it jumps, the E16 keeps a value per page: controllers/e16 README, check 4, has the relative fallback.",
                    "Change pages, leave SF SHOW and come back: Live's MIDI input indicator stays dark.",
-                   "Press knob 1 (pink) and turn: SLOW ALL moves, LOW ENERGY doesn't. Press again: LOW ENERGY.",
+                   "Press knob 1 (green) and turn: SLOW ALL moves, LOW ENERGY doesn't. Press again: LOW ENERGY.",
                    "Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from the new value."])
 story.append(PageBreak())
 
@@ -689,6 +689,7 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["Songs don't change", "PC ENABLE on, PC CHANNEL 16, sequencer 8 on 16B. The VST3 needs Live 12.2 or later; otherwise use the AU."],
     ["E16 rings don't follow", "Remote on for E16 Port 2's output."],
     ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports."],
+    ["Knob 1 swapped (green) changes nothing", "SLOW ALL isn't mapped in this set: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 and turn it. Cmd-M off, save."],
     ["Knob 1 moves LOW ENERGY and SLOW ALL together", "Its push was changed in the App: load SF SHOW.oxie16 again (knob 1's push must be Swap Destination)."],
     ["Every move glides (or none does)", "SLOW ALL is saved with the set: press knob 1 and set it. A plugin whose own SLOW isn't CONTROL keeps its own."],
     ["An E16 knob jumps when touched", "Auto Transmit is on, or the E16 keeps a value per page: chapter 4, check 3."],

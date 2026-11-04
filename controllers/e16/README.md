@@ -23,12 +23,14 @@ Encoders are numbered row by row from the top left. Rows 1 and 2 are the same on
 E16's screen shows them as LOW ENGY, DRM ENGY, MUS ENGY, BUILD, KICK VOL, LOW VOL, DRUM VOL, MUS VOL).
 Rows 3 and 4 are the page: PERFORM, KICK, BASS, RUMBLE, HATS, STRIKE, ACID, STAB, TEXTURE, VOICE,
 SPACE, MACROS (the manual, chapter 7, THE E16). Rings: light blue is a volume, white is everything else,
-pink is knob 1 on SLOW ALL.
+green is knob 1 on SLOW ALL.
 
 **Knob 1 has two destinations.** A quick press flips it from LOW ENERGY to **SLOW ALL** on SF CONTROL
-(CC 34, channel 16; the ring turns pink and the screen shows a bar under the value): turn it to set how
+(CC 34, channel 16; the ring turns green and the screen shows a bar under the value): turn it to set how
 long your next moves take, OFF (at once) to 64 BAR. Another quick press flips it back. Knobs already
-travelling keep the length they set off with.
+travelling keep the length they set off with. SF SHOW.als has it mapped; in a set of your own (or one
+saved before SLOW ALL existed), map it once: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 (green)
+and turn it, Cmd-M off, save.
 
 ## ADDRESSES
 
@@ -122,7 +124,7 @@ every turn. `make_scene.py` refuses to write one.
 ## 6. CHECKS
 
 1. Every knob: turn it, the right parameter moves. Every press: the right switch.
-2. **Knob 1.** A quick press: the ring turns pink; turn it: SLOW ALL moves on SF CONTROL and LOW ENERGY
+2. **Knob 1.** A quick press: the ring turns green; turn it: SLOW ALL moves on SF CONTROL and LOW ENERGY
    stays put. Press again: white, and the turn moves LOW ENERGY. Do it on two pages.
 3. **Holds.** Hold DROP, a THROW and ROLL for three seconds each: the parameter stays on for the whole
    hold and goes off on release. (A long press on the E16 also opens its own functions, such as
