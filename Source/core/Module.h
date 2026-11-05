@@ -22,7 +22,9 @@ struct ParamSpec
     std::string unit;               // "%", "dB", "Hz", "ms", "st", "BIP" (bipolar 0..1, centre = off)
     std::vector<std::string> choices;
     bool primary = false;           // shown in the top row; first 8 params = Live's device view
-    bool glide = true;              // follows GLIDE (slow mode) when on
+    bool glide = true;              // may follow SLOW (menus and switches never do; noGlide() vetoes a knob)
+    bool slows = false;             // a detail knob SLOW moves too, like the top row (the E16's TEXTURE
+                                    // COLOR...): where SLOW reaches is not where a knob is drawn
     bool song = true;               // stored in song slots
     int macroDir = 0;               // response to the plugin's MACRO: +1 / -1 / 0
     bool hidden = false;            // not in the generic grid (the module draws its own control)
@@ -31,6 +33,8 @@ struct ParamSpec
     ParamSpec& prim()           { primary = true; return *this; }
     ParamSpec& dir (int d)      { macroDir = d; return *this; }
     ParamSpec& noGlide()        { glide = false; return *this; }
+    ParamSpec& slow()           { slows = true; return *this; }
+    bool glidesWithSlow() const { return glide && type == PType::Float && (primary || slows); }
     ParamSpec& noSong()         { song = false; return *this; }
     ParamSpec& u (const char* s){ unit = s; return *this; }
     ParamSpec& hide()           { hidden = true; return *this; }

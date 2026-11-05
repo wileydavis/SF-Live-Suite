@@ -116,7 +116,13 @@ public:
         // it was planned on may never come (a loop with no bar line in it), and a gap under way
         // would stay silent. It lands here, at once: on the bar line a loop wraps to, if it does.
         if (armed && c.playing && c.ppq < lastEnd - 0.01) { dropAt = gapAt = c.ppq; planned = true; publish (c); }
-        if (c.b (DROP) && ! released && ! armed) { armed = true; planned = false; }
+        // One drop per press: DROP arms on the press (the E16 sends 127 on press, 0 on release),
+        // never on a button still held from a drop that has landed. (Held through its bar line, the
+        // RETURN KNOB latch cleared as soon as BUILD was down and the same press armed a second
+        // drop, with a second gap, a bar later.) A press while RETURN KNOB holds is let go.
+        const bool dropDown = c.b (DROP), pressed = dropDown && ! dropWas;
+        dropWas = dropDown;
+        if (pressed && ! released && ! armed) { armed = true; planned = false; }
         if (armed && ! c.playing) planned = false;
         if (released && knobV < 0.05f) released = false;
         if (armed && ! planned) plan (c, spb);
@@ -248,7 +254,7 @@ private:
     Fdn fdn;
     Noise rng;
     float bz = 0.0f;
-    bool armed = false, released = false, planned = false, inGap = false, tailOn = false;
+    bool armed = false, released = false, planned = false, inGap = false, tailOn = false, dropWas = false;
     double dropAt = 0.0, gapAt = 0.0, lastEnd = 0.0;
     int tailPos = 0, tailLen = 1;
     float tailBz = 0.0f, tailNoise = 0.0f, dryG = 1.0f, tailDuck = 1.0f, tailDuckTarget = 1.0f;

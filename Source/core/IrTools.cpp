@@ -170,21 +170,69 @@ float energyDb (const juce::AudioBuffer<float>& b, int from, int len)
     return (float) (10.0 * std::log10 (e / std::max (1, len) + 1e-30));
 }
 
-// From the onset (searched back from the peak) to where the tail meets the noise; high-passed at
-// 20 Hz; scaled to kEnergy. limitEnd: where a second event begins (or the end).
-bool finish (Capture& c, const juce::AudioBuffer<float>& src, double sr, int peak, int limitEnd)
+// The 30 ms from 1 ms before `at`, every channel: the octaves 250 Hz - 4 kHz hold 1 % or more of
+// its energy, four of the five within 30 dB of the strongest. An impulse response is so; a chirp
+// (a sweep's inverse run over something that is not the sweep) is narrow at any instant.
+bool broadbandAt (const std::vector<std::vector<float>>& hc, int at, double sr)
 {
-    const int chs = src.getNumChannels();
-    // Onset: the 0.5 ms energy falls 30 dB under the peak's, at most 50 ms before the peak.
-    const int w = std::max (8, (int) (0.0005 * sr));
-    const float peakDb = energyDb (src, std::max (0, peak - w / 2), w);
-    int onset = peak;
-    for (int i = peak; i > std::max (0, peak - (int) (0.05 * sr)); i -= w / 2)
+    const int a = std::max (0, at - (int) (0.001 * sr)), len = (int) (0.031 * sr);
+    const int order = orderFor (len), N = 1 << order;
+    juce::dsp::FFT fft (order);
+    std::vector<float> buf (2 * (size_t) N);
+    double band[5] {}, all = 0.0;
+    for (const auto& h : hc)
     {
-        if (energyDb (src, std::max (0, i - w), w) < peakDb - 30.0f) { onset = std::max (0, i - w); break; }
-        onset = std::max (0, i - w);
+        std::fill (buf.begin(), buf.end(), 0.0f);
+        for (int i = 0; i < len && a + i < (int) h.size(); ++i)
+            buf[(size_t) i] = h[(size_t) (a + i)] * (float) (0.5 - 0.5 * std::cos (2.0 * kPiD * i / (len - 1)));
+        fft.performFrequencyOnlyForwardTransform (buf.data());
+        for (int k = 0; k <= N / 2; ++k) all += (double) buf[(size_t) k] * buf[(size_t) k];
+        for (int b = 0; b < 5; ++b)
+        {
+            const double fc = 250.0 * (1 << b);
+            for (int k = (int) std::ceil (fc / std::sqrt (2.0) * N / sr); k <= std::min (N / 2, (int) std::floor (fc * std::sqrt (2.0) * N / sr)); ++k)
+                band[b] += (double) buf[(size_t) k] * buf[(size_t) k];
+        }
     }
-    const int start = std::max (0, onset - (int) (0.001 * sr));
+    const double top = *std::max_element (band, band + 5);
+    double in = 0.0;
+    int near = 0;
+    for (double e : band) { in += e; if (e > top * 1.0e-3) ++near; }
+    return top > 0.0 && in >= 0.01 * all && near >= 4;
+}
+
+// From 1 ms before the first arrival to where the tail meets the noise; high-passed at 20 Hz;
+// scaled to kEnergy. peak: the strongest arrival; limitEnd: where a second event begins (or the end).
+bool finish (Capture& c, const juce::AudioBuffer<float>& srcIn, double sr, int peak, int limitEnd)
+{
+    const int chs = srcIn.getNumChannels();
+    // The first arrival: the earliest 0.5 ms, up to 300 ms before the peak, within 30 dB of the peak's
+    // and 20 dB over the floor (the quietest tenth before the peak). A finished IR's direct sound
+    // before a stronger reflection stays in; a capture's noise and talk before the clap stay out.
+    const int w = std::max (8, (int) (0.0005 * sr));
+    const float peakDb = energyDb (srcIn, std::max (0, peak - w / 2), w);
+    float floorDb = -300.0f;
+    {
+        std::vector<float> before;
+        for (int i = 0; i + w <= peak; i += w) before.push_back (energyDb (srcIn, i, w));
+        if (! before.empty())
+        {
+            std::nth_element (before.begin(), before.begin() + (long) (before.size() / 10), before.end());
+            floorDb = before[before.size() / 10];
+        }
+    }
+    const float thr = std::max (peakDb - 30.0f, floorDb + 20.0f);
+    int onset = peak;
+    for (int i = std::max (0, peak - (int) (0.3 * sr)); i <= peak; i += std::max (1, w / 4))
+        if (energyDb (srcIn, i, w) >= thr) { onset = i; break; }
+    // 1 ms before it, with silence put in front where the file starts sooner (the fade-in takes
+    // that ms, never the arrival).
+    const int lead = (int) (0.001 * sr), pad = std::max (0, lead - onset);
+    juce::AudioBuffer<float> src (chs, srcIn.getNumSamples() + pad);
+    src.clear();
+    for (int ch = 0; ch < chs; ++ch) src.copyFrom (ch, pad, srcIn, ch, 0, srcIn.getNumSamples());
+    onset += pad; peak += pad; limitEnd += pad;
+    const int start = onset - lead;
     const int maxEnd = std::min ({ limitEnd, src.getNumSamples(), start + (int) (kMaxSeconds * sr) });
     if (maxEnd - start < (int) (0.02 * sr)) { c.error = "TOO SHORT"; return false; }
 
@@ -206,11 +254,17 @@ bool finish (Capture& c, const juce::AudioBuffer<float>& src, double sr, int pea
     float noise = lastQ[lastQ.size() / 2];
     if (env.size() < 20 || slope < -10.0) noise = *std::min_element (env.begin(), env.end()) - 10.0f;
     c.snrDb = env[(size_t) peakHop] - noise;
+    // ... and stays there for 300 ms: a finished IR's later arrival after a silent gap is kept.
+    auto smoothed = [&] (int h) { return 10.0f * std::log10 ((std::pow (10.0f, env[(size_t) h] / 10.0f) + std::pow (10.0f, env[(size_t) h + 1] / 10.0f) + std::pow (10.0f, env[(size_t) h + 2] / 10.0f)) / 3.0f); };
+    const int hold = std::max (1, (int) (0.3 * sr / hop));
     int cut = (int) env.size();
     for (int h = peakHop + 1; h + 2 < (int) env.size(); ++h)
     {
-        const float sm = 10.0f * std::log10 ((std::pow (10.0f, env[(size_t) h] / 10.0f) + std::pow (10.0f, env[(size_t) h + 1] / 10.0f) + std::pow (10.0f, env[(size_t) h + 2] / 10.0f)) / 3.0f);
-        if (sm <= noise + 5.0f) { cut = h + 2; break; }
+        if (smoothed (h) > noise + 5.0f) continue;
+        int back = -1;
+        for (int k = h + 1; k < std::min (h + hold, (int) env.size() - 2) && back < 0; ++k) if (smoothed (k) > noise + 5.0f) back = k;
+        if (back < 0) { cut = h + 2; break; }
+        h = back;
     }
     const int end = std::min (maxEnd, start + cut * hop);
     const int len = end - start;
@@ -236,6 +290,11 @@ bool finish (Capture& c, const juce::AudioBuffer<float>& src, double sr, int pea
             x[i] = (float) y;
         }
     }
+    // Something must be left (a click faded away, or samples that are not numbers, is no place).
+    double e = 0.0;
+    for (int ch = 0; ch < chs; ++ch)
+        for (int i = 0; i < len; ++i) e += (double) out.getSample (ch, i) * out.getSample (ch, i);
+    if (! std::isfinite (e) || e < 1.0e-20) { c.error = "SILENT"; return false; }
     c.rt60 = rt60 (out, sr);
     normalise (out);
     c.ir = std::move (out);
@@ -289,27 +348,36 @@ Capture fromSweep (const juce::AudioBuffer<float>& recIn, double sr)
     for (int ch = 0; ch < chs; ++ch) rec.copyFrom (ch, 0, recIn, ch, 0, recIn.getNumSamples());
     const int sweepN = (int) std::lround (kSweepSec * sr);
     const double period = (kSweepSec + kGapSec) * sr;
-    auto mono = [&]
-    {
-        std::vector<float> m ((size_t) rec.getNumSamples(), 0.0f);
-        for (int ch = 0; ch < chs; ++ch) for (int i = 0; i < rec.getNumSamples(); ++i) m[(size_t) i] += rec.getSample (ch, i) / (float) chs;
-        return m;
-    };
     const int order = orderFor ((int64_t) rec.getNumSamples() + sweepN + 1);
     auto inv = inverseSweep (sr, order);
-    auto m = mono();
-    auto h = deconvolve (m.data(), (int) m.size(), inv, order);
-    // Is there a sweep? Deconvolved, a sweep is a spike 40 dB or more over the median; anything else
-    // stays noise-like.
+    // Each channel deconvolved; the evidence is their energy together (channels of opposite polarity
+    // do not cancel, as in a sum).
+    std::vector<std::vector<float>> hc ((size_t) chs);
+    std::vector<float> h;
+    auto deconvolveAll = [&]
+    {
+        for (int ch = 0; ch < chs; ++ch) hc[(size_t) ch] = deconvolve (rec.getReadPointer (ch), rec.getNumSamples(), inv, order);
+        h.assign (hc[0].size(), 0.0f);
+        for (size_t i = 0; i < h.size(); ++i)
+        {
+            float e = 0.0f;
+            for (int ch = 0; ch < chs; ++ch) e += hc[(size_t) ch][i] * hc[(size_t) ch][i];
+            h[i] = std::sqrt (e / (float) chs);
+        }
+    };
+    deconvolveAll();
+    // Is there a sweep? Deconvolved, a sweep is a spike 40 dB or more over the median, and broadband
+    // from its first moment (an impulse response). Anything else stays noise-like, or turns into a
+    // chirp, narrow at any instant: a click in silence does that, with a median near zero.
     const int limit = rec.getNumSamples();
     std::vector<float> mag;
-    for (int i = 0; i < limit; i += 7) mag.push_back (std::fabs (h[(size_t) i]));
+    for (int i = 0; i < limit; i += 7) mag.push_back (h[(size_t) i]);
     if (mag.empty()) { c.error = "EMPTY"; return c; }
     std::nth_element (mag.begin(), mag.begin() + (long) mag.size() / 2, mag.end());
     const float median = std::max (mag[mag.size() / 2], 1.0e-12f);
-    float top = 0.0f;
-    for (int i = 0; i < limit; ++i) top = std::max (top, std::fabs (h[(size_t) i]));
-    if (20.0f * std::log10 (top / median) < 40.0f) { c.error = "NO SWEEP"; return c; }
+    int topAt = 0;
+    for (int i = 0; i < limit; ++i) if (h[(size_t) i] > h[(size_t) topAt]) topAt = i;
+    if (20.0f * std::log10 (h[(size_t) topAt] / median) < 40.0f || ! broadbandAt (hc, topAt, sr)) { c.error = "NO SWEEP"; return c; }
     auto peaks = findPeaks (h, limit, 15.0f, (int) (0.6 * period));
     double drift = 1.0;                                        // playback pace (1 = on the recorder's clock)
     // Drift: the playback device's clock against the recorder's, from the sweeps' spacing (a phone or
@@ -332,19 +400,20 @@ Capture fromSweep (const juce::AudioBuffer<float>& recIn, double sr)
         {
             drift = r;
             inv = inverseSweep (sr * r, order);
-            h = deconvolve (m.data(), (int) m.size(), inv, order);
+            deconvolveAll();
             peaks = findPeaks (h, rec.getNumSamples(), 15.0f, (int) (0.6 * period));
         }
     }
     if (peaks.empty()) { c.error = "NO SWEEP"; return c; }
     // Each channel's response, averaged over every sweep that has its whole window.
     // Where each response starts: the first sweep's peak, then whole periods at the playback's
-    // own pace (fractional), so the responses add up sample-exact.
-    const int pre = (int) (0.005 * sr);
+    // own pace (fractional), so the responses add up sample-exact. The window opens up to 300 ms
+    // before the peak (the strongest arrival; an earlier, weaker direct sound is kept by finish).
+    const int p0 = peaks.front();
+    const int pre = std::min ((int) (0.3 * sr), p0);
     const int maxLen = (int) (std::min (period - 2.6 * sr, kMaxSeconds * sr));
     std::vector<double> use;
     int len = maxLen;
-    const int p0 = peaks.front();
     for (int p : peaks)
     {
         const double start = p0 - pre + std::round ((p - p0) / (period * drift)) * period * drift;
@@ -355,13 +424,13 @@ Capture fromSweep (const juce::AudioBuffer<float>& recIn, double sr)
     avg.clear();
     for (int ch = 0; ch < chs; ++ch)
     {
-        const auto hc = chs == 1 ? h : deconvolve (rec.getReadPointer (ch), rec.getNumSamples(), inv, order);
+        const auto& hx = hc[(size_t) ch];
         for (double st : use)
         {
             const int ist = (int) std::floor (st);
             const double frac = st - ist;
             for (int i = 0; i < pre + len; ++i)
-                avg.addSample (ch, i, (frac < 1e-6 ? hc[(size_t) (ist + i)] : readFrac (hc, ist + i + frac)) / (float) use.size());
+                avg.addSample (ch, i, (frac < 1e-6 ? hx[(size_t) (ist + i)] : readFrac (hx, ist + i + frac)) / (float) use.size());
         }
     }
     // The sweep is at -6 dBFS in the file: the level is set by normalise() anyway.
@@ -374,10 +443,13 @@ Capture fromImpulse (const juce::AudioBuffer<float>& rec, double sr)
 {
     Capture c;
     c.sr = sr;
-    const int n = rec.getNumSamples(), chs = std::min (2, rec.getNumChannels());
-    if (n < (int) (0.02 * sr) || chs < 1) { c.error = "TOO SHORT"; return c; }
+    const int chs = std::min (2, rec.getNumChannels());
+    if (rec.getNumSamples() < 1 || chs < 1) { c.error = "TOO SHORT"; return c; }
+    // A file shorter than 50 ms (a finished IR can be a few ms) goes on in silence.
+    const int n = std::max (rec.getNumSamples(), (int) (0.05 * sr));
     juce::AudioBuffer<float> src (chs, n);
-    for (int ch = 0; ch < chs; ++ch) src.copyFrom (ch, 0, rec, ch, 0, n);
+    src.clear();
+    for (int ch = 0; ch < chs; ++ch) src.copyFrom (ch, 0, rec, ch, 0, rec.getNumSamples());
     int peak = 0;
     float pk = 0.0f;
     for (int i = 0; i < n; ++i)
@@ -388,14 +460,16 @@ Capture fromImpulse (const juce::AudioBuffer<float>& rec, double sr)
     }
     if (pk < 1.0e-10f) { c.error = "SILENT"; return c; }
     // A second event (another clap): the 10 ms energy jumps 12 dB over its lowest point since the
-    // first, 30 ms or more after it. The IR stops just before.
+    // first, 30 ms or more after it, to within 6 dB of the first (a reflection in a finished IR,
+    // after silence, is weaker than that). The IR stops just before.
     const int hop = std::max (16, (int) (0.01 * sr));
     int limitEnd = n;
     float lowest = 1.0e9f;
+    const float firstDb = energyDb (src, std::max (0, peak - hop / 2), hop);
     for (int i = peak + (int) (0.03 * sr); i + hop <= n; i += hop)
     {
         const float e = energyDb (src, i, hop);
-        if (e > lowest + 12.0f) { limitEnd = std::max (peak + hop, i - hop / 2); break; }
+        if (e > lowest + 12.0f && e > firstDb - 6.0f) { limitEnd = std::max (peak + hop, i - hop / 2); break; }
         lowest = std::min (lowest, e);
     }
     if (! finish (c, src, sr, peak, limitEnd)) return c;
@@ -411,6 +485,9 @@ Capture analyse (const juce::AudioBuffer<float>& rec, double sr)
         c.error = "OVER 90 S: TRIM IT";
         return c;
     }
+    for (int ch = 0; ch < rec.getNumChannels(); ++ch)
+        for (int i = 0; i < rec.getNumSamples(); ++i)
+            if (! std::isfinite (rec.getSample (ch, i))) { Capture c; c.error = "SAMPLES THAT ARE NOT NUMBERS"; return c; }
     // A sweep recording is at least one sweep long (and made at 44.1 kHz or more: the sweep goes to 20 kHz).
     if (rec.getNumSamples() >= (int) (kSweepSec * sr) && sr >= 44000.0)
     {

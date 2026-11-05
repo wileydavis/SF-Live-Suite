@@ -92,34 +92,37 @@ def turn(i, inc=1):
 G.page.onInit()
 check(E.rate == 50, "updates every 50 ms")
 pages = [t for t, _ in L.PAGES]
-low = L.TOP[0]                                        # LOW ENERGY, knob 1 on every page
+low = L.TOP[0]                                        # LOW ENERGY, knob 1 on every page (swaps to SLOW ALL)
+drums = L.TOP[1]                                      # DRUMS ENERGY, knob 2 on every page
 kick_tune = dict(L.PAGES)["KICK"][0]                  # KICK page, knob 9
 GREEN = L.GREEN
 
 move((low.channel, low.number, 9000))
-check(ring(1) == (9000, GREEN), f"LOW ENERGY travelling: ring 1 green at 9000 ({ring(1)})")
+check(ring(1) is None, f"LOW ENERGY travelling: ring 1 stays the E16's own (knob 1 swaps to SLOW ALL; the script can't tell which) ({ring(1)})")
+move((drums.channel, drums.number, 9000))
+check(ring(2) == (9000, GREEN), f"DRUMS ENERGY travelling: ring 2 green at 9000 ({ring(2)})")
 move((kick_tune.channel, kick_tune.number, 4000))
-check(all(ring(i) is None for i in range(2, 17)), "KICK TUNE travelling while PERFORM is up: no other ring touched")
+check(all(ring(i) is None for i in [1] + list(range(3, 17))), "KICK TUNE travelling while PERFORM is up: no other ring touched")
 
 goto(pages.index("KICK") + 1)
 check(all(ring(i) is None for i in range(1, 17)), "page change: every ring back to the knobs")
-move((kick_tune.channel, kick_tune.number, 4100), (low.channel, low.number, 9100))
-check(ring(9) == (4100, GREEN) and ring(1) == (9100, GREEN), f"KICK page: knob 9 and knob 1 green ({ring(9)}, {ring(1)})")
+move((kick_tune.channel, kick_tune.number, 4100), (drums.channel, drums.number, 9100))
+check(ring(9) == (4100, GREEN) and ring(2) == (9100, GREEN), f"KICK page: knob 9 and knob 2 green ({ring(9)}, {ring(2)})")
 
 turn(9)
 check(ring(9) is None, "knob 9 turned: its ring shows the hand")
 move((kick_tune.channel, kick_tune.number, 4200))
 check(ring(9) is None, "a report right after the turn: still the hand")
 update(17)
-move((kick_tune.channel, kick_tune.number, 4300), (low.channel, low.number, 9300))
+move((kick_tune.channel, kick_tune.number, 4300), (drums.channel, drums.number, 9300))
 check(ring(9) == (4300, GREEN), f"0.85 s later: green again ({ring(9)})")
 
 update(10)
-move((low.channel, low.number, 9400))
+move((drums.channel, drums.number, 9400))
 update(15)
-check(ring(9) is None and ring(1) == (9400, GREEN), "1.25 s without a report: knob 9 back; knob 1, reported, stays")
-arrive((low.channel, low.number))
-check(ring(1) is None, "LOW ENERGY arrived: ring 1 back")
+check(ring(9) is None and ring(2) == (9400, GREEN), "1.25 s without a report: knob 9 back; knob 2, reported, stays")
+arrive((drums.channel, drums.number))
+check(ring(2) is None, "DRUMS ENERGY arrived: ring 2 back")
 
 move((1, 127, 16383))
 check(all(ring(i) is None for i in range(1, 17)), "an address the page doesn't have: nothing")
@@ -133,8 +136,8 @@ macros = dict(L.PAGES)["MACROS"]
 move(*[(c.channel, c.number, 1000 + 100 * k) for k, c in enumerate(macros[:6])] +
      [(L.TOP[k].channel, L.TOP[k].number, 2000 + k) for k in range(4)] +
      [(kick_tune.channel, kick_tune.number, 5)] * 4)
-check(all(ring(9 + k) == (1000 + 100 * k, GREEN) for k in range(6)) and all(ring(1 + k) == (2000 + k, GREEN) for k in range(4)),
-      "a full message of 14: six macros and the four top knobs green")
+check(all(ring(9 + k) == (1000 + 100 * k, GREEN) for k in range(6)) and all(ring(1 + k) == (2000 + k, GREEN) for k in range(1, 4)) and ring(1) is None,
+      "a full message of 14: six macros and top knobs 2-4 green; knob 1 (it swaps) its own")
 check(all(ring(i) is None for i in (5, 6, 7, 8, 15, 16)), "volumes and the REPEAT knobs untouched")
 
 lua.execute("page.onInit()")

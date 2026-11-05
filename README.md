@@ -127,6 +127,23 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
 
+### Changes in the Nov 5 update that affect existing sets
+
+Fixes from an independent audit of the Nov 4 build (revision 0fbbd7f): one gesture, one meaning; the newest intent wins.
+
+- **Rebuild and install everything.** The SF BUS moved to v8; old and new builds don't talk to each other. **Load SF SHOW.oxie16 into the E16 again** (its script changed).
+- **SF BUILD: one drop per press.** Holding DROP through the drop (and turning BUILD back down while still holding) used to plan a second drop, with a second GAP, on the next bar. Press again for another drop.
+- **A recalled knob turned back** to where it was before the recall now sounds at once (it used to stay on the recalled value for 3 s). **STORE after a recall** stores what you hear: your newer move if you made one (STORE TO too); it used to store the recalled value.
+- **A Program Change for the song already playing** cancels one still waiting for its bar.
+- **SLOW ALL changed in the same instant as a move** (one audio buffer): the move takes the length from before the change, the same in every plugin (it used to depend on the order Live runs the tracks in).
+- **SLOW reaches the instruments' COLOR, DETUNE, ATTACK and SPACE** (TEXTURE COLOR, DETUNE, ATTACK and STAB SPACE on the E16): with SLOW or SLOW ALL set, a move or a song recall on them now travels instead of landing in 30 ms. Menus, switches and MODEL still change at once; the operator's manual lists what glides (GLIDES).
+- **A MODEL change with keys held** plays them again on the new model (a held chord goes on); it used to stop until the next note.
+- **E16 knob 1's ring** no longer shows LOW ENERGY travelling: the knob swaps to SLOW ALL and the script can't tell which side it is on, so it always shows the knob's own value.
+- **SF TERROIR's level is the same at every sample rate.** At 96 kHz the wet was 6 dB louder than at 48 kHz (88.2 kHz: 5.3 dB), at 44.1 kHz 0.7 dB quieter; re-balance the return if you run at those rates. A place recorded at 96 kHz is now as loud as the same room recorded at 48 kHz: 3 dB louder than before (a 44.1 kHz recording 0.4 dB quieter). Places recorded at 48 kHz, played at 48 kHz: no change.
+- **SF TERROIR plays the knobs' place from the first note**, after a render, a new sample rate, a reload or with the state loaded either side of prepare (after a render it could keep an older answer for good: a short room turned long).
+- **SF TERROIR imports a finished IR as it is:** from 1 ms before its first arrival (a direct sound before a stronger reflection is kept; a click at the very first sample too), later arrivals after silence kept, files of a few ms accepted; a sweep take with one channel inverted is found; a click in a long silence is a click (it was taken for a sweep). Places already in a set keep their audio; load an IR file again to take it in the new way.
+- **check_set.py** now fails (exit 1) on an address mapped twice, a mapping range wrong at either end, or a relative mapping; it used to print the first two and pass.
+
 ### Changes in the Nov 4 update that affect existing sets
 
 - **New: SF TERROIR**, a convolution reverb for places you capture (manual: SF TERROIR). It is a new plugin: nothing in an existing set changes. Rebuild and install the whole suite (31 plugins).

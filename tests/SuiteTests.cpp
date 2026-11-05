@@ -14,6 +14,8 @@
 #include "core/Processor.h"
 #include "core/Registry.h"
 #include <chrono>
+#include <complex>
+#include <limits>
 #include <cstdio>
 #include <map>
 #include <random>
@@ -50,7 +52,7 @@ static void resetBus()
     d.songAtPpq = -1.0;
     d.panicHeld = 0;
     d.dropPpq = -1.0; d.dropDb = 0.0f; d.storeSong = -1;
-    d.slowAll = 0;
+    d.slowAll = 0; d.slowAllPrev = 0; d.slowAllFromPpq = -1.0;
     for (auto& g : d.glides) { g.owner = 0; g.count = 0; g.seenMs = 0; }
 }
 
@@ -618,8 +620,9 @@ static void dumpSpecs()
             const juce::String minText = s.type == PType::Float ? prm->getText (0.0f, 64) : juce::String();
             const juce::String maxText = s.type == PType::Float ? prm->getText (1.0f, 64) : juce::String();
             const char* type = s.type == PType::Float ? "knob" : s.type == PType::Choice ? "menu" : s.type == PType::Toggle ? "toggle" : "momentary";
-            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
-                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
+            const bool slows = s.glidesWithSlow() && (int) k < p.numModuleParams();
+            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
+                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", slows ? "true" : "false", minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
         }
         std::printf ("]}%s\n", m + 1 < ids.size() ? "," : "");
     }
@@ -1134,7 +1137,7 @@ int main (int argc, char** argv)
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); }
+                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -1157,11 +1160,15 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--second") { testSecondReview(); }
     else if (std::string (argv[1]) == "--third") { testThirdReview(); }
     else if (std::string (argv[1]) == "--drop") { testDrop(); }
-    else if (std::string (argv[1]) == "--slow") { testSlowAll(); testSlowAndMacro(); }
+    else if (std::string (argv[1]) == "--authority") { testControlAuthority(); }
+    else if (std::string (argv[1]) == "--slow") { testSlowAll(); testSlowScope(); testSlowAndMacro(); }
+    else if (std::string (argv[1]) == "--scope") { testSlowScope(); }
     else if (std::string (argv[1]) == "--rings") { testGlideRings(); }
     else if (std::string (argv[1]) == "--radio") { testRadio(); }
     else if (std::string (argv[1]) == "--poly") { testPolyrhythm(); }
-    else if (std::string (argv[1]) == "--terroir") { testConvolverEngine(); testTerroir(); }
+    else if (std::string (argv[1]) == "--terroir") { testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); }
+    else if (std::string (argv[1]) == "--lifecycle") { testTerroirLifecycle(); }
+    else if (std::string (argv[1]) == "--import") { testIrImport(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;

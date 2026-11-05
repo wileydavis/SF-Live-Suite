@@ -104,14 +104,28 @@ void Convolver::reset()
 
 std::vector<IrFilter*> Convolver::releaseAll()
 {
-    std::vector<IrFilter*> v;
-    for (auto* f : { set[0], set[1], waiting, retired }) if (f != nullptr) v.push_back (f);
+    IrFilter* out[4];
+    const int k = release (out);
+    return std::vector<IrFilter*> (out, out + k);
+}
+
+int Convolver::release (IrFilter** out)
+{
+    int k = 0;
+    for (auto* f : { set[0], set[1], waiting, retired }) if (f != nullptr) out[k++] = f;
     set[0] = set[1] = waiting = retired = nullptr;
     state = Idle;
     accOn[0] = accOn[1] = false;
     std::fill (hOut.begin(), hOut.end(), 0.0f);
     std::fill (tOut.begin(), tOut.end(), 0.0f);
-    return v;
+    return k;
+}
+
+int Convolver::replaceNow (IrFilter* f, IrFilter** out)
+{
+    const int k = release (out);
+    offer (f);                                   // the first IR: used at once
+    return k;
 }
 
 bool Convolver::offer (IrFilter* f)

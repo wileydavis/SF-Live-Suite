@@ -53,6 +53,9 @@ public:
     IrFilter* takeRetired() { auto* r = retired; retired = nullptr; return r; }
     // Every IR it holds (in use, coming in, waiting, retired), forgotten. Not the audio thread.
     std::vector<IrFilter*> releaseAll();
+    // Audio thread: f in use at once in place of everything it holds (no crossfade: for when nothing
+    // has gone in since reset). What it held goes to out (at most 4; free them elsewhere); returns how many.
+    int replaceNow (IrFilter* f, IrFilter** out);
     bool busy() const { return state != Idle || waiting != nullptr || retired != nullptr; }
     const IrFilter* current() const { return set[s0]; }
     int maxTaps() const { return maxP2 * IrFilter::kB2 + IrFilter::kT1; }
@@ -61,6 +64,7 @@ public:
 
 private:
     enum State { Idle, Prep, Xfade };
+    int release (IrFilter** out);                // every IR it holds, forgotten (at most 4)
     void headBoundary();
     void tailBoundary();
     void accumulate (int s, int upTo);           // tail partitions 1..upTo-1 of set slot s, in order

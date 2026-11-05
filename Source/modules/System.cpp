@@ -67,8 +67,11 @@ public:
     void setProgram (int p) override
     {
         const int s = juce::jlimit (0, kSongs - 1, p);
+        // The newest request replaces a waiting one. The song already in force cancels a waiting
+        // change and recalls nothing (recalling it again would undo the live edits): SONG 02 then
+        // SONG 01 from SONG 01, before the next block, used to land SONG 02.
         if (Bus::get().d().song.load() != s) programRequest.store (s);
-        else pcSong = s;
+        else { programRequest.store (-1); pcSong = s; }
     }
     void prepare (double, int) override {}
     void process (Ctx& c, juce::AudioBuffer<float>&, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
@@ -77,7 +80,22 @@ public:
         d.controlSeenMs = Bus::nowMs();
         d.pocketOffsetMs = c.v (POFFSET);
         d.keyRoot = c.ci (KEY) - 1;
-        d.slowAll = juce::jlimit (0, 7, c.ci (SLOWALL));
+        // SLOW ALL: a change counts from the next host block in every plugin (Bus.h), so a move or
+        // a recall made in the same block takes the same length everywhere. (Each plugin read the
+        // length at its own block start: those Live processed before SF CONTROL took the old one,
+        // those after it the new one, for the whole move.)
+        if (c.lastChunk)
+        {
+            const int sa = juce::jlimit (0, 7, c.ci (SLOWALL));
+            if (sa != d.slowAll.load())
+            {
+                d.slowSeq.fetch_add (1);                                     // odd: being written
+                d.slowAllPrev = d.slowAll.load();
+                d.slowAllFromPpq = c.playing ? c.ppqAt (c.n) : -1.0;
+                d.slowAll = sa;
+                d.slowSeq.fetch_add (1);
+            }
+        }
         const bool pn = c.b (PANIC);
         if (pn && ! panicWas) d.panicSeq.fetch_add (1);
         d.panicHeld = pn ? 1 : 0;

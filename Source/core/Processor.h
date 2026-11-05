@@ -111,6 +111,7 @@ private:
     void parameterValueChanged (int index, float) override;
     void parameterGestureChanged (int, bool) override {}
     bool movedSinceRecall (size_t i) const;
+    bool overrideHolds (size_t i, int advance);
     void applySong (int s);
     void updateParams (const sf::Ctx&, int n, float motionInput);
     void processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
@@ -125,9 +126,10 @@ private:
     // notification; ovrGen / ovrFrom are the count and Live's value at the recall.
     // recallGen counts recalls per parameter, reportedGen is the last one reported to Live: the
     // 3 s give-up runs only once Live has been told (a message thread busy saving the set mustn't
-    // undo a recall).
+    // undo a recall). reportExtGen: extGen just before the report: once Live holds the recalled
+    // value, every change it makes after that is the performer's, whatever its value.
     std::unique_ptr<std::atomic<float>[]> ovrFrom;
-    std::unique_ptr<std::atomic<uint32_t>[]> extGen, ovrGen, recallGen, reportedGen;
+    std::unique_ptr<std::atomic<uint32_t>[]> extGen, ovrGen, recallGen, reportedGen, reportExtGen;
     std::atomic<int> notifying { -1 };            // the parameter flushHostNotifications is writing
     // SLOW: a move's length (beats) is fixed when it is made; 0 = not travelling.
     std::vector<double> glideElapsed, glideBeats;

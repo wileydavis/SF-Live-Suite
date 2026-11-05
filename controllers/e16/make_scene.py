@@ -116,9 +116,18 @@ def encoder(c, kind, i, p=None, kind2=CC_ABS):
 
 def glide_map():
     """Three characters per knob: channel - 1 (one hex digit), number (two), "---" for a knob that
-    never travels (a Live control). Knobs 1-8, then knobs 9-16 of each page."""
-    code = lambda c: f"{c.channel - 1:x}{c.number:02x}" if c.module else "---"
-    return "".join(code(c) for c in L.TOP) + "".join(code(c) for _, bottom in L.PAGES for c in bottom)
+    never travels (a Live control) or that swaps to a second destination (knob 1, LOW ENERGY / SLOW
+    ALL): the script can't tell which one it is on, so the E16 shows that knob's own value, always.
+    Knobs 1-8, then knobs 9-16 of each page."""
+    def code(c, title, i):
+        p = L.press_for(title, i)
+        if not c.module or (p is not None and p.mode == "SWAP"):
+            return "---"
+        return f"{c.channel - 1:x}{c.number:02x}"
+    first = L.PAGES[0][0]
+    top = "".join(code(c, first, i) for i, c in enumerate(L.TOP, 1))
+    assert all(code(c, t, i) == code(c, first, i) for t, _ in L.PAGES for i, c in enumerate(L.TOP, 1)), "a top knob differs by page"
+    return top + "".join(code(c, title, i) for title, bottom in L.PAGES for i, c in enumerate(bottom, 9))
 
 
 def minify(src):

@@ -200,16 +200,16 @@ public:
                  levelParam (-6.0f).prim(),
                  choice ("model", "MODEL", mn, 0),
                  pct ("decay", "DECAY", 0.5f),
-                 pct ("attack", "ATTACK", 0.0f),
+                 pct ("attack", "ATTACK", 0.0f).slow(),
                  pct ("accent", "ACCENT", 0.5f),
                  pct ("glide", "GLIDE", 0.2f),
                  knob ("tune", "TUNE", -24.0f, 24.0f, 0.0f, "st"),
-                 pct ("detune", "DETUNE", 0.5f),
-                 pct ("color", "COLOR", 0.5f),
+                 pct ("detune", "DETUNE", 0.5f).slow(),
+                 pct ("color", "COLOR", 0.5f).slow(),
                  choice ("layer_model", "LAYER MODEL", mn, std::min<int> (1, (int) mn.size() - 1)),
                  pct ("layer", "LAYER", 0.0f),
                  choice ("chord", "CHORD", chordNames(), 0),
-                 pct ("space", "SPACE", 0.5f),
+                 pct ("space", "SPACE", 0.5f).slow(),
                  pct ("pocket_depth", "POCKET DEPTH", dPocket),
                  pct ("pocket_shape", "POCKET SHAPE", 0.25f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
@@ -264,6 +264,7 @@ public:
         bool active = false, releasing = false;
         int note = 60, gen = 0, model = 0, layer = 0, autoOff = -1;
         float vel = 1.0f, gain = 1.0f, freq = 110.0f, target = 110.0f, glideCoef = 0.0f, accent = 0.0f;
+        float vel0 = 1.0f;                // the note's own velocity (0..1), to play it again on a MODEL change
         float pitch = 60.0f, pitchTuned = 60.0f;   // the note (with chord interval) and the tuned pitch it plays at
         double rate = 96000.0;            // render rate: 2x, or 4x for ladder / MS20 models
         int os = 2;
@@ -290,16 +291,43 @@ public:
         pitchOffset = c.v (TUNE) + (c.b (KEYFOLLOW) ? (float) keyOffset (c.keyRoot) : 0.0f);
         const int modelA = c.ci (MODEL), modelB = c.ci (LAYERMODEL);
         ensembleAmt = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelA)].ensemble;
-        if (modelA != lastModel)
-        {
-            // Model change: release everything so a mono/poly switch can't leave a voice hanging.
-            lastModel = modelA;
-            for (auto& v : voices) if (v.active) { v.amp.off(); v.fenv.off(); v.releasing = true; }
-            held.clear();
-        }
         const float layer = c.v (LAYER);
         int autoOff; float relMul;
         gateShape (c.v (GATE), c.samplesPerBeat(), autoOff, relMul);
+        if (modelA != lastModel)
+        {
+            // MODEL change, at once: what sounds releases on the old model (its own release, so a
+            // mono/poly switch can't leave a voice hanging), and the keys still down start again on
+            // the new one, in the order they went down: a held chord goes on in the new sound. Echoes
+            // don't come back.
+            lastModel = modelA;
+            std::array<int, 32> keys {};
+            std::array<float, 32> vels {};
+            int nk = 0;
+            float lastVel = 1.0f;
+            auto add = [&] (int note, float vel)
+            {
+                for (int k = 0; k < nk; ++k) if (keys[(size_t) k] == note) return;
+                if (nk < (int) keys.size()) { keys[(size_t) nk] = note; vels[(size_t) nk] = vel; ++nk; }
+            };
+            for (auto& v : voices) if (v.active && ! v.releasing && v.gen == 0 && v.layer == 0) lastVel = v.vel0;
+            for (int note : held) add (note, lastVel);                                      // a mono model's stack
+            for (auto& v : voices) if (v.active && ! v.releasing && v.gen == 0 && v.layer == 0) add (v.note, v.vel0);
+            for (auto& v : voices) if (v.active) { v.amp.off(); v.fenv.off(); v.releasing = true; }
+            held.clear();
+            // A mono model plays the newest key; the others go back on its stack (no slide through them).
+            const bool monoA = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelA)].mono;
+            const bool monoB = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelB)].mono;
+            for (int k = 0; k < nk; ++k)
+            {
+                const bool newest = k == nk - 1;
+                NoteEvent ev;
+                ev.note = keys[(size_t) k]; ev.vel = vels[(size_t) k];
+                if (monoA && ! newest) held.push_back (ev.note);
+                else noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff, relMul);
+                if (layer > 0.01f && (! monoB || newest)) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff, relMul);
+            }
+        }
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         for (int i0 = 0; i0 < c.n;)
@@ -407,6 +435,7 @@ private:
         v.active = true; v.releasing = false;
         v.note = ev.note; v.gen = ev.gen; v.model = modelIdx; v.layer = layerId;
         v.vel = 0.55f + 0.45f * lerp (1.0f, ev.vel, 0.6f);
+        v.vel0 = ev.vel;
         v.gain = gain;
         v.target = noteHz (note);
         v.pitchTuned = note; v.pitch = note - pitchOffset;

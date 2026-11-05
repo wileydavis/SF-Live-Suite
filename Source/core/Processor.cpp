@@ -15,6 +15,25 @@ static double posMod (double x, double m)
     return r < 0.0 ? r + m : r;
 }
 
+// SF CONTROL's SLOW ALL for a host block starting at ppq0 (blockBeats long): a change SF CONTROL
+// made in this same host block counts from the next one, in every plugin, whichever side of SF
+// CONTROL Live processes it on (Bus.h). The three values are read as one (slowSeq); a writer that
+// never finishes can't hold up the audio thread.
+static int slowAllFor (const BusData& d, bool playing, double ppq0, double blockBeats)
+{
+    for (int tries = 0; tries < 8; ++tries)
+    {
+        const uint32_t s0 = d.slowSeq.load();
+        if ((s0 & 1u) != 0) continue;
+        const int now = d.slowAll.load(), before = d.slowAllPrev.load();
+        const double from = d.slowAllFromPpq.load();
+        if (d.slowSeq.load() != s0) continue;
+        const bool sameBlock = playing && from >= 0.0 && ppq0 < from - 1e-9 && ppq0 > from - 2.0 * blockBeats;
+        return juce::jlimit (0, 7, sameBlock ? before : now);
+    }
+    return juce::jlimit (0, 7, (int) d.slowAll.load());
+}
+
 juce::AudioProcessor::BusesProperties SFProcessor::busesFor (const Module& m)
 {
     BusesProperties b;
@@ -86,7 +105,8 @@ SFProcessor::SFProcessor (ModulePtr m)
     ovrGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
     recallGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
     reportedGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
-    for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; }
+    reportExtGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
+    for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; reportExtGen[i] = 0; }
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
@@ -189,14 +209,35 @@ void SFProcessor::parameterValueChanged (int index, float)
     extGen[(size_t) index].fetch_add (1);
 }
 
-// Live's value was changed since the recall, and moved away from what it was then: that change
-// is newer than the recall and wins. (Both: a host echoing a value it already had changes
-// nothing, and a count alone can't tell an echo from a move.)
+// A change in Live newer than the recall: it wins.
+//   Once the recall is reported, Live holds the recalled value: any change it makes after the
+//   report is the performer's (a knob, a reset, automation), whatever its value, the value from
+//   before the recall included. (Compared with that value, a return to it used to count as an
+//   echo, and the recall held on for the 3 s give-up while the knob showed the new setting.)
+//   Until then Live still holds its value from before the recall and may send it again: only a
+//   move away from it is newer (a count alone can't tell an echo from a move).
 bool SFProcessor::movedSinceRecall (size_t i) const
 {
-    if (extGen[i].load() == ovrGen[i].load()) return false;
+    const uint32_t e = extGen[i].load();
+    if (reportedGen[i].load() == recallGen[i].load()) return e != reportExtGen[i].load();
+    if (e == ovrGen[i].load()) return false;
     const float t = raw[i]->load(), from = ovrFrom[i].load();
     return std::abs (t - from) > 1e-4f * (1.0f + std::abs (from));
+}
+
+// Audio thread. Whether parameter i's recalled value is still in force, dropping it if not: Live
+// reported it back, it was moved since, or Live still disagrees 3 s after it was told (the clock
+// starts at the report: Live's message thread can be busy for seconds, saving the set). The one
+// decision for the sound and for STORE, so a store never keeps a recall the sound has let go.
+// advance: samples to add to the 3 s clock (0 for STORE).
+bool SFProcessor::overrideHolds (size_t i, int advance)
+{
+    const float o = ovr[i].load();
+    if (std::isnan (o)) return false;
+    const float t = raw[i]->load(), eps = 1e-4f * (1.0f + std::abs (t));
+    if (reportedGen[i].load() == recallGen[i].load()) ovrAge[i] += advance;
+    if (std::abs (t - o) < eps || movedSinceRecall (i) || ovrAge[i] > (int) (3.0 * sr)) { ovr[i] = NAN; return false; }
+    return true;
 }
 
 int SFProcessor::paramIndex (const std::string& id) const
@@ -314,6 +355,8 @@ void SFProcessor::flushHostNotifications()
         const uint32_t g = recallGen[i].load();    // before the value: a newer recall is never marked reported
         const float v = ovr[i];
         if (std::isnan (v)) continue;
+        // Live's count of changes before the check: one made from here on is newer than the report.
+        const uint32_t e0 = extGen[i].load();
         // Moved in Live after the recall (a knob turned before this timer came round): the newer
         // value stays, and the next audio block drops the recall for this parameter.
         if (movedSinceRecall (i)) continue;
@@ -323,6 +366,7 @@ void SFProcessor::flushHostNotifications()
         p->setValueNotifyingHost (p->convertTo0to1 (v));
         p->endChangeGesture();
         notifying = -1;
+        reportExtGen[i] = e0;                       // before reportedGen: read in that order
         reportedGen[i] = g;
     }
 }
@@ -383,7 +427,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // key left there by a deleted CONTROL (or the last set) must not transpose anything. The same
     // for SLOW ALL: a length left there must not slow the next set's knobs.
     const bool controlOn = bus.controlAlive();
-    slowAllNow = controlOn ? juce::jlimit (0, 7, (int) d.slowAll.load()) : 0;
+    slowAllNow = controlOn ? slowAllFor (d, c.playing, ppq0, total * bps) : 0;
 
     // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
     if (! seqInit)
@@ -432,8 +476,11 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         int s = toOther ? storeTo : d.song.load();
         if (s < 0) s = std::max (0, songIndex.load());
         if (! toOther || d.song.load() == s) songIndex = s;
-        // What is in force: a value just recalled that Live hasn't reported back yet counts.
-        for (size_t i = 0; i < specs.size(); ++i) { const float o = ovr[i].load(); songVals[(size_t) s][i] = std::isnan (o) ? raw[i]->load() : o; }
+        // What is in force: a value just recalled that Live hasn't reported back yet counts, unless
+        // a newer change in Live has superseded it: the same decision the sound makes this block
+        // (a recall, a newer knob move, then STORE in one host block used to store the recall
+        // while the sound took the move).
+        for (size_t i = 0; i < specs.size(); ++i) songVals[(size_t) s][i] = overrideHolds (i, 0) ? ovr[i].load() : raw[i]->load();
         songHas[(size_t) s] = true;
     }
     bool panicNow = localPanic.exchange (false);
@@ -550,25 +597,17 @@ void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
     {
         const auto& s = specs[i];
         prev[i] = cur[i];
+        // The recalled value holds until Live reports it back, or gives way to a newer change in
+        // Live (overrideHolds).
         float t = raw[i]->load();
-        if (const float o = ovr[i].load(); ! std::isnan (o))
-        {
-            // The recalled value holds until Live reports it back. It gives way at once when the
-            // host's value moves away from what it was at the recall (the performer turned the
-            // knob, or automation), and if Live still disagrees 3 s after it was told (the clock
-            // starts at the report: Live's message thread can be busy for seconds, saving the set).
-            const float eps = 1e-4f * (1.0f + std::abs (t));
-            if (reportedGen[i].load() == recallGen[i].load()) ovrAge[i] += n;
-            if (std::abs (t - o) < eps || movedSinceRecall (i) || ovrAge[i] > (int) (3.0 * sr)) ovr[i] = NAN;
-            else t = o;
-        }
+        if (overrideHolds (i, n)) t = ovr[i].load();
         if (s.type != PType::Float) { cur[i] = t; base[i] = t; continue; }
         const float range = s.max - s.min;
-        // SLOW: a performance-row knob travels to a new setting (a turn, automation, a song recall)
-        // over exactly N bars, however far. N is fixed when the setting is made: changing SLOW or
-        // SLOW ALL never touches a knob already travelling, it only sets how the next move goes. A
-        // knob moved again while it travels sets off from where it has got to.
-        const bool glides = s.glide && s.primary && (int) i < numModParams;
+        // SLOW: a performance-row knob (or a detail knob marked slow()) travels to a new setting (a
+        // turn, automation, a song recall) over exactly N bars, however far. N is fixed when the
+        // setting is made: changing SLOW or SLOW ALL never touches a knob already travelling, it only
+        // sets how the next move goes. A knob moved again while it travels sets off from where it has got to.
+        const bool glides = s.glidesWithSlow() && (int) i < numModParams;
         if (glides && ! firstBlock)
         {
             if (std::isnan (glideTo[i]) || std::abs (t - glideTo[i]) > 1e-5f * (1.0f + std::abs (range)))

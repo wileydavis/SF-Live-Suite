@@ -14,6 +14,7 @@
 // Either way the result starts 1 ms before the onset, its tail fades out where it meets the noise,
 // it is high-passed at 20 Hz and scaled to a fixed energy, so every place plays at the same level.
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <atomic>
 #include <vector>
 
 namespace sf
@@ -25,6 +26,7 @@ constexpr int kRepeats = 3;
 constexpr double kMaxSeconds = 12.0;           // a captured IR is at most this long
 constexpr double kMaxRecording = 90.0;         // longer recordings are refused (trim them)
 constexpr float kEnergy = 0.85f;               // mean per-channel energy of every IR (sum of squares): SF REVERB's level
+inline std::atomic<int> testBuildDelayMs { 0 };  // tests only: the TERROIR worker waits this long before a build
 
 // The exponential sine sweep, 20 Hz to 20 kHz (or 0.45 of the rate) over kSweepSec, with fades. Under
 // 60 Hz it comes in softer (a 2nd-order high-pass shape: -19 dB at 20 Hz), so a small speaker isn't

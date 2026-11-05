@@ -113,6 +113,15 @@ struct BusData
 
     // Travelling knobs, for SF CONTROL's E16 RINGS (v7).
     GlideSlot glides[kGlideSlots];
+
+    // SLOW ALL changes (v8): one rule for every plugin, whatever order Live processes the tracks
+    // in. A change counts from the next host block, the song position slowAllFromPpq: a plugin
+    // whose block starts before it uses slowAllPrev (the plugins after SF CONTROL in that block
+    // see the new value already, those before it can't). -1: at once (transport stopped).
+    // slowSeq: odd while SF CONTROL writes the three.
+    std::atomic<uint32_t> slowSeq;
+    std::atomic<int32_t> slowAllPrev;
+    std::atomic<double> slowAllFromPpq;
 };
 
 class Bus

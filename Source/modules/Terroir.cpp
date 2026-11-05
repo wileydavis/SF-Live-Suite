@@ -303,6 +303,9 @@ public:
         maxTaps.store (conv.maxTaps());
         for (auto* f : conv.releaseAll()) delete f;          // built for another rate
         delete ready.exchange (nullptr);
+        delete offlinePending;
+        offlinePending = nullptr;
+        liveEpoch.store (++epoch, std::memory_order_release);   // a new stream: nothing asked for before it is installed
         for (auto& d : pre) d.prepare ((int) (rate * 2.5));
         for (auto& d : dry) d.prepare (Pocket::kLatency + 4);
         pocket.prepare (rate, mb);
@@ -311,11 +314,20 @@ public:
         freeze.prepare (rate);
         dryFol.set (0.002f, 0.25f, rate);
         dryRamp.prepare (rate);
-        // The first IR now, in place: the plugin sounds from its first sample, the same every time.
+        // An IR now, in place, from the knobs as they last stood: the plugin sounds from its first
+        // sample. The first block puts the knobs' own in its place before anything goes in (install).
         lastKey.srHz = (int) std::lround (rate);
-        if (auto f = build (lastKey)) conv.offer (f.release());
-        requested = offlineKey = lastKey;
-        post (lastKey);                                      // anything the worker had in hand was for the old rate
+        haveKnown = false;
+        if (auto f = build (lastKey, syncTag()))
+        {
+            shownTag.store (f->tag, std::memory_order_release);
+            conv.offer (f.release());
+            have = lastKey; haveKnown = true;
+        }
+        haveSeq = reqSeq.load (std::memory_order_relaxed);
+        postedValid = false;
+        offlineKey = lastKey; offlineKeyValid = haveKnown;
+        offlineAt = -1000000;                                // the stream starts again at 0
         reset();
     }
     void reset() override
@@ -327,6 +339,7 @@ public:
         lo.reset();
         pocket.reset();
         dispFreeze = 0.0f;
+        heard = false;
     }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
@@ -335,14 +348,9 @@ public:
         // Which IR the knobs ask for; built off this thread (or here, rendering offline).
         const Key k = keyFrom (c);
         lastKey = k;
+        if (c.offline != wasOffline) modeChange (c.offline);
         if (c.offline) offlineStep (c, k);
-        else if (! (k == requested)) { post (k); requested = k; }
-        if (! c.offline && ! conv.busy() && holdRetired == nullptr)
-            if (auto* f = ready.exchange (nullptr, std::memory_order_acq_rel))
-            {
-                if (f->tag == (uint64_t) k.srHz) conv.offer (f);
-                else retire (f);                            // built for a sample rate no longer in use
-            }
+        else realtimeStep (k);
 
         const bool frozen = c.b (FREEZE), throwOn = c.b (THROW), throwOnly = c.ci (INPUT) == 1;
         const float inTarget = frozen ? 0.0f : (throwOnly ? (throwOn ? 1.0f : 0.0f) : (throwOn ? 1.8f : 1.0f));
@@ -358,6 +366,7 @@ public:
             pre[0].push (m);
             mono[(size_t) i] = preS > 1.0f ? pre[0].read (preS) : m;
         }
+        if (! heard) for (int i = 0; i < n && ! heard; ++i) heard = mono[(size_t) i] != 0.0f;
         conv.process (mono.data(), wl, wr, n);
         freeze.process (wl, wr, n, frozen);
         dispFreeze = freeze.amount();
@@ -392,7 +401,15 @@ public:
     {
         ui::frame (g, r, "PLACE");
         Disp d;
-        { const juce::SpinLock::ScopedLockType sl (dispLock); d = disp; }
+        {
+            // The IR in the engine (not one being built, nor one built and dropped as out of date).
+            const juce::SpinLock::ScopedLockType sl (dispLock);
+            d = disp;
+            const uint64_t t = shownTag.load (std::memory_order_acquire);
+            for (const auto& sh : shapes)
+                if (t != 0 && sh.tag == t) { shown = sh; break; }
+        }
+        d.name = shown.name; d.info = shown.info; d.seconds = shown.seconds; d.env = shown.env;
         std::array<bool, kSlots> filled {};
         { const std::lock_guard<std::mutex> lk (slotLock); for (int i = 0; i < kSlots; ++i) filled[(size_t) i] = slots[(size_t) i] != nullptr; }
         const int sel = getParam ? juce::jlimit (0, kSlots - 1, (int) std::lround (getParam (PLACE))) : 0;
@@ -489,7 +506,8 @@ private:
         return k;
     }
 
-    // Audio thread, realtime: hand the key to the worker (a sequence lock: odd while writing).
+    // Audio thread, realtime: hand the key to the worker (a sequence lock: odd while writing). The
+    // request carries the epoch, and the result the request's number: see realtimeStep.
     void post (const Key& k)
     {
         const uint32_t s = reqSeq.load (std::memory_order_relaxed);
@@ -499,10 +517,11 @@ private:
         rqSize.store (k.size, std::memory_order_relaxed); rqDecay.store (k.decay, std::memory_order_relaxed);
         rqDark.store (k.dark, std::memory_order_relaxed); rqStart.store (k.start, std::memory_order_relaxed);
         rqLen.store (k.len, std::memory_order_relaxed); rqSr.store (k.srHz, std::memory_order_relaxed);
-        rqRev.store (k.rev, std::memory_order_relaxed);
+        rqRev.store (k.rev, std::memory_order_relaxed); rqEpoch.store (epoch, std::memory_order_relaxed);
         reqSeq.store (s + 2, std::memory_order_release);
+        posted = k; postedValid = true; postedSeq = s + 2;
     }
-    bool readRequest (Key& k, uint32_t& seq) const
+    bool readRequest (Key& k, uint32_t& seq, uint32_t& ep) const
     {
         for (int tries = 0; tries < 8; ++tries)
         {
@@ -512,25 +531,79 @@ private:
             k.size = rqSize.load (std::memory_order_relaxed); k.decay = rqDecay.load (std::memory_order_relaxed);
             k.dark = rqDark.load (std::memory_order_relaxed); k.start = rqStart.load (std::memory_order_relaxed);
             k.len = rqLen.load (std::memory_order_relaxed); k.srHz = rqSr.load (std::memory_order_relaxed);
-            k.rev = rqRev.load (std::memory_order_relaxed);
+            k.rev = rqRev.load (std::memory_order_relaxed); ep = rqEpoch.load (std::memory_order_relaxed);
             std::atomic_thread_fence (std::memory_order_acquire);
             if (reqSeq.load (std::memory_order_relaxed) == s1) { seq = s1; return true; }
         }
         return false;
     }
 
+    // The IR's lifecycle. An epoch begins at prepare and at every change between real time and
+    // rendering; nothing asked for in an older one is installed. Within an epoch the worker's results
+    // install in the order they were asked for, each newer than what the engine has: a knob that keeps
+    // moving is followed, and an answer to an older request than the engine's never lands. While
+    // nothing has gone into the engine since prepare / reset, a new IR replaces the old at once (no
+    // morph from a room nobody heard).
+    uint64_t syncTag() { return ((uint64_t) epoch << 32) | (2u * ++syncSerial + 1u); }   // odd: built here, not by the worker
+    void modeChange (bool toOffline)
+    {
+        wasOffline = toOffline;
+        liveEpoch.store (++epoch, std::memory_order_release);
+        postedValid = false;
+        if (toOffline) { offlineKey = have; offlineKeyValid = haveKnown; offlineAt = -1000000; }
+        else if (offlinePending != nullptr) { retire (offlinePending); offlinePending = nullptr; }
+    }
+    void install (IrFilter* f)          // the caller has checked: ! heard, or the engine free; holdRetired empty
+    {
+        shownTag.store (f->tag, std::memory_order_release);
+        if (heard) { conv.offer (f); return; }
+        IrFilter* out[4];
+        for (int i = 0, n = conv.replaceNow (f, out); i < n; ++i) retire (out[i]);
+    }
+    bool canInstall() const { return holdRetired == nullptr && (! heard || ! conv.busy()); }
+    void realtimeStep (const Key& k)
+    {
+        if (! postedValid || ! (k == posted))
+        {
+            if (haveKnown && k == have)
+            {
+                // The engine has it (rendered, or turned back): nothing to build, and no answer to a
+                // request made so far may replace it.
+                posted = k; postedValid = true; postedSeq = haveSeq = reqSeq.load (std::memory_order_relaxed);
+            }
+            else post (k);
+        }
+        if (! canInstall()) return;
+        if (auto* f = ready.exchange (nullptr, std::memory_order_acq_rel))
+        {
+            const uint32_t fe = (uint32_t) (f->tag >> 32), fs = (uint32_t) f->tag;
+            if (fe != epoch || (int32_t) (fs - haveSeq) <= 0) { retire (f); return; }   // out of date
+            install (f);
+            haveSeq = fs;
+            haveKnown = postedValid && fs == postedSeq;
+            if (haveKnown) have = posted;
+        }
+    }
+
     // Offline (Live rendering): build here, at most every 2048 samples of the stream, so a render is
     // the same every time.
     void offlineStep (const Ctx& c, const Key& k)
     {
-        if (! (k == offlineKey) && c.samplePos - offlineAt >= 2048)
+        if (! (offlineKeyValid && k == offlineKey) && c.samplePos - offlineAt >= 2048)
         {
             offlineAt = c.samplePos;
-            offlineKey = k;
-            if (auto f = build (k)) { delete offlinePending; offlinePending = f.release(); }
+            offlineKey = k; offlineKeyValid = true;
+            auto f = build (k, syncTag());
+            delete offlinePending;
+            offlinePending = f.release();
         }
-        if (offlinePending != nullptr && ! conv.busy() && holdRetired == nullptr && conv.offer (offlinePending)) offlinePending = nullptr;
-        requested = k;              // back in realtime, nothing is asked for twice
+        if (offlinePending != nullptr && canInstall())
+        {
+            install (offlinePending);
+            offlinePending = nullptr;
+            have = offlineKey; haveKnown = true;
+            haveSeq = reqSeq.load (std::memory_order_relaxed);
+        }
     }
 
     PlacePtr placeFor (int slot) const
@@ -546,7 +619,7 @@ private:
     }
 
     // The IR the key asks for, ready for the engine. Worker thread (or the audio thread offline).
-    std::unique_ptr<IrFilter> build (const Key& k)
+    std::unique_ptr<IrFilter> build (const Key& k, uint64_t tag)
     {
         const auto src = placeFor (k.slot);
         if (src == nullptr || k.srHz <= 0) return nullptr;
@@ -577,11 +650,15 @@ private:
         // DARK: the tail darkens with time.
         const float dark = (float) k.dark * 0.001f;
         if (dark > 0.001f) for (auto& v : ch) ir::darken (v.data(), n, srcSr, 8.0f * dark * dark);
-        // SIZE and the host rate in one resampling; the level held (a longer IR holds more energy).
+        // SIZE and the host rate in one resampling. Resampling by a ratio scales the response by it;
+        // each part gets its own correction: the host rate's is taken out (the room as loud at 96 kHz as
+        // at 48); SIZE keeps its rule (a longer IR holds more energy: 1 / sqrt SIZE); and the capture
+        // rate's (an IR is scaled to kEnergy at its own rate, which at 96 kHz is a room 3 dB louder
+        // than at 48) is taken out too.
         const double size = k.size * 0.001, ratio = hostSr * size / srcSr;
         if (std::abs (ratio - 1.0) > 1e-9)
             for (auto& v : ch) v = ir::stretch (v.data(), (int) v.size(), ratio);
-        const float sizeGain = (float) (1.0 / std::sqrt (std::max (0.1, size)));
+        const float level = (float) ((srcSr / hostSr) * std::sqrt (48000.0 / srcSr) / std::sqrt (std::max (0.1, size)));
         n = (int) ch[0].size();
         // LENGTH: cut to the note (raised-cosine end, 15 % of it, 5-60 ms); the engine's limit too.
         int len = std::min (n, maxTaps.load());
@@ -591,11 +668,11 @@ private:
         {
             v.resize ((size_t) len);
             for (int i = 0; i < std::min (fade, len); ++i) v[(size_t) (len - 1 - i)] *= (float) (0.5 - 0.5 * std::cos (3.14159265358979 * i / fade));
-            for (auto& x : v) x *= sizeGain;
+            for (auto& x : v) x *= level;
             if (k.rev) std::reverse (v.begin(), v.end());
         }
         auto f = makeIrFilter (ch[0].data(), ch[1].data(), len);
-        f->tag = (uint64_t) k.srHz;
+        f->tag = tag;
         // For the display: the level of the IR as it plays, 160 points over its length.
         Disp nd;
         nd.seconds = (float) (len / hostSr);
@@ -610,14 +687,18 @@ private:
             nd.env[(size_t) b] = 20.0f * std::log10 (m / pk + 1.0e-9f);
         }
         {
+            // Kept by tag: the display shows the one the engine has (see paint).
             const juce::SpinLock::ScopedLockType sl (dispLock);
             const bool user = src != builtIn;
-            disp.name = user ? src->name : juce::String ("BUILT-IN ROOM");
-            disp.info = (user ? src->kind + "  " : juce::String()) + juce::String (src->audio.getNumChannels() > 1 ? "STEREO" : "MONO > STEREO")
-                      + "  " + juce::String (src->sr / 1000.0, 1) + " KHZ  RT " + juce::String (src->rt60, 2) + " S"
-                      + (user && src->snrDb > 0.0f ? "  " + juce::String ((int) std::lround (src->snrDb)) + " DB OVER THE NOISE" : juce::String());
-            disp.seconds = nd.seconds;
-            disp.env = std::move (nd.env);
+            auto& sh = shapes[(size_t) shapeNext];
+            shapeNext = (shapeNext + 1) % (int) shapes.size();
+            sh.tag = tag;
+            sh.name = user ? src->name : juce::String ("BUILT-IN ROOM");
+            sh.info = (user ? src->kind + "  " : juce::String()) + juce::String (src->audio.getNumChannels() > 1 ? "STEREO" : "MONO > STEREO")
+                    + "  " + juce::String (src->sr / 1000.0, 1) + " KHZ  RT " + juce::String (src->rt60, 2) + " S"
+                    + (user && src->snrDb > 0.0f ? "  " + juce::String ((int) std::lround (src->snrDb)) + " DB OVER THE NOISE" : juce::String());
+            sh.seconds = nd.seconds;
+            sh.env = std::move (nd.env);
         }
         return f;
     }
@@ -631,12 +712,14 @@ private:
             while (auto* f = popRetired()) delete f;
             runImport();
             Key k;
-            uint32_t seq = 0;
-            if (readRequest (k, seq) && seq != builtSeq && juce::Time::getMillisecondCounterHiRes() - lastBuild >= 40.0)
+            uint32_t seq = 0, ep = 0;
+            if (readRequest (k, seq, ep) && seq != builtSeq && juce::Time::getMillisecondCounterHiRes() - lastBuild >= 40.0)
             {
-                lastBuild = juce::Time::getMillisecondCounterHiRes();
                 builtSeq = seq;
-                if (auto f = build (k)) delete ready.exchange (f.release(), std::memory_order_acq_rel);
+                if (ep != liveEpoch.load (std::memory_order_acquire)) continue;   // asked for before a prepare or a change of mode
+                if (const int ms = ir::testBuildDelayMs.load()) juce::Thread::sleep (ms);
+                lastBuild = juce::Time::getMillisecondCounterHiRes();
+                if (auto f = build (k, ((uint64_t) ep << 32) | seq)) delete ready.exchange (f.release(), std::memory_order_acq_rel);
             }
         }
     }
@@ -821,9 +904,19 @@ private:
     std::array<std::atomic<uint32_t>, kSlots> slotVer;
     PlacePtr builtIn;
 
-    // Requests (audio thread -> worker) and results (worker -> audio thread).
-    Key lastKey, requested, offlineKey;
+    // Requests (audio thread -> worker) and results (worker -> audio thread); the lifecycle (audio
+    // thread and prepare): see modeChange.
+    Key lastKey;                                    // the knobs, as of the last block
+    Key posted; bool postedValid = false;           // the newest request to the worker, this epoch
+    uint32_t postedSeq = 0;
+    Key have; bool haveKnown = false;               // the newest IR handed to the engine (unknown: one on the way)
+    uint32_t haveSeq = 0;                           // no answer to a request up to this one replaces it
+    Key offlineKey; bool offlineKeyValid = false;   // rendering: the last IR built here, and when
     int64_t offlineAt = -1000000;
+    uint32_t epoch = 1, syncSerial = 0;
+    bool wasOffline = false, heard = false;         // heard: anything into the engine since prepare / reset
+    std::atomic<uint32_t> liveEpoch { 1 }, rqEpoch { 0 };
+    std::atomic<uint64_t> shownTag { 0 };           // the IR in the engine (the display draws its shape)
     std::atomic<uint32_t> reqSeq { 0 }, rqVer { 0 };
     std::atomic<int> rqSlot { 0 }, rqSize { 1000 }, rqDecay { 1000 }, rqDark { 0 }, rqStart { 0 }, rqLen { 0 }, rqSr { 48000 };
     std::atomic<bool> rqRev { false };
@@ -839,7 +932,11 @@ private:
     std::mutex jobLock;
     std::deque<Job> jobs;
     juce::SpinLock dispLock;
-    Disp disp;
+    Disp disp;                                      // the status line
+    struct Shape { uint64_t tag = 0; juce::String name { "BUILT-IN ROOM" }, info; float seconds = 0.0f; std::vector<float> env; };
+    std::array<Shape, 16> shapes;                   // the last IRs built, by tag
+    int shapeNext = 0;
+    Shape shown;                                    // message thread: what the display drew last
 };
 
 ModulePtr makeTERROIR() { return std::make_unique<TerroirModule>(); }

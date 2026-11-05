@@ -2189,6 +2189,49 @@ static void testDrop()
     };
     const double sineDb = 20.0 * std::log10 (0.3 / std::sqrt (2.0));
 
+    // 0. One press, one drop. DROP held the way the E16 holds it (127 from press to release), from
+    //    beat 1 to beat 7, GAP 1/4: one plan, one gap before beat 4 and none before beat 8 (the held
+    //    button armed a second drop once the RETURN KNOB latch let go: BUILD at 0, or BUILD at 80 %
+    //    turned back to 0 while still held). Two separate presses are two drops.
+    {
+        const char* what[] = { "held, BUILD at 0", "held, BUILD 80 % turned back to 0 at beat 4.25", "two presses, beats 1 and 5" };
+        for (int variant = 0; variant < 3; ++variant)
+        {
+            resetBus();
+            Rig2 r ("BUILD");
+            r.head.bpm = bpm;
+            r.set ("build", variant == 1 ? 0.8f : 0.0f); r.set ("gap", 3.0f); r.set ("tail", 0.0f);
+            r.set ("noise", 0.0f); r.set ("space", 0.0f); r.set ("width", 0.0f); r.set ("drop_duck", 0.0f);
+            std::vector<float> o;
+            int64_t t = 0;
+            int plans = 0;
+            double lastPub = Bus::get().d().dropPpq.load();
+            bool returned = false;
+            const double blockBeats = kBlock * r.bps();
+            while (r.ppq < 12.0)
+            {
+                const double q0 = r.ppq;
+                const bool down = variant < 2 ? (q0 >= 1.0 && q0 < 7.0)
+                                              : ((q0 >= 1.0 && q0 < 1.0 + blockBeats) || (q0 >= 5.0 && q0 < 5.0 + blockBeats));
+                r.set ("drop", down ? 1.0f : 0.0f);
+                if (variant == 1 && ! returned && q0 >= 4.25) { r.set ("build", 0.0f); returned = true; }
+                r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+                {
+                    for (int i = 0; i < n; ++i) { const float v = 0.3f * (float) std::sin (6.283185307 * 200.0 * (double) (t + i) / kSr); b.setSample (0, i, v); b.setSample (1, i, v); }
+                });
+                if (const double pub = Bus::get().d().dropPpq.load(); pub != lastPub) { ++plans; lastPub = pub; }
+                for (int i = 0; i < kBlock; ++i) o.push_back (r.buf.getSample (0, i));
+                t += kBlock;
+            }
+            const double gap1 = db (o, 3.05, 3.95), gap2 = db (o, 7.05, 7.95);
+            std::printf ("   DROP %s, GAP 1/4: %d plan(s); before beat 4 %.1f dB, before beat 8 %.1f dB (input %.2f)\n", what[variant], plans, gap1, gap2, sineDb);
+            if (variant < 2)
+                CHECK (plans == 1 && gap1 < -120.0 && std::abs (gap2 - sineDb) < 0.3, "one held DROP (%s): %d plans, gaps %.1f / %.1f dB", what[variant], plans, gap1, gap2);
+            else
+                CHECK (plans == 2 && gap1 < -120.0 && gap2 < -120.0, "two DROP presses: %d plans, gaps %.1f / %.1f dB", plans, gap1, gap2);
+        }
+    }
+
     // 1. GAP 1/4: silent for the beat before the bar line, the mix back in full on it.
     {
         const auto o = render ([] (Rig2& r) { r.set ("build", 0.5f); r.set ("gap", 3.0f); r.set ("tail", 0.0f); }, 1.3, 99.0, 8.0);
@@ -2372,7 +2415,9 @@ static void testDrop()
 // SLOW ALL: SF CONTROL sets how long the next knob moves take in every plugin whose own SLOW is
 // CONTROL. A move keeps the length it was made with: turning SLOW ALL (or SLOW) never touches a
 // knob already travelling; the plugin's own SLOW wins; a length left on the bus by a CONTROL that
-// is gone slows nothing; song recalls follow it.
+// is gone slows nothing; song recalls follow it. SLOW ALL changed in the same host block as a move
+// leaves that move on the previous length, whatever order the host runs the tracks in (testControlAuthority);
+// here the gestures are apart, as a hand makes them.
 static void testSlowAll()
 {
     std::printf ("-- SLOW ALL\n");
@@ -2409,7 +2454,7 @@ static void testSlowAll()
 
     f.set ("filter", 1.0f); bars (1.0);
     expect ("the next move takes the new length (4 BAR): a quarter after a bar", 0.25f, 0.01f);
-    ctl.set ("slow_all", 0.0f); f.set ("filter", 0.6f); bars (0.15);
+    ctl.set ("slow_all", 0.0f); bars (0.05); f.set ("filter", 0.6f); bars (0.15);
     expect ("moved again with SLOW ALL OFF: straight there from where it got to", 0.6f, 0.002f);
 
     f.set ("slow", 1.0f); f.set ("filter", 0.0f); bars (0.5);
@@ -2444,10 +2489,305 @@ static void testSlowAll()
     resetBus();
 }
 
+// What SLOW moves (Nov 5 audit, F9). Every SF knob on the E16 scene (kE16Knobs, generated from
+// layout.py): a continuous knob travels the whole bar at SLOW 1 BAR, a menu changes at once.
+// TEXTURE COLOR over 4 bars changes the sound bar by bar. A MODEL change while a chord is held goes
+// on in the new sound (the keys play again); a mono model keeps its stack.
+static void testSlowScope()
+{
+    std::printf ("-- SLOW scope: every E16 knob; TEXTURE COLOR over 4 bars; MODEL with keys held\n");
+    resetBus();
+    std::map<std::string, std::unique_ptr<Rig2>> rigs;
+    int glided = 0, menus = 0;
+    juce::StringArray wrong, glideNames;
+    for (const auto& k : kE16Knobs)
+    {
+        auto& rp = rigs[k.module];
+        if (rp == nullptr) { rp = std::make_unique<Rig2> (k.module); rp->head.bpm = 120.0; }
+        auto& r = *rp;
+        auto* prm = r.p->param (k.param);
+        const auto& s = r.p->allSpecs()[(size_t) k.param];
+        const juce::String name = juce::String (k.module) + " " + s.name;
+        auto blocks = [&] (double bars) { for (int b = 0, n = (int) std::lround (bars * 4.0 / (kBlock * r.bps())); b < n; ++b) r.step (kBlock, nullptr); };
+        if (s.type == PType::Float)
+        {
+            r.set ("slow", 8.0f);                                             // OFF: the start lands at once
+            prm->setValueNotifyingHost (0.25f); blocks (0.1);
+            r.set ("slow", 1.0f);                                             // 1 BAR
+            prm->setValueNotifyingHost (0.75f); blocks (0.5);
+            const float a = prm->convertFrom0to1 (0.25f), b = prm->convertFrom0to1 (0.75f), h = r.p->baseValue (k.param);
+            const float range = s.max - s.min;
+            const bool half = std::abs (h - 0.5f * (a + b)) < 0.03f * range;
+            blocks (0.6);
+            const bool there = std::abs (r.p->baseValue (k.param) - b) < 1e-3f * range;
+            if (half && there && s.glidesWithSlow()) { ++glided; if (! s.primary) glideNames.add (name); }
+            else wrong.add (name + juce::String::formatted (" (half a bar: %.3f of %.3f..%.3f)", h, a, b));
+        }
+        else
+        {
+            r.set ("slow", 1.0f);
+            const int now = (int) std::lround (r.p->baseValue (k.param));
+            const int next = now + 1 > (int) s.max ? now - 1 : now + 1;
+            prm->setValueNotifyingHost (prm->convertTo0to1 ((float) next)); r.step (kBlock, nullptr);
+            if ((int) std::lround (r.p->baseValue (k.param)) == next) ++menus;
+            else wrong.add (name + " (menu not at once)");
+        }
+        r.set ("slow", 0.0f);
+    }
+    std::printf ("   %d E16 knobs travel the bar at SLOW 1 BAR (detail knobs among them: %s); %d menus change at once\n",
+                 glided, glideNames.joinIntoString (", ").toRawUTF8(), menus);
+    CHECK (wrong.isEmpty(), "SLOW scope: %s", wrong.joinIntoString ("; ").toRawUTF8());
+    rigs.clear();
+
+    // TEXTURE COLOR 0 -> 100 % with its own SLOW at 4 BAR, a chord held, on WAVETABLE (COLOR is the
+    // table's position): each bar's spectrum (third octaves, 100 Hz - 8 kHz) moves away from the 0 %
+    // sound and towards the 100 % one, bar by bar.
+    auto bandsOf = [] (const std::vector<float>& x, size_t a, size_t n, double rate)
+    {
+        constexpr int order = 14, N = 1 << order;
+        juce::dsp::FFT fft (order);
+        std::vector<double> e (19, 1e-20);
+        for (size_t f0 = a; f0 + N <= a + n; f0 += N / 2)
+        {
+            std::vector<float> w (2 * (size_t) N, 0.0f);
+            for (int i = 0; i < N; ++i) w[(size_t) i] = x[f0 + (size_t) i] * (float) (0.5 - 0.5 * std::cos (2.0 * 3.141592653589793 * i / (N - 1)));
+            fft.performFrequencyOnlyForwardTransform (w.data());
+            for (int i = 1; i <= N / 2; ++i)
+            {
+                const double f = i * rate / N, b = 3.0 * std::log2 (f / 100.0);
+                if (b >= 0.0 && b < 19.0) e[(size_t) b] += (double) w[(size_t) i] * w[(size_t) i];
+            }
+        }
+        double tot = 0.0;
+        for (auto v : e) tot += v;
+        for (auto& v : e) v = 10.0 * std::log10 (v / tot);                         // the shape, not the level
+        return e;
+    };
+    auto dist = [] (const std::vector<double>& p, const std::vector<double>& q) { double d = 0.0; for (size_t i = 0; i < p.size(); ++i) d += (p[i] - q[i]) * (p[i] - q[i]); return std::sqrt (d / (double) p.size()); };
+    auto pad = [&] (int slow, float colorFrom, float colorTo, double seconds, std::vector<float>& out)
+    {
+        resetBus();
+        Rig2 r ("PAD");
+        r.head.bpm = 120.0;
+        r.set ("model", 2.0f); r.set ("color", colorFrom); r.set ("slow", 8.0f); r.set ("density", 0.0f);
+        for (int b = 0; b < 8; ++b) r.step (kBlock, nullptr);
+        r.set ("slow", (float) slow); r.set ("color", colorTo);
+        bool on = false;
+        out.clear();
+        for (int64_t t = 0; t < (int64_t) (seconds * kSr); t += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (! on) { for (int nt : { 48, 51, 55 }) m.addEvent (juce::MidiMessage::noteOn (1, nt, (juce::uint8) 100), 0); on = true; } });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+        }
+    };
+    {
+        // At a quarter, half and three quarters of the way (2, 4, 6 s), the sound is the sound of COLOR
+        // held at 25, 50, 75 % (the same time into the note: WAVETABLE's position drifts slowly as the
+        // note goes on), nearer to it than to either end.
+        std::vector<float> o, st;
+        pad (3, 0.0f, 1.0f, 9.0, o);                                                  // SLOW 4 BAR: 8 s at 120 BPM
+        std::vector<std::vector<float>> held;
+        for (float c : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f }) { pad (8, c, c, 7.0, st); held.push_back (st); }
+        auto window = [&] (const std::vector<float>& x, int q) { return bandsOf (x, (size_t) ((2.0 * q - 0.25) * kSr), (size_t) (0.5 * kSr), kSr); };
+        bool ok = dist (window (held[0], 2), window (held[4], 2)) > 3.0;
+        std::printf ("   TEXTURE COLOR 0 -> 100 %% over 4 bars (WAVETABLE; the ends %.1f dB apart): against COLOR held there,", dist (window (held[0], 2), window (held[4], 2)));
+        for (int q = 1; q <= 3; ++q)
+        {
+            const auto g = window (o, q);
+            const double here = dist (g, window (held[(size_t) q], q)), from0 = dist (g, window (held[0], q)), from1 = dist (g, window (held[4], q));
+            std::printf (" at %d %%: %.1f dB (0 %%: %.1f, 100 %%: %.1f);", 25 * q, here, from0, from1);
+            ok = ok && here < 3.0 && here < from0 && here < from1;
+        }
+        std::printf ("\n");
+        CHECK (ok, "TEXTURE COLOR does not evolve over its 4 bars");
+    }
+
+    // MODEL change with a chord held on TEXTURE: STRING MACHINE -> POLY PAD at 2 s; the chord goes on
+    // (the keys play again in the new model) as if POLY PAD had played it all along, and ends when the
+    // keys go up at 5 s.
+    {
+        auto chord = [&] (bool change)
+        {
+            resetBus();
+            Rig2 r ("PAD");
+            r.head.bpm = 120.0;
+            r.set ("model", change ? 0.0f : 1.0f); r.set ("density", 0.0f);
+            std::vector<float> o;
+            for (int64_t t = 0; t < (int64_t) (8.0 * kSr); t += kBlock)
+            {
+                if (change && t >= (int64_t) (2.0 * kSr) && t < (int64_t) (2.0 * kSr) + kBlock) r.set ("model", 1.0f);
+                r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int)
+                {
+                    if (t == 0) for (int nt : { 48, 51, 55 }) m.addEvent (juce::MidiMessage::noteOn (1, nt, (juce::uint8) 100), 0);
+                    if (t <= (int64_t) (5.0 * kSr) && t + kBlock > (int64_t) (5.0 * kSr)) for (int nt : { 48, 51, 55 }) m.addEvent (juce::MidiMessage::noteOff (1, nt), 0);
+                });
+                for (int i = 0; i < kBlock; ++i) o.push_back (r.buf.getSample (0, i));
+            }
+            return o;
+        };
+        const auto o = chord (true), ref = chord (false);
+        auto rms = [&] (const std::vector<float>& x, double a, double b) { double e = 0.0; int n = 0; for (int i = (int) (a * kSr); i < (int) (b * kSr); ++i) { e += (double) x[(size_t) i] * x[(size_t) i]; ++n; } return gainToDb ((float) std::sqrt (e / std::max (1, n))); };
+        const float before = rms (o, 1.0, 2.0), after = rms (o, 3.0, 4.5), afterRef = rms (ref, 3.0, 4.5), gone = rms (o, 7.5, 8.0), goneRef = rms (ref, 7.5, 8.0);
+        std::printf ("   TEXTURE MODEL changed with a chord held: %.1f dB before, %.1f dB after (POLY PAD from the start: %.1f), %.1f dB 2.5 s after the keys went up (%.1f)\n",
+                     before, after, afterRef, gone, goneRef);
+        CHECK (std::abs (after - afterRef) < 3.0f && std::abs (gone - goneRef) < 3.0f, "TEXTURE MODEL change: %.1f dB after (want %.1f), %.1f once released (want %.1f)", after, afterRef, gone, goneRef);
+    }
+    // BASS (mono): keys 36 then 43 held, MODEL BASS LADDER -> MONO 101-TYPE: 43 plays on; 43 up: back to 36.
+    {
+        resetBus();
+        Rig2 r ("BASS");
+        r.head.bpm = 120.0;
+        r.set ("model", 0.0f); r.set ("density", 0.0f); r.set ("gate", 0.6f);              // held as long as the key
+        std::vector<float> o;
+        for (int64_t t = 0; t < (int64_t) (4.0 * kSr); t += kBlock)
+        {
+            if (t >= (int64_t) (1.5 * kSr) && t < (int64_t) (1.5 * kSr) + kBlock) r.set ("model", 1.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int)
+            {
+                if (t == 0) m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 100), 0);
+                if (t == (int64_t) kBlock * 100) m.addEvent (juce::MidiMessage::noteOn (1, 43, (juce::uint8) 100), 0);
+                if (t <= (int64_t) (2.5 * kSr) && t + kBlock > (int64_t) (2.5 * kSr)) m.addEvent (juce::MidiMessage::noteOff (1, 43), 0);
+            });
+            for (int i = 0; i < kBlock; ++i) o.push_back (r.buf.getSample (0, i));
+        }
+        // Which note, over half a second:
+        auto at = [&] (double t0, double hz)
+        {
+            std::complex<double> z {};
+            const int n = (int) (0.5 * kSr);
+            for (int i = 0; i < n; ++i)
+                z += (double) o[(size_t) ((int) (t0 * kSr) + i)] * (0.5 - 0.5 * std::cos (2.0 * 3.141592653589793 * i / (n - 1))) * std::polar (1.0, -2.0 * 3.141592653589793 * hz * i / kSr);
+            return 20.0 * std::log10 (std::abs (z) + 1e-12);
+        };
+        auto rms = [&] (double a) { double e = 0.0; for (int i = (int) (a * kSr); i < (int) ((a + 0.5) * kSr); ++i) e += (double) o[(size_t) i] * o[(size_t) i]; return gainToDb ((float) std::sqrt (e / (0.5 * kSr))); };
+        // (Each note's own: 43 has its sub at 49 Hz, 36 its fundamental at 65.4 Hz; 36's sub, 32.7 Hz,
+        // has a harmonic on 43's 98 Hz. The old model's voice releases on its own, under them.)
+        const double held43 = at (1.8, 49.0) - at (1.8, 65.4), back36 = at (3.0, 65.4) - at (3.0, 49.0);
+        // Both held, not a release fading: the level the same half a second on.
+        const float after = rms (1.6), after2 = rms (2.0), back = rms (3.0), back2 = rms (3.5);
+        std::printf ("   BASS (mono) MODEL changed with two keys held: 43 plays on (over 36 by %.1f dB; %.1f then %.1f dB); 43 up: 36 (over 43 by %.1f dB; %.1f then %.1f dB)\n",
+                     held43, after, after2, back36, back, back2);
+        CHECK (held43 > 12.0 && back36 > 12.0 && std::abs (after2 - after) < 3.0f && std::abs (back2 - back) < 3.0f && back2 > -40.0f,
+               "BASS MODEL change: 43 by %.1f dB, then 36 by %.1f dB; %.1f / %.1f, %.1f / %.1f dB", held43, back36, after, after2, back, back2);
+    }
+    resetBus();
+}
+
 // GLIDE RINGS: a plugin finds its knobs on the E16 scene (by track name, or by module when the scene
 // has it on one track), reports the travelling ones with Live's mapping of where the sound is, and
 // SF CONTROL turns that into the scene script's SysEx: a start, moves of 32 or more, a keep-alive
 // every 400 ms, an arrival; at most 14 knobs a message.
+// The newest intent wins (Nov 5 audit, F2 F3 F7 F8): a return to the value from before a recall;
+// STORE after a newer move; SLOW ALL changed in the same host block as a move; a host program
+// request cancelled by a newer one. The ordinary cases stay as they were.
+static void testControlAuthority()
+{
+    std::printf ("-- Control authority: returns after a recall, STORE after a move, SLOW ALL order, program requests\n");
+    const int lvl = [] { Rig2 r ("FILTER"); return r.p->paramIndex ("level"); }();
+    // FILTER's song 2 holds LEVEL -6 dB, Live's value is 0 dB; song 2 recalled, transport stopped.
+    auto recallMinusSix = [] (Rig2& r)
+    {
+        auto& d = Bus::get().d();
+        r.head.playing = false;
+        d.song = 1;
+        r.set ("level", -6.0f); r.step (kBlock, nullptr);
+        r.p->storeSong(); r.step (kBlock, nullptr);
+        r.set ("level", 0.0f); for (int k = 0; k < 120; ++k) r.step (kBlock, nullptr);
+        d.songAtPpq = -1.0; d.songFromPpq = -1.0; d.songKey = -2;
+        d.songSeq.fetch_add (1);
+        r.step (kBlock, nullptr);
+    };
+    auto settle = [] (Rig2& r, int blocks) { for (int k = 0; k < blocks; ++k) r.step (kBlock, nullptr); };
+    const int quarter = (int) std::ceil (0.25 * kSr / kBlock);
+
+    // F2. Recall reported to Live, then a newer move before the next audio block: back to the
+    //     value from before the recall (0 dB: a reset, a knob turned back) wins as surely as +3 does.
+    for (const float manual : { 0.0f, 3.0f })
+    {
+        resetBus();
+        Rig2 r ("FILTER");
+        recallMinusSix (r);
+        r.p->flushHostNotifications();
+        const float reported = r.p->apvts.getRawParameterValue ("level")->load();
+        r.set ("level", manual);
+        settle (r, quarter);
+        const float heard = r.p->currentValue (lvl);
+        std::printf ("   recall -6 dB reported (Live %.1f), then %+.0f dB in Live: heard %.2f dB after 0.25 s\n", reported, manual, heard);
+        CHECK (std::abs (reported + 6.0f) < 0.01f && std::abs (heard - manual) < 0.01f, "a move to %+.0f dB after a reported recall: heard %.2f dB", manual, heard);
+    }
+    // F3. STORE in the host block of a newer move: the move is stored, as it is heard (a local STORE
+    //     and SF CONTROL's STORE TO); with no move the recall is stored; and the return to 0 dB.
+    for (int variant = 0; variant < 4; ++variant)
+    {
+        resetBus();
+        Rig2 r ("FILTER");
+        recallMinusSix (r);
+        float want = 3.0f;
+        int target = 1;
+        if (variant == 0) { r.set ("level", 3.0f); r.p->storeSong(); }
+        else if (variant == 1) { r.set ("level", 3.0f); target = 2; auto& d = Bus::get().d(); d.storeSong = target; d.storeSeq.fetch_add (1); }
+        else if (variant == 2) { want = -6.0f; r.p->storeSong(); }
+        else { r.p->flushHostNotifications(); r.set ("level", 0.0f); want = 0.0f; r.p->storeSong(); }
+        r.step (kBlock, nullptr);
+        const float stored = r.p->mod().getSongValue (target, lvl);
+        settle (r, 120);
+        const float heard = r.p->currentValue (lvl);
+        const char* what[] = { "+3 dB then STORE", "+3 dB then STORE TO song 3", "STORE, no move", "reported, 0 dB, STORE" };
+        std::printf ("   recall -6 dB, %s in one block: stored %.2f dB, heard %.2f dB (want %+.0f)\n", what[variant], stored, heard, want);
+        CHECK (std::abs (stored - want) < 0.01f && std::abs (heard - want) < 0.01f, "STORE after a recall (%s): stored %.2f, heard %.2f dB", what[variant], stored, heard);
+    }
+    // F7. SLOW ALL changed in the host block in which two FILTERs move (0.2 -> 0.8, 120 BPM):
+    //     the same length for both, whether Live processes them before or after SF CONTROL, and
+    //     with SF CONTROL first. A change made a block earlier gives both the new length (1 BAR).
+    for (int variant = 0; variant < 4; ++variant)
+    {
+        resetBus();
+        Rig2 a ("FILTER"), ctl ("CONTROL"), b ("FILTER");
+        for (auto* r : { &a, &ctl, &b }) { r->head.playing = true; r->head.bpm = 120.0; }
+        const bool ctlFirst = variant == 2, lengthFirst = variant == 1, toOff = variant == 3;
+        a.set ("filter", 0.2f); b.set ("filter", 0.2f);
+        ctl.set ("e16_rings", 0.0f);
+        ctl.set ("slow_all", toOff ? 1.0f : 0.0f);
+        auto cycle = [&]
+        {
+            if (ctlFirst) ctl.step (kBlock, nullptr);
+            a.step (kBlock, nullptr);
+            if (! ctlFirst) ctl.step (kBlock, nullptr);
+            b.step (kBlock, nullptr);
+        };
+        for (int k = 0; k < 1200; ++k) cycle();               // long enough for a 1 BAR move to finish
+        ctl.set ("slow_all", toOff ? 0.0f : 1.0f);
+        if (lengthFirst) cycle();
+        a.set ("filter", 0.8f); b.set ("filter", 0.8f);
+        for (int k = 0; k < 94; ++k) cycle();                 // 0.5 s: a quarter of a 1 BAR move
+        const float va = a.p->currentValue (a.p->paramIndex ("filter")), vb = b.p->currentValue (b.p->paramIndex ("filter"));
+        const char* what[] = { "SLOW ALL OFF -> 1 BAR in the block of the move", "1 BAR a block before the move", "the same, SF CONTROL processed first", "1 BAR -> OFF in the block of the move" };
+        const float want = variant == 1 ? 0.35f : variant == 3 ? 0.35f : 0.8f;
+        std::printf ("   %s: after 0.5 s %.4f / %.4f (FILTER before / after SF CONTROL)\n", what[variant], va, vb);
+        CHECK (std::abs (va - vb) < 0.005f && std::abs (va - want) < 0.01f, "SLOW ALL order (%s): %.4f / %.4f, want %.2f", what[variant], va, vb, want);
+    }
+    // F8. Host program requests before the next block: SONG 02 then SONG 01 from SONG 01 leaves
+    //     SONG 01, with no recall; SONG 02 then SONG 03 lands SONG 03.
+    {
+        resetBus();
+        Rig2 ctl ("CONTROL");
+        ctl.set ("e16_rings", 0.0f);
+        settle (ctl, 3);
+        auto& d = Bus::get().d();
+        const int start = d.song.load();
+        const uint32_t seq0 = d.songSeq.load();
+        ctl.p->setCurrentProgram (1); ctl.p->setCurrentProgram (0);
+        ctl.step (kBlock, nullptr);
+        const int back = d.song.load();
+        const bool recalled = d.songSeq.load() != seq0;
+        ctl.p->setCurrentProgram (1); ctl.p->setCurrentProgram (2);
+        ctl.step (kBlock, nullptr);
+        const int last = d.song.load();
+        std::printf ("   program requests: from %d, 1 then 0 -> %d (%s), 1 then 2 -> %d\n", start, back, recalled ? "recalled" : "no recall", last);
+        CHECK (start == 0 && back == 0 && ! recalled && last == 2, "program requests: %d, %d (%s), %d", start, back, recalled ? "recalled" : "no recall", last);
+    }
+}
+
 static void testGlideRings()
 {
     std::printf ("-- GLIDE RINGS\n");
@@ -3368,4 +3708,396 @@ static void testTerroir()
         }
         dir.deleteRecursively();
     }
+}
+
+// A finished IR comes in as it is, and the sweep detector holds for odd files (Nov 5 audit, F6): a
+// click at the first sample, a 5 ms response, a direct sound before a stronger reflection (and one
+// before a weaker), stereo timing and polarity, a click in 20 s of silence (no sweep), a sweep with
+// one channel inverted (a sweep), rooms recorded in noise. Timing and transfer, not just energy.
+static void testIrImport()
+{
+    std::printf ("-- IR import: finished IRs as they are; sweep or not\n");
+    const double sr = kSr;
+    const int lead = (int) (0.001 * sr), w = (int) (0.0005 * sr);
+    auto energy = [] (const juce::AudioBuffer<float>& b) { double e = 0.0; for (int c = 0; c < b.getNumChannels(); ++c) for (int i = 0; i < b.getNumSamples(); ++i) e += (double) b.getSample (c, i) * b.getSample (c, i); return e / std::max (1, b.getNumChannels()); };
+    auto dtft = [&] (const juce::AudioBuffer<float>& b, int ch, double hz)
+    {
+        std::complex<double> z {};
+        for (int i = 0; i < b.getNumSamples(); ++i) z += (double) b.getSample (ch, i) * std::polar (1.0, -2.0 * 3.141592653589793 * hz * i / sr);
+        return 20.0 * std::log10 (std::abs (z) + 1e-30);
+    };
+    // Arrivals: samples over 5 % of the largest, the first of each run 1 ms apart.
+    auto arrivals = [] (const juce::AudioBuffer<float>& b, int ch)
+    {
+        std::vector<int> a;
+        const float pk = b.getMagnitude (ch, 0, b.getNumSamples());
+        for (int i = 0; i < b.getNumSamples(); ++i)
+            if (std::fabs (b.getSample (ch, i)) > 0.05f * pk && (a.empty() || i - a.back() > 48)) a.push_back (i);
+        return a;
+    };
+    // 1. One click, at sample 0, 1, 24, 48, 240 of a 1 s file: the click 1 ms (up to 1.5) in; flat
+    //    but for the 20 Hz high-pass every import gets (on a 30 ms IR, 0.1 dB at 100 Hz).
+    {
+        bool ok = true;
+        std::printf ("   a click at sample");
+        for (int at : { 0, 1, 24, 48, 240 })
+        {
+            juce::AudioBuffer<float> b (1, (int) sr); b.clear(); b.setSample (0, at, 1.0f);
+            const auto c = ir::analyse (b, sr);
+            const int pos = c.ok ? peakIndex (c.ir.getReadPointer (0), c.ir.getNumSamples()) : -1;
+            const double lo = c.ok ? dtft (c.ir, 0, 100.0) : 0.0, mid = c.ok ? dtft (c.ir, 0, 1000.0) : 0.0, hi = c.ok ? dtft (c.ir, 0, 10000.0) : 0.0;
+            const double spread = std::max ({ lo, mid, hi }) - std::min ({ lo, mid, hi });
+            std::printf (" %d: %s at %d, energy %.3f, 100 Hz-10 kHz within %.3f dB;", at, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), pos, c.ok ? energy (c.ir) : 0.0, spread);
+            ok = ok && c.ok && c.kind == "IMPULSE" && pos >= lead && pos <= lead + w && std::abs (energy (c.ir) - ir::kEnergy) < 1e-3 && spread < 0.15;
+        }
+        std::printf ("\n");
+        CHECK (ok, "IR import: a click near the file start is not kept as it is");
+    }
+    // 2. A 5 ms response in a 10 ms file.
+    {
+        juce::AudioBuffer<float> b (1, 480); b.clear();
+        for (int i = 0; i < 240; ++i) b.setSample (0, i, (float) (std::exp (-i / 60.0) * std::sin (2.0 * 3.141592653589793 * 3000.0 * i / 48000.0 + 0.3)));
+        const auto c = ir::analyse (b, sr);
+        double corr = 0.0, ea = 0.0, eb = 0.0;
+        if (c.ok)
+            for (int i = 0; i < 240 && lead + i < c.ir.getNumSamples(); ++i)
+            { const double x = c.ir.getSample (0, lead + i), y = b.getSample (0, i); corr += x * y; ea += x * x; eb += y * y; }
+        corr /= std::sqrt (ea * eb + 1e-30);
+        std::printf ("   a 5 ms response in a 10 ms file: %s, %.1f ms, shape %.4f\n", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), c.ok ? 1000.0 * c.ir.getNumSamples() / sr : 0.0, corr);
+        CHECK (c.ok && corr > 0.999, "IR import: a 5 ms response (%s, shape %.4f)", c.ok ? "ok" : c.error.toRawUTF8(), corr);
+    }
+    // 3, 4. A direct sound at 5 ms and a reflection at 85 ms, the reflection 4 times stronger, then 4
+    //       times weaker: both kept, 3840 samples apart, in their ratio.
+    for (int strongerLater = 1; strongerLater >= 0; --strongerLater)
+    {
+        juce::AudioBuffer<float> b (1, (int) sr); b.clear();
+        b.setSample (0, 240, strongerLater ? 0.25f : 1.0f); b.setSample (0, 4080, strongerLater ? 1.0f : 0.25f);
+        const auto c = ir::analyse (b, sr);
+        const auto a = c.ok ? arrivals (c.ir, 0) : std::vector<int> {};
+        const float ratio = a.size() >= 2 ? std::fabs (c.ir.getSample (0, a[1]) / c.ir.getSample (0, a[0])) : 0.0f;
+        std::printf ("   a direct sound and a reflection %s 80 ms later: %s, arrivals", strongerLater ? "4x stronger" : "4x weaker", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8());
+        for (int i : a) std::printf (" %d", i);
+        std::printf (", second against first %.3f (want %.3f)\n", ratio, strongerLater ? 4.0 : 0.25);
+        CHECK (c.ok && a.size() == 2 && a[1] - a[0] == 3840 && a[0] >= lead && a[0] <= lead + w && std::abs (ratio / (strongerLater ? 4.0f : 0.25f) - 1.0f) < 0.02f,
+               "IR import: direct sound and reflection (%s) not kept", strongerLater ? "stronger later" : "weaker later");
+    }
+    // 5. Stereo: the right arrival 72 samples after the left, inverted.
+    {
+        juce::AudioBuffer<float> b (2, (int) (0.5 * sr)); b.clear();
+        b.setSample (0, 96, 1.0f); b.setSample (0, 1440, 0.3f);
+        b.setSample (1, 96 + 72, -0.8f); b.setSample (1, 1920, 0.2f);
+        const auto c = ir::analyse (b, sr);
+        const int pl = c.ok ? peakIndex (c.ir.getReadPointer (0), c.ir.getNumSamples()) : 0;
+        const int pr = c.ok && c.ir.getNumChannels() > 1 ? peakIndex (c.ir.getReadPointer (1), c.ir.getNumSamples()) : 0;
+        const float sl = c.ok ? c.ir.getSample (0, pl) : 0.0f, srt = c.ok && c.ir.getNumChannels() > 1 ? c.ir.getSample (1, pr) : 0.0f;
+        std::printf ("   stereo, the right 72 samples later and inverted: %s, %d channels, right %d samples later, signs %+.0f %+.0f, right/left %.3f (want -0.800)\n",
+                     c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), c.ok ? c.ir.getNumChannels() : 0, pr - pl, (double) (sl > 0 ? 1 : -1), (double) (srt > 0 ? 1 : -1), sl != 0.0f ? srt / sl : 0.0f);
+        CHECK (c.ok && c.ir.getNumChannels() == 2 && pr - pl == 72 && std::abs (srt / sl + 0.8f) < 0.01f, "IR import: stereo timing or polarity lost");
+    }
+    // 6. A click in 20 s of silence, at 0.5 s and at 12.5 s: a click, not a sweep.
+    for (double t : { 0.5, 12.5 })
+    {
+        juce::AudioBuffer<float> b (1, (int) (20.0 * sr)); b.clear(); b.setSample (0, (int) (t * sr), 1.0f);
+        const auto c = ir::analyse (b, sr);
+        std::printf ("   a click at %.1f s in 20 s of silence: %s, %.3f s long\n", t, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), c.ok ? c.ir.getNumSamples() / sr : 0.0);
+        CHECK (c.ok && c.kind == "IMPULSE" && c.ir.getNumSamples() < (int) (0.1 * sr), "IR import: a click in silence taken for %s", c.kind.toRawUTF8());
+    }
+    // 7. The sweep in the left channel and inverted in the right: a sweep; the two IRs opposite.
+    {
+        const auto s = ir::sweep (sr);
+        juce::AudioBuffer<float> b (2, 12 * (int) sr); b.clear();
+        for (int i = 0; i < (int) s.size(); ++i) { b.setSample (0, (int) sr + i, 0.5f * s[(size_t) i]); b.setSample (1, (int) sr + i, -0.5f * s[(size_t) i]); }
+        const auto c = ir::analyse (b, sr);
+        double xy = 0.0, xx = 0.0, yy = 0.0;
+        if (c.ok && c.ir.getNumChannels() == 2)
+            for (int i = 0; i < c.ir.getNumSamples(); ++i) { const double x = c.ir.getSample (0, i), y = c.ir.getSample (1, i); xy += x * y; xx += x * x; yy += y * y; }
+        const double corr = xy / std::sqrt (xx * yy + 1e-30);
+        std::printf ("   the sweep, the right channel inverted: %s, left against right %.4f\n", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), corr);
+        CHECK (c.ok && c.kind == "SWEEP x1" && corr < -0.999, "IR import: inverted stereo sweep (%s, %.4f)", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), corr);
+    }
+    // 8. The built-in room recorded in 20 s of noise at -90, -70, -50 dBFS: a click recording. Over
+    //    the noise, it is kept from its first arrival (10 % of the peak: as long before the peak as in
+    //    the room), the room's shape from there; at -50 dB that arrival is in the noise (2 dB over
+    //    it), so the shape is compared from the peak.
+    {
+        const auto room = ir::builtInRoom (sr);
+        auto firstOver = [] (const float* x, int n, float frac) { float pk = 0.0f; for (int i = 0; i < n; ++i) pk = std::max (pk, std::fabs (x[i])); int i = 0; while (i < n && std::fabs (x[i]) < frac * pk) ++i; return i; };
+        const int roomPeak = peakIndex (room.getReadPointer (0), room.getNumSamples()), roomFirst = firstOver (room.getReadPointer (0), room.getNumSamples(), 0.1f);
+        std::printf ("   the built-in room (first arrival %.1f ms before its peak) recorded in noise:", (roomPeak - roomFirst) * 1000.0 / sr);
+        bool ok = true;
+        for (float noiseDb : { -90.0f, -70.0f, -50.0f })
+        {
+            std::mt19937 rng (1234);
+            std::normal_distribution<float> g (0.0f, 1.0f);
+            juce::AudioBuffer<float> b (1, (int) (20.0 * sr));
+            for (int i = 0; i < b.getNumSamples(); ++i) b.setSample (0, i, g (rng) * std::pow (10.0f, noiseDb / 20.0f));
+            for (int i = 0; i < room.getNumSamples(); ++i) b.addSample (0, (int) (0.5 * sr) + i, 0.5f * room.getSample (0, i));
+            const auto c = ir::analyse (b, sr);
+            const int n = c.ok ? c.ir.getNumSamples() : 0;
+            const int pk = n > 0 ? peakIndex (c.ir.getReadPointer (0), n) : 0, fst = n > 0 ? firstOver (c.ir.getReadPointer (0), n, 0.1f) : 0;
+            const bool clean = noiseDb < -60.0f;
+            const int from = clean ? fst : pk, roomFrom = clean ? roomFirst : roomPeak;
+            const int m = std::min ({ n - from, room.getNumSamples() - roomFrom, (int) (0.1 * sr) });
+            const double corr = m > 0 ? bandCorrelation (c.ir.getReadPointer (0) + from, room.getReadPointer (0) + roomFrom, m, sr) : 0.0;
+            std::printf (" %.0f dB: %s, first arrival at %.2f ms, %.1f ms before the peak, from %s against the room %.4f;", noiseDb,
+                         c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), fst * 1000.0 / sr, (pk - fst) * 1000.0 / sr, clean ? "there" : "the peak", corr);
+            ok = ok && c.ok && c.kind == "IMPULSE" && corr > (clean ? 0.99 : 0.85)          // -50 dB: what the noise allows (0.89)
+                 && (! clean || (std::abs ((pk - fst) - (roomPeak - roomFirst)) <= 1 && fst >= lead));
+        }
+        std::printf ("\n");
+        CHECK (ok, "IR import: a room recorded in noise is not kept from its first arrival");
+    }
+    // 9. Samples that are not numbers: refused.
+    {
+        juce::AudioBuffer<float> b (1, (int) sr); b.clear(); b.setSample (0, 100, 1.0f); b.setSample (0, 2000, std::numeric_limits<float>::quiet_NaN());
+        const auto c = ir::analyse (b, sr);
+        std::printf ("   a file with a NaN: %s\n", c.ok ? "taken" : c.error.toRawUTF8());
+        CHECK (! c.ok, "IR import: a NaN taken in");
+    }
+}
+
+// TERROIR's IR follows its knobs through every change of stream (Nov 5 audit, F4 F5): real time to
+// rendering and back with an old answer from the worker waiting or still being built, prepare
+// again, a fresh instance's first note, the state loaded before or after prepare, a change of rate;
+// measured from the first sample, not after a warm-up. And the level is the same at every host rate,
+// for a place stored at 48 or 96 kHz.
+static void testTerroirLifecycle()
+{
+    std::printf ("-- TERROIR lifecycle: the IR in use is the knobs' (render, real time, prepare, state); one level at every rate\n");
+    auto setup = [] (Rig2& r, bool offline)
+    {
+        r.head.bpm = 120.0;
+        r.p->setNonRealtime (offline);
+        r.set ("mix", 1.0f); r.set ("dry", 0.0f); r.set ("duck", 0.0f); r.set ("lo_cut", 20.0f);
+    };
+    // sec seconds of input (0 silence, 1 an impulse at the first sample, 2 a 0.05 sine at hz); the left output.
+    auto run = [] (Rig2& r, double sec, int input, double hz = 1000.0)
+    {
+        std::vector<float> y;
+        const int64_t n = (int64_t) (sec * r.sr);
+        for (int64_t t = 0; t < n;)
+        {
+            const int nn = (int) std::min<int64_t> (r.block, n - t);
+            r.step (nn, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int m)
+            {
+                for (int i = 0; i < m; ++i)
+                {
+                    float x = 0.0f;
+                    if (input == 1 && t + i == 0) x = 0.2f;
+                    if (input == 2) x = 0.05f * (float) std::sin (6.283185307179586 * hz * (double) (t + i) / r.sr);
+                    b.setSample (0, i, x); b.setSample (1, i, x);
+                }
+            });
+            for (int i = 0; i < nn; ++i) y.push_back (r.buf.getSample (0, i));
+            t += nn;
+        }
+        return y;
+    };
+    auto rtOf = [] (const std::vector<float>& o, double rate) { juce::AudioBuffer<float> b (1, (int) o.size()); b.copyFrom (0, 0, o.data(), (int) o.size()); return ir::rt60 (b, rate); };
+    auto impulse = [&] (Rig2& r) { r.p->mod().reset(); return rtOf (run (r, 1.5, 1), r.sr); };
+    // Real time: the worker's answer, while nothing is going in.
+    auto settle = [&] (Rig2& r) { run (r, 0.05, 0); juce::Thread::sleep (250); run (r, 0.05, 0); };
+    auto near = [] (float a, float b) { return std::abs (a / b - 1.0f) < 0.05f; };
+
+    float want = 0.0f, wantLong = 0.0f;
+    {
+        resetBus();
+        Rig2 r ("TERROIR"); setup (r, true);
+        r.set ("decay", 0.2f); run (r, 1.0, 0); want = impulse (r);
+        r.set ("decay", 0.5f); run (r, 1.0, 0); wantLong = impulse (r);
+    }
+    std::printf ("   DECAY 20 %%: RT %.3f s (50 %%: %.3f s), the reference\n", want, wantLong);
+
+    // 1, 2. Real time -> rendering -> real time; DECAY 50 % asked for in real time, its answer waiting
+    //       (1) or still being built (2) when the render ends with DECAY at 20 %.
+    for (int inFlight = 0; inFlight < 2; ++inFlight)
+    {
+        resetBus();
+        Rig2 r ("TERROIR"); setup (r, false);
+        settle (r);
+        if (inFlight) ir::testBuildDelayMs = 400;
+        r.set ("decay", 0.5f); run (r, 0.01, 0);
+        juce::Thread::sleep (inFlight ? 60 : 300);
+        r.p->setNonRealtime (true);
+        r.set ("decay", 0.2f); run (r, 1.0, 0);
+        const float off = impulse (r);
+        r.p->setNonRealtime (false);
+        run (r, 0.3, 0); juce::Thread::sleep (inFlight ? 700 : 250); run (r, 0.3, 0);
+        const float on = impulse (r);
+        run (r, 0.5, 0); juce::Thread::sleep (250); run (r, 0.5, 0);
+        const float later = impulse (r);
+        ir::testBuildDelayMs = 0;
+        std::printf ("   real time > render > real time, DECAY 50 %% %s: RT rendering %.3f, back in real time %.3f, later %.3f s (want %.3f)\n",
+                     inFlight ? "still being built when the render ends" : "built and waiting", off, on, later, want);
+        CHECK (near (off, want) && near (on, want) && near (later, want), "TERROIR after a render with an old answer %s: RT %.3f / %.3f / %.3f, want %.3f",
+               inFlight ? "in flight" : "waiting", off, on, later, want);
+    }
+    // 3. Prepare again (the stream starts over at 0) after a longer pass: DECAY 20 % from the first note.
+    {
+        resetBus();
+        Rig2 r ("TERROIR"); setup (r, true);
+        r.set ("decay", 0.2f); run (r, 1.0, 0);
+        const float a = impulse (r);
+        r.set ("decay", 1.0f); run (r, 2.0, 0);
+        r.p->prepareToPlay (r.sr, r.block); r.ppq = 0.0;
+        r.set ("decay", 0.2f);
+        const float b = impulse (r);
+        std::printf ("   prepared again after DECAY 100 %%, set to 20 %%: first note RT %.3f s (before %.3f)\n", b, a);
+        CHECK (near (a, want) && near (b, want), "TERROIR prepared again: first note RT %.3f, want %.3f", b, want);
+    }
+    // 4. A fresh instance at DECAY 10 %, rendering: the first note, and after it settles.
+    {
+        resetBus();
+        Rig2 r ("TERROIR"); setup (r, true);
+        r.set ("decay", 0.1f);
+        const float first = impulse (r);
+        run (r, 1.0, 0);
+        const float settled = impulse (r);
+        std::printf ("   fresh instance at DECAY 10 %%: first note RT %.3f s, settled %.3f s\n", first, settled);
+        CHECK (near (first, settled), "TERROIR fresh instance: first note RT %.3f, settled %.3f", first, settled);
+    }
+    // 5. The state (DECAY 20 %) loaded before prepare and after it; rendering and real time.
+    {
+        juce::MemoryBlock state;
+        {
+            resetBus();
+            Rig2 r ("TERROIR"); setup (r, true);
+            r.set ("decay", 0.2f); run (r, 0.1, 0);
+            r.p->getStateInformation (state);
+        }
+        for (int rt = 0; rt < 2; ++rt)
+            for (int before = 0; before < 2; ++before)
+            {
+                resetBus();
+                Rig2 r ("TERROIR");
+                r.head.bpm = 120.0; r.p->setNonRealtime (! rt);
+                if (before) { r.p->setStateInformation (state.getData(), (int) state.getSize()); r.p->prepareToPlay (r.sr, r.block); }
+                else r.p->setStateInformation (state.getData(), (int) state.getSize());
+                if (rt) settle (r);
+                const float first = impulse (r);
+                std::printf ("   state loaded %s prepare, %s: first note RT %.3f s\n", before ? "before" : "after", rt ? "real time" : "rendering", first);
+                CHECK (near (first, want), "TERROIR state loaded %s prepare (%s): first note RT %.3f, want %.3f", before ? "before" : "after", rt ? "real time" : "rendering", first, want);
+            }
+    }
+    // 6. Real time at 48 kHz, then prepared at 96 kHz: DECAY 20 % at once.
+    {
+        resetBus();
+        Rig2 r ("TERROIR"); setup (r, false);
+        r.set ("decay", 0.2f); settle (r);
+        const float at48 = impulse (r);
+        r.sr = 96000.0; r.p->setRateAndBufferSizeDetails (r.sr, r.block); r.p->prepareToPlay (r.sr, r.block); r.ppq = 0.0;
+        const float at96 = impulse (r);
+        settle (r);
+        const float later = impulse (r);
+        std::printf ("   real time, 48 kHz then 96 kHz: RT %.3f s, then %.3f s at once, %.3f s later\n", at48, at96, later);
+        CHECK (near (at48, want) && near (at96, want) && near (later, want), "TERROIR rate change: RT %.3f / %.3f / %.3f, want %.3f", at48, at96, later, want);
+    }
+    // 7. Level: steady sines at 100 Hz, 1 kHz, 5 kHz through the built-in room at each host rate, wet,
+    //    the last second of 4: within 0.05 dB of 48 kHz. SIZE 150 % too.
+    auto steady = [&] (double rate, double hz, float size, int place = 0, juce::MemoryBlock* st = nullptr)
+    {
+        resetBus();
+        Rig2 r ("TERROIR", rate, 256);
+        if (st != nullptr) r.p->setStateInformation (st->getData(), (int) st->getSize());
+        setup (r, true);                                     // after the state: wet only
+        r.set ("size", size); r.set ("place", (float) place);
+        const auto y = run (r, 4.0, 2, hz);
+        double e = 0.0; int c = 0;
+        for (size_t i = (size_t) (3.0 * rate); i < y.size(); ++i) { e += (double) y[i] * y[i]; ++c; }
+        return gainToDb ((float) std::sqrt (e / std::max (1, c)));
+    };
+    {
+        float worst = 0.0f;
+        for (float size : { 1.0f, 1.5f })
+        {
+            std::printf ("   SIZE %3.0f %%:", size * 100.0f);
+            for (double hz : { 100.0, 1000.0, 5000.0 })
+            {
+                const float ref = steady (48000.0, hz, size);
+                std::printf ("  %4.0f Hz %.2f dB", hz, ref);
+                for (double rate : { 44100.0, 88200.0, 96000.0 })
+                {
+                    const float d = steady (rate, hz, size) - ref;
+                    std::printf (" %+.3f", d);
+                    worst = std::max (worst, std::abs (d));
+                }
+            }
+            std::printf (" (at 48 kHz; 44.1, 88.2, 96 kHz against it)\n");
+        }
+        CHECK (worst < 0.05f, "TERROIR level changes with the host rate by %.3f dB", worst);
+    }
+    // 8. One room stored as a place twice: recorded at 48 kHz and at 96 kHz (mono, band-limited under
+    //    18 kHz, each scaled to kEnergy at its own rate, as an import does): the same level at 48 and
+    //    at 96 kHz.
+    {
+        const double r96 = 96000.0;
+        std::mt19937 rng (31);
+        std::normal_distribution<float> g (0.0f, 1.0f);
+        std::vector<float> raw ((size_t) (1.2 * r96), 0.0f);
+        for (size_t i = (size_t) (0.004 * r96); i < raw.size(); ++i) raw[i] = g (rng) * std::exp (-6.9078f * (float) (i / r96) / 0.6f);
+        // Low-pass at 18 kHz (windowed sinc, 255 taps).
+        std::vector<float> h96 (raw.size(), 0.0f);
+        const double fc = 18000.0 / r96;
+        for (size_t i = 0; i < raw.size(); ++i)
+        {
+            double acc = 0.0;
+            for (int k = -127; k <= 127; ++k)
+            {
+                const int64_t j = (int64_t) i - k;
+                if (j < 0 || j >= (int64_t) raw.size()) continue;
+                const double w = 0.42 + 0.5 * std::cos (3.141592653589793 * k / 128.0) + 0.08 * std::cos (2.0 * 3.141592653589793 * k / 128.0);
+                const double sn = k == 0 ? 2.0 * fc : std::sin (2.0 * 3.141592653589793 * fc * k) / (3.141592653589793 * k);
+                acc += sn * w * raw[(size_t) j];
+            }
+            h96[i] = (float) acc;
+        }
+        const auto h48 = ir::stretch (h96.data(), (int) h96.size(), 0.5);
+        auto flacOf = [] (const std::vector<float>& h, double rate)
+        {
+            juce::AudioBuffer<float> b (1, (int) h.size());
+            b.copyFrom (0, 0, h.data(), (int) h.size());
+            ir::normalise (b);
+            juce::MemoryBlock mb;
+            juce::FlacAudioFormat fmt;
+            auto* mos = new juce::MemoryOutputStream (mb, false);
+            std::unique_ptr<juce::AudioFormatWriter> w (fmt.createWriterFor (mos, rate, 1, 24, {}, 0));
+            w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+            w.reset();
+            return std::make_pair (mb, b.getMagnitude (0, 0, b.getNumSamples()));
+        };
+        const auto [f48, pk48] = flacOf (h48, 48000.0);
+        const auto [f96, pk96] = flacOf (h96, r96);
+        juce::MemoryBlock state;
+        {
+            resetBus();
+            Rig2 r ("TERROIR");
+            juce::MemoryBlock s0;
+            r.p->getStateInformation (s0);
+            auto root = juce::ValueTree::readFromData (s0.getData(), s0.getSize());
+            auto m = root.getChildWithName ("MODULE");
+            int slot = 0;
+            for (auto* f : { &f48, &f96 })
+            {
+                juce::ValueTree c ("PLACE");
+                c.setProperty ("slot", slot, nullptr);
+                c.setProperty ("name", slot == 0 ? "ROOM AT 48" : "ROOM AT 96", nullptr);
+                c.setProperty ("kind", "IMPULSE", nullptr);
+                c.setProperty ("sr", slot == 0 ? 48000.0 : r96, nullptr);
+                c.setProperty ("rt60", 0.6, nullptr);
+                c.setProperty ("flac", *f, nullptr);
+                m.appendChild (c, nullptr);
+                ++slot;
+            }
+            juce::MemoryOutputStream os (state, false);
+            root.writeToStream (os);
+        }
+        const float a48 = steady (48000.0, 1000.0, 1.0f, 0, &state), b48 = steady (48000.0, 1000.0, 1.0f, 1, &state);
+        const float a96 = steady (r96, 1000.0, 1.0f, 0, &state), b96 = steady (r96, 1000.0, 1.0f, 1, &state);
+        std::printf ("   one room stored at 48 and at 96 kHz (peaks %.2f, %.2f): at a 48 kHz host %.2f / %.2f dB, at 96 kHz %.2f / %.2f dB\n",
+                     pk48, pk96, a48, b48, a96, b96);
+        CHECK (pk48 < 0.99f && pk96 < 0.99f, "TERROIR test places clip");
+        CHECK (std::abs (a48 - b48) < 0.05f && std::abs (a96 - b96) < 0.05f && std::abs (a48 - a96) < 0.05f,
+               "TERROIR place level depends on rate: %.2f / %.2f / %.2f / %.2f dB", a48, b48, a96, b96);
+    }
+    resetBus();
 }

@@ -521,7 +521,7 @@ story += bullets(["<b>1-3, the group ENERGY knobs:</b> centre is neutral, left t
                   "<b>5-8, the volumes:</b> KICK, LOW, DRUMS, MUSIC. Each is mapped with a maximum of 0 dB, so a full turn never runs past the soundcheck balance.",
                   "<b>On an instrument page</b> 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row."])
 story.append(H2T("RINGS, PAGES, PRESSES"))
-story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else, green is knob 1 on SLOW ALL or a knob travelling. Live sends every value back, so the rings follow song recalls and mouse moves.",
+story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else, green is knob 1 on SLOW ALL or a knob travelling (knob 1 itself never shows a glide: it swaps, so it always shows the value of the side it is on). Live sends every value back, so the rings follow song recalls and mouse moves.",
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>Changing pages sends nothing.</b> A knob on two pages (LOW ENERGY is on all twelve) sends the same address from both: two ways to one mapping.",
                   "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off.",
@@ -586,7 +586,7 @@ story.append(Spacer(1, 6))
 story += bullets(["SF CONTROL decides the bar line once and sends it with the song, so every plugin lands on the same bar whatever order Live processes the tracks in.",
                   "A change sent within 30 ms after a bar line (a Program Change on the downbeat) counts for that bar; later in the bar, for the next one. Every plugin's header shows WAIT BAR in green until it lands.",
                   "Turning SONG on SF CONTROL does the same as a Program Change. A plugin with nothing stored in that song stays as it is.",
-                  "<b>SLOW ALL</b> on SF CONTROL turns every recall into a glide: at 8 or 16 BAR a song change becomes an 8- or 16-bar transition; at OFF it lands on the bar."])
+                  "<b>SLOW ALL</b> on SF CONTROL makes a recall glide: at 8 or 16 BAR every SF knob the song stores travels to it over 8 or 16 bars; at OFF it lands on the bar. Menus and switches (a MODEL, an ECHO SPACE) land on the bar either way (GLIDES, chapter 7, has the list)."])
 story.append(H2T("SAVING A SONG"))
 story += bullets(["Set every plugin how the song should start, then press <b>STORE ALL</b> on SF CONTROL: every SF plugin stores its values into the song in force (SONG).",
                   "<b>Into another song:</b> choose it in <b>STORE TO</b> first, then STORE ALL. That song isn't recalled, so nothing you hear changes; it becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. Choosing it on SONG instead would recall it and lose what you set.",
@@ -646,14 +646,49 @@ story += bullets(["<b>Throws:</b> SPACE page, hold 9 (DUB THROW) on an offbeat s
 story.append(H2T("FILLS AND TRANSITIONS"))
 story += bullets(["<b>Hats:</b> HATS page, CLOSED DENSITY up with ECHO SPACE at 1/16 on SF PERC: 1/8 hats become 1/16s, then 1/32 rolls past 50 %.",
                   "<b>Drum roll:</b> MACROS page, hold ROLL (15) and turn LENGTH under the same finger: 1/4 down to 1/32. PITCH (16) makes it fall.",
-                  "<b>Between tracks:</b> load the next ONE project during a build or a breakdown; the song lands on a bar line. With SLOW ALL set, the sound glides into the new song instead.",
+                  "<b>Between tracks:</b> load the next ONE project during a build or a breakdown; the song lands on a bar line. With SLOW ALL set, the knobs glide into the new song; a MODEL change in it still lands on the bar, so cover it with the build or the drop.",
                   "<b>BRIDGE:</b> bring 16 BRIDGE up on PERFORM and 15 LIVE BUS down to hand the room to a clip while you regroup. BRIDGE still needs Live: it is not a backup for a computer failure."])
 story.append(H2T("GLIDES"))
 story += bullets(["<b>A travelling knob's ring turns green</b> and walks with the sound to where you set it, then turns white. Turn it while it walks: the ring shows your hand, then green again. (SF CONTROL's E16 RINGS and the scene's script; nothing else depends on them.)",
                   "<b>SLOW ALL</b> (press knob 1, turn, press again) sets how long your next moves take, in every SF plugin. OFF: they land at once. 8 BAR: a quarter turn of ACID CUTOFF becomes an eight-bar rise that plays itself.",
                   "<b>A move keeps its length.</b> Start a 16-bar rise on the pad, set SLOW ALL to OFF, and make quick moves elsewhere: the pad keeps rising. Turn a travelling knob and it sets off again from where it has got to.",
-                  "<b>Song changes follow it.</b> SLOW ALL at 16 BAR before the Program Change: the set morphs into the next track over 16 bars. OFF: it lands on the bar.",
-                  "Live's faders (the volumes, the returns, LIVE BUS, BRIDGE) never glide. A plugin's own SLOW, set in its window, wins over SLOW ALL; leave it at CONTROL."])
+                  "<b>SLOW ALL changed in the same instant as a move</b> (one audio buffer, a few ms): the move takes the length from before the change, in every plugin alike. Set SLOW ALL, then move.",
+                  "<b>Song changes follow it, knob by knob.</b> SLOW ALL at 16 BAR before the Program Change: every SF knob the song stores travels to the new song over 16 bars; OFF: it lands on the bar. What does not glide (the table) changes on the bar. It is a morph of the knobs, not a crossfade between two whole sounds.",
+                  "A plugin's own SLOW, set in its window, wins over SLOW ALL; leave it at CONTROL."])
+# What SLOW moves, for every knob and press of the scene: drawn from layout.py and the plugins'
+# parameters (specs.json), so it can't drift from the set. Every place on the scene lands in one row.
+def spec_of(c):
+    return next(q for q in E16.SPECS[c.module]["params"] if q["id"] == c.pid)
+glides, menus, presses, live = [], [], [], []
+for title, _ in E16.PAGES:
+    for i, c in enumerate(E16.encoders(title), 1):
+        if not c.module:
+            live.append(c.label)
+        elif spec_of(c)["slow"]:
+            glides.append(c.target)
+        else:
+            assert spec_of(c)["type"] == "menu", f"{c.target}: a knob on the scene that SLOW doesn't move"
+            menus.append(c.label)
+    for i in range(1, 17):
+        p = E16.press_for(title, i)
+        if p is not None and p.mode == "SWAP":
+            assert spec_of(p.ctl)["type"] == "menu", p.ctl.target
+            menus.append(p.ctl.label)
+        elif p is not None:
+            presses.append(p.name)
+names = lambda rows: ", ".join(dict.fromkeys(rows))
+detail_names = sorted({f"{c.track.split(' ', 1)[1]} {E16.param_name(c.module, c.pid)}" for t, _ in E16.PAGES for c in E16.encoders(t)
+                       if c.module and spec_of(c)["slow"] and not spec_of(c)["primary"]})
+story.append(CondPageBreak(2.4 * inch))
+story.append(P("<b>WHAT SLOW MOVES</b> (every knob and press of SF SHOW; drawn from the scene and the plugins)", "smallgrey"))
+story.append(table([["ON THE E16", "WITH SLOW / SLOW ALL"],
+    [f"Every SF knob, {len(set(glides))} of them: each plugin's top row, and the details on the scene too ({esc(', '.join(detail_names))})", "Travels over the bars set"],
+    [esc(names(menus)), "Menus: at once, on the next buffer"],
+    [esc(names(presses)), "Presses: at once, as long as held or until pressed again"],
+    [esc(names(live)), "Live's own faders and send: never glide"],
+    ["Not on the E16: MODEL (an instrument's sound)", "At once. What sounds releases on the old model; the keys still down play again on the new one (a held chord goes on)"],
+    ["Not on the E16: CHORD, a dropped sample, any other menu or switch", "At once: CHORD from the next note; a sample replaces the old one, notes sounding included"]],
+    [3.6 * inch, W - 3.6 * inch], mono_first=False))
 story.append(H2T("WHEN SOMETHING GOES WRONG"))
 story.append(table([["WHAT HAPPENED", "DO THIS"],
     ["A runaway: feedback, a stuck note, a wrong sound in front of the crowd", "PANIC key: every SF plugin fades out over 5 ms, clears and stays silent. Same key: back, without a click."],
