@@ -13,6 +13,7 @@
 // the chunks fall, so the output is bit-identical at any block size.
 // Audio thread: no allocation, no locks. IRs are built elsewhere (makeIrFilter) and handed over.
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -29,7 +30,8 @@ struct IrFilter
     int taps = 0, p1 = 0, p2 = 0;                               // length; head and tail partitions in use
     std::vector<float> h1re, h1im;                               // [ch][p][bin], kP1 partitions
     std::vector<float> h2re, h2im;                               // [ch][p][bin], p2 partitions
-    uint64_t tag = 0;                                            // what it was built from (the module's key)
+    uint64_t tag = 0;                                            // the module's order of its IRs (TERROIR: epoch, request)
+    std::array<int64_t, 10> from {};                             // what the module built it from (TERROIR: its key)
     const float* head (int ch, int p, bool im) const { return (im ? h1im : h1re).data() + ((size_t) ch * kP1 + (size_t) p) * kBins1; }
     const float* tail (int ch, int p, bool im) const { return (im ? h2im : h2re).data() + ((size_t) ch * (size_t) p2 + (size_t) p) * kBins2; }
 };

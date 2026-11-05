@@ -2788,6 +2788,303 @@ static void testControlAuthority()
     }
 }
 
+// The newest intent, kept through its history (Nov 5 audit 2: A01, A05, A06).
+//   A06: before the recall is reported to Live, a move away and back (+3 then 0 dB, no audio block
+//        between) is still the performer's: 0 dB stays, in the sound, a STORE, STORE TO and the
+//        set's saved state. An echo of the old value with no move away is not a move.
+//   A01: the state Live saves holds the setting in force: a recall not yet reported to Live, a
+//        newer move, a second recall; targets, not a glide's or MOTION's position; and the first
+//        block after reopening plays it.
+//   A05: a SLOW ALL change's one-block fence is spent once passed: a loop or relocate back to that
+//        song position takes the new length (both ways), CONTROL running the next block or not.
+static void testRecallHistory()
+{
+    std::printf ("-- Recall history: a move away and back, the saved state, SLOW ALL after a loop back\n");
+    const int lvl = [] { Rig2 r ("FILTER"); return r.p->paramIndex ("level"); }();
+    auto recallSong = [] (Rig2& r, int song)
+    {
+        auto& d = Bus::get().d();
+        d.song = song; d.songAtPpq = -1.0; d.songFromPpq = -1.0; d.songKey = -2;
+        d.songSeq.fetch_add (1);
+        r.step (kBlock, nullptr);
+    };
+    // FILTER: song 2 holds LEVEL -6 dB (song 3: -12 dB); Live's value is 0 dB; transport stopped.
+    auto setup = [] (Rig2& r)
+    {
+        auto& d = Bus::get().d();
+        r.head.playing = false;
+        d.song = 1; r.set ("level", -6.0f); r.step (kBlock, nullptr); r.p->storeSong(); r.step (kBlock, nullptr);
+        d.song = 2; r.set ("level", -12.0f); r.step (kBlock, nullptr); r.p->storeSong(); r.step (kBlock, nullptr);
+        r.set ("level", 0.0f); for (int k = 0; k < 120; ++k) r.step (kBlock, nullptr);
+    };
+    auto settle = [] (Rig2& r, int blocks) { for (int k = 0; k < blocks; ++k) r.step (kBlock, nullptr); };
+    // reopened*: the setting the reopened plugin holds (after SLOW, before MACRO / MOTION).
+    auto saved = [&] (Rig2& r, float& encoded, float& reopenedFirst, float& reopenedLater)
+    {
+        juce::MemoryBlock st;
+        r.p->getStateInformation (st);
+        const auto tree = juce::ValueTree::readFromData (st.getData(), st.getSize());
+        encoded = NAN;
+        for (auto row : tree.getChildWithName ("PARAMS"))
+            if (row.getProperty ("id").toString() == "level") encoded = (float) row.getProperty ("value");
+        Rig2 q ("FILTER");
+        q.head.playing = false;
+        q.p->setStateInformation (st.getData(), (int) st.getSize());
+        q.step (kBlock, nullptr);
+        reopenedFirst = q.p->baseValue (lvl);
+        settle (q, 120);
+        reopenedLater = q.p->baseValue (lvl);
+    };
+
+    // A06: a move away and back before the report.
+    for (int variant = 0; variant < 6; ++variant)
+    {
+        resetBus();
+        Rig2 r ("FILTER");
+        setup (r);
+        recallSong (r, 1);
+        if (variant == 4) r.p->flushHostNotifications();          // control: reported first
+        if (variant == 5) r.set ("level", 0.0f);                  // control: an echo of the old value, no move away
+        else { r.set ("level", 3.0f); r.set ("level", 0.0f); }
+        float stored = NAN, enc = NAN, first = NAN, later = NAN;
+        if (variant == 1) { r.p->storeSong(); r.step (kBlock, nullptr); stored = r.p->mod().getSongValue (1, lvl); }
+        if (variant == 2) { auto& d = Bus::get().d(); d.storeSong = 3; d.storeSeq.fetch_add (1); r.step (kBlock, nullptr); stored = r.p->mod().getSongValue (3, lvl); }
+        if (variant == 3) saved (r, enc, first, later);
+        if (variant != 4) r.p->flushHostNotifications();
+        settle (r, 120);
+        const float heard = r.p->currentValue (lvl), live = r.p->apvts.getRawParameterValue ("level")->load();
+        const float want = variant == 5 ? -6.0f : 0.0f;
+        const char* what[] = { "+3 then 0 dB, then the report", "... then STORE", "... then STORE TO song 4", "... then the set saved",
+                               "reported first, then +3 then 0 dB", "Live sends 0 dB again (no move)" };
+        std::printf ("   recall -6 dB from 0, %-36s heard %6.2f, Live %6.2f", what[variant], heard, live);
+        if (variant == 1 || variant == 2) std::printf (", stored %.2f", stored);
+        if (variant == 3) std::printf (", saved %.2f, reopened %.2f / %.2f", enc, first, later);
+        std::printf (" dB (want %+.0f)\n", want);
+        bool ok = std::abs (heard - want) < 0.01f && std::abs (live - want) < 0.01f;
+        if (variant == 1 || variant == 2) ok = ok && std::abs (stored - want) < 0.01f;
+        if (variant == 3) ok = ok && std::abs (enc - want) < 0.01f && std::abs (first - want) < 0.01f && std::abs (later - want) < 0.01f;
+        CHECK (ok, "recall history (%s): heard %.2f, Live %.2f", what[variant], heard, live);
+    }
+
+    // A01: the saved state.
+    for (int variant = 0; variant < 6; ++variant)
+    {
+        resetBus();
+        Rig2 r ("FILTER");
+        float want = -6.0f;
+        if (variant == 4) { r.set ("slow", 1.0f); }                               // own SLOW 1 BAR (2 s at 120 BPM)
+        if (variant == 5)
+        {
+            auto* tgt = dynamic_cast<juce::AudioParameterChoice*> (r.p->apvts.getParameter ("m1_target"));
+            r.set ("m1_src", 1.0f); r.set ("m1_target", (float) tgt->choices.indexOf ("LEVEL")); r.set ("m1_depth", 0.5f); r.set ("m1_rate", 0.0f);
+        }
+        setup (r);
+        recallSong (r, 1);
+        if (variant == 1) r.p->flushHostNotifications();
+        if (variant == 2) { r.set ("level", 3.0f); want = 3.0f; }
+        if (variant == 3) { recallSong (r, 2); want = -12.0f; }
+        settle (r, variant == 4 ? 94 : 2);                                         // SLOW: 0.5 s into the 2 s glide
+        const float heardBefore = r.p->currentValue (lvl);
+        float enc = NAN, first = NAN, later = NAN;
+        saved (r, enc, first, later);
+        const char* what[] = { "recall not yet reported", "recall reported (control)", "recall, then +3 dB (control)", "a second recall, neither reported",
+                               "recall gliding (own SLOW 1 BAR)", "recall under MOTION on LEVEL" };
+        std::printf ("   saved with %-36s heard %6.2f; saved %6.2f, reopened %6.2f / %6.2f dB (want %+.0f)\n", what[variant], heardBefore, enc, first, later, want);
+        bool ok = std::abs (enc - want) < 0.01f && std::abs (first - want) < 0.01f && std::abs (later - want) < 0.01f;
+        if (variant == 4 || variant == 5) ok = ok && std::abs (heardBefore - want) > 1.0f;   // saved mid-glide / while MOTION moved the sound
+        CHECK (ok, "saved state (%s): saved %.2f, reopened %.2f / %.2f, want %.2f", what[variant], enc, first, later, want);
+    }
+
+    // A05: SLOW ALL changed at beat 2; much later the transport comes back to beat 2 (a loop, a
+    // relocate) and two FILTERs, one each side of CONTROL, move 0.2 -> 0.8: the length in force now.
+    for (int variant = 0; variant < 6; ++variant)
+    {
+        resetBus();
+        Rig2 a ("FILTER"), ctl ("CONTROL"), b ("FILTER");
+        auto& d = Bus::get().d();
+        for (auto* r : { &a, &ctl, &b }) { r->head.playing = true; r->head.bpm = 120.0; }
+        const bool toOff = variant % 2 == 1, aside = variant >= 2 && variant < 4, controlSkips = variant >= 4;
+        a.set ("filter", 0.2f); b.set ("filter", 0.2f);
+        ctl.set ("e16_rings", 0.0f);
+        ctl.set ("slow_all", toOff ? 1.0f : 0.0f);
+        bool ctlRuns = true;
+        auto cycle = [&]
+        {
+            a.step (kBlock, nullptr);
+            if (ctlRuns) ctl.step (kBlock, nullptr); else { ctl.ppq += kBlock * ctl.bps(); d.controlSeenMs = Bus::nowMs(); }
+            b.step (kBlock, nullptr);
+        };
+        for (int k = 0; k < 1200; ++k) cycle();
+        for (auto* r : { &a, &ctl, &b }) r->ppq = 2.0;
+        ctl.set ("slow_all", toOff ? 0.0f : 1.0f);
+        cycle();                                                   // the change, at beat 2
+        if (controlSkips) ctlRuns = false;                         // CONTROL's next blocks don't run (still alive)
+        for (int k = 0; k < 480; ++k) cycle();                     // 2.56 s on
+        const double back = aside ? 2.25 : 2.0;
+        for (auto* r : { &a, &ctl, &b }) r->ppq = back;
+        a.set ("filter", 0.8f); b.set ("filter", 0.8f);
+        for (int k = 0; k < 94; ++k) cycle();                      // 0.5 s: a quarter of a 1 BAR move
+        const float va = a.p->currentValue (a.p->paramIndex ("filter")), vb = b.p->currentValue (b.p->paramIndex ("filter"));
+        const float want = toOff ? 0.8f : 0.3504f;
+        std::printf ("   SLOW ALL %s at beat 2, back to beat %.2f%s: after 0.5 s %.4f / %.4f (want %.4f)\n", toOff ? "1 BAR -> OFF" : "OFF -> 1 BAR",
+                     back, controlSkips ? " (CONTROL not run since)" : aside ? " (control)" : "", va, vb, want);
+        CHECK (std::abs (va - want) < 0.005f && std::abs (vb - want) < 0.005f, "SLOW ALL after a loop back (%s, beat %.2f): %.4f / %.4f, want %.4f",
+               toOff ? "1 BAR -> OFF" : "OFF -> 1 BAR", back, va, vb, want);
+    }
+    resetBus();
+}
+
+// MODEL change and voice allocation (Nov 5 audit 2: A02, A04). SF LEAD at 48 kHz / 64.
+//   A02: a chord's tones never take each other's voice (a tone started at the same instant hasn't
+//        sounded yet, its level 0 the quietest of all): a full pool's MODEL change plays the whole
+//        chord again (also with LAYER, DENSITY, changes in a row), and so does a new chord over a
+//        full pool. The keys go up after the change: silence, no voice left on.
+//   A04: the keys down are kept in the order they went down (not the voices' order in the pool):
+//        poly to mono plays the newest key, mono -> poly -> mono keeps the stack, each key its velocity.
+static void testModelChange()
+{
+    std::printf ("-- MODEL change with keys held: the whole chord, the newest key, the keys' own velocities\n");
+    constexpr int blk = 64;
+    using Fn = std::function<void (Rig2&, juce::MidiBuffer&, int)>;
+    auto render = [&] (double secs, const std::function<void (Rig2&)>& setup, const Fn& fn)
+    {
+        resetBus();
+        Rig2 r ("LEAD", kSr, blk);
+        r.head.playing = true;
+        for (const auto& pv : std::vector<std::pair<const char*, float>> { { "slow", 8.0f }, { "density", 0.0f }, { "layer", 0.0f }, { "space", 0.0f },
+                                                                             { "pocket_depth", 0.0f }, { "alloc", 0.0f }, { "cutoff", 1.0f }, { "res", 0.0f },
+                                                                             { "env_amt", 0.0f }, { "drive", 0.0f }, { "glide", 0.0f }, { "attack", 0.0f },
+                                                                             { "gate", 0.5f }, { "accent", 0.0f } })
+            r.set (pv.first, pv.second);
+        setup (r);
+        std::vector<float> y;
+        const int nb = (int) std::lround (secs * kSr / blk);
+        for (int k = 0; k < nb; ++k)
+        {
+            r.step (blk, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { fn (r, m, k); });
+            for (int i = 0; i < blk; ++i) y.push_back (r.buf.getSample (0, i));
+        }
+        return y;
+    };
+    auto blockAt = [] (double sec) { return (int) std::lround (sec * kSr / blk); };
+    auto at = [] (const std::vector<float>& y, int note, double from, double len = 0.5)
+    {
+        return gainToDb ((float) hannAmp (y, (size_t) (from * kSr), (size_t) ((from + len) * kSr), 440.0 * std::exp2 ((note - 69) / 12.0), kSr));
+    };
+    auto rms = [] (const std::vector<float>& y, double from, double len = 0.5)
+    {
+        double e = 0.0; const size_t a = (size_t) (from * kSr), n = (size_t) (len * kSr);
+        for (size_t i = a; i < a + n; ++i) e += (double) y[i] * y[i];
+        return 10.0 * std::log10 (e / (double) n + 1e-30);
+    };
+    auto on = [] (juce::MidiBuffer& m, int note, int vel = 100) { m.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) vel), 0); };
+    auto off = [] (juce::MidiBuffer& m, int note) { m.addEvent (juce::MidiMessage::noteOff (1, note), 0); };
+    constexpr int kDetroit = 4, kOrgan = 5, kMono101 = 1, kStabDub = 3;
+
+    // A02: four keys x MIN7 fill the 16 voices; STAB DETROIT -> ORGAN at 1 s; against ORGAN from the start.
+    // Each key is measured at a tone of its own (no other tone, nor its octave, at that pitch: two
+    // tones at one pitch add with random phases): 48, 53, 61 (58's third), 66 (63's third).
+    const int keys[] = { 48, 53, 58, 63 }, own[] = { 48, 53, 61, 66 };
+    struct Case { const char* what; std::function<void (Rig2&)> setup; int changes; };
+    const std::vector<Case> cases {
+        { "4 keys x MIN7 (16 voices)", [] (Rig2& r) { r.set ("chord", 2.0f); }, 1 },
+        { "2 keys x MIN7 with LAYER (16 voices)", [] (Rig2& r) { r.set ("chord", 2.0f); r.set ("layer", 1.0f); r.set ("layer_model", (float) kStabDub); }, 1 },
+        { "4 keys x MIN7, DENSITY 60 %", [] (Rig2& r) { r.set ("chord", 2.0f); r.set ("density", 0.6f); }, 1 },
+        { "4 keys x MIN7, 10 changes in 0.5 s", [] (Rig2& r) { r.set ("chord", 2.0f); }, 10 } };
+    for (const auto& cs : cases)
+    {
+        const int nk = std::string (cs.what).find ("2 keys") == 0 ? 2 : 4;
+        auto play = [&] (bool change)
+        {
+            return render (5.5, [&] (Rig2& r) { cs.setup (r); r.set ("model", (float) (change ? kDetroit : kOrgan)); }, [&] (Rig2& r, juce::MidiBuffer& m, int k)
+            {
+                if (k == 0) for (int i = 0; i < nk; ++i) on (m, keys[i]);
+                if (change)
+                    for (int c = 0; c < cs.changes; ++c)
+                        if (k == blockAt (1.0 + 0.05 * c)) r.set ("model", (float) ((cs.changes - 1 - c) % 2 == 0 ? kOrgan : kDetroit));
+                if (k == blockAt (3.6)) for (int i = 0; i < nk; ++i) off (m, keys[i]);
+            });
+        };
+        const auto y = play (true), ref = play (false);
+        float worst = 0.0f, refLow = 0.0f;
+        for (int i = 0; i < nk; ++i) { worst = std::min (worst, at (y, own[i], 3.0) - at (ref, own[i], 3.0)); refLow = std::min (refLow, at (ref, own[i], 3.0)); }
+        const double dr = rms (y, 3.0) - rms (ref, 3.0), tail = rms (y, 5.0);
+        std::printf ("   %-40s every key within %+.1f dB of ORGAN from the start; level %+.1f dB; keys up: %.0f dB\n", cs.what, worst, dr, tail);
+        CHECK (refLow > -60.0f && worst > -6.0f && std::abs (dr) < 1.5 && tail < -90.0, "MODEL change, %s: keys %+.1f dB (reference down to %.1f), level %+.1f dB, after the keys %.0f dB", cs.what, worst, refLow, dr, tail);
+    }
+
+    // A02: a new chord over a full pool (4 keys x MIN7 held on ORGAN, then 71 x MIN7): its tones take
+    //      held voices (the oldest key's, 48), each its own: its root (71) and seventh (81), tones
+    //      of its own, sound as with 48 never played.
+    {
+        auto play = [&] (bool first)
+        {
+            return render (3.0, [] (Rig2& r) { r.set ("chord", 2.0f); r.set ("model", (float) kOrgan); }, [&] (Rig2&, juce::MidiBuffer& m, int k)
+            {
+                if (k == 0) for (int i = first ? 0 : 1; i < 4; ++i) on (m, keys[i]);
+                if (k == blockAt (1.5)) on (m, 71);
+            });
+        };
+        const auto y = play (true), ref = play (false);
+        float worst = 0.0f;
+        for (int t : { 71, 81 }) worst = std::min (worst, at (y, t, 2.2) - at (ref, t, 2.2));
+        const float oldest = at (y, 48, 2.2), oldestBefore = at (y, 48, 1.0);
+        std::printf ("   a fifth chord over 16 held voices: its root and seventh within %+.1f dB of the reference; the oldest key %.1f -> %.1f dB\n", worst, oldestBefore, oldest);
+        CHECK (worst > -6.0f && oldest < oldestBefore - 30.0f, "a chord over a full pool: tones %+.1f dB, oldest key %.1f -> %.1f dB", worst, oldestBefore, oldest);
+    }
+
+    // A04: ORGAN, no chord: 48, then 55; 48 up (its voice free); 60, which takes 48's voice; MONO 101.
+    for (const bool reuse : { false, true })
+    {
+        const auto y = render (3.5, [] (Rig2& r) { r.set ("chord", 1.0f); r.set ("model", (float) kOrgan); }, [&] (Rig2& r, juce::MidiBuffer& m, int k)
+        {
+            if (k == 0) on (m, reuse ? 48 : 55);
+            if (reuse && k == blockAt (0.4)) on (m, 55);
+            if (reuse && k == blockAt (0.8)) off (m, 48);
+            if (k == blockAt (1.3)) on (m, 60);
+            if (k == blockAt (1.8)) r.set ("model", (float) kMono101);
+        });
+        const float newest = at (y, 60, 2.5), older = at (y, 55, 2.5);
+        std::printf ("   poly -> mono, %-30s the newest key %.1f dB, the older %.1f dB\n", reuse ? "the newest key in a freed voice:" : "keys in the pool's order:", newest, older);
+        CHECK (newest > older + 30.0f, "poly -> mono (%s): newest %.1f, older %.1f dB", reuse ? "freed voice" : "in order", newest, older);
+    }
+    // A04: MONO 101 with 48, 55, 60 held; ORGAN; MONO 101 again: 60; 60 up: 55; 55 up: 48.
+    {
+        const auto y = render (4.0, [] (Rig2& r) { r.set ("chord", 1.0f); r.set ("model", (float) kMono101); }, [&] (Rig2& r, juce::MidiBuffer& m, int k)
+        {
+            if (k == 0) on (m, 48);
+            if (k == blockAt (0.3)) on (m, 55);
+            if (k == blockAt (0.6)) on (m, 60);
+            if (k == blockAt (1.0)) r.set ("model", (float) kOrgan);
+            if (k == blockAt (1.5)) r.set ("model", (float) kMono101);
+            if (k == blockAt (2.2)) off (m, 60);
+            if (k == blockAt (2.9)) off (m, 55);
+        });
+        auto lead = [&] (double from) { const float a = at (y, 48, from, 0.3), b = at (y, 55, from, 0.3), c = at (y, 60, from, 0.3);
+                                        return a > b && a > c ? 48 : b > c ? 55 : 60; };
+        const int s1 = lead (1.8), s2 = lead (2.5), s3 = lead (3.3);
+        const float poly48 = at (y, 48, 1.15, 0.3), poly60 = at (y, 60, 1.15, 0.3);
+        std::printf ("   mono -> poly -> mono: poly plays all three (48 %.1f, 60 %.1f dB); mono plays %d; 60 up: %d; 55 up: %d\n", poly48, poly60, s1, s2, s3);
+        CHECK (s1 == 60 && s2 == 55 && s3 == 48 && poly48 > -60.0f && poly60 > -60.0f, "mono -> poly -> mono: %d, %d, %d", s1, s2, s3);
+    }
+    // A04: each key plays again at its own velocity (48 at 127, 54 at 30): DETROIT -> ORGAN.
+    {
+        auto play = [&] (bool change)
+        {
+            return render (3.0, [&] (Rig2& r) { r.set ("chord", 1.0f); r.set ("model", (float) (change ? kDetroit : kOrgan)); }, [&] (Rig2& r, juce::MidiBuffer& m, int k)
+            {
+                if (k == 0) { on (m, 48, 127); on (m, 54, 30); }
+                if (change && k == blockAt (1.0)) r.set ("model", (float) kOrgan);
+            });
+        };
+        const auto y = play (true), ref = play (false);
+        const float d = at (y, 48, 2.0) - at (y, 54, 2.0), dRef = at (ref, 48, 2.0) - at (ref, 54, 2.0);
+        std::printf ("   two keys at velocities 127 and 30 through a MODEL change: %+.1f dB apart (from the start: %+.1f)\n", d, dRef);
+        CHECK (std::abs (d - dRef) < 1.5f, "velocities through a MODEL change: %+.1f vs %+.1f dB", d, dRef);
+    }
+    resetBus();
+}
+
 static void testGlideRings()
 {
     std::printf ("-- GLIDE RINGS\n");
@@ -3330,7 +3627,7 @@ static void testTerroir()
         const double len = cap.ok ? cap.ir.getNumSamples() / sr : 0.0;
         std::printf ("   clap in the same room, a second clap 2.1 s later: %s, RT %.2f s, %.0f dB over the noise, %.2f s long\n",
                      cap.ok ? cap.kind.toRawUTF8() : cap.error.toRawUTF8(), cap.rt60, cap.snrDb, len);
-        CHECK (cap.ok && cap.kind == "IMPULSE" && len > 0.6 && len < 2.1 && std::abs (cap.rt60 - 1.2f) < 0.25f, "TERROIR clap capture wrong");
+        CHECK (cap.ok && cap.kind == "CLAP" && len > 0.6 && len < 2.1 && std::abs (cap.rt60 - 1.2f) < 0.25f, "TERROIR clap capture wrong");
     }
     // The module's response to one impulse (MIX 100 %, DRY off), offline.
     auto response = [&] (const std::map<std::string, float>& set, double seconds, juce::MemoryBlock* state = nullptr)
@@ -3716,7 +4013,7 @@ static void testTerroir()
 // one channel inverted (a sweep), rooms recorded in noise. Timing and transfer, not just energy.
 static void testIrImport()
 {
-    std::printf ("-- IR import: finished IRs as they are; sweep or not\n");
+    std::printf ("-- IR import: IR files as they are; claps cut and said; sweep or not, and SF CAPTURE's take a sweep or a failure\n");
     const double sr = kSr;
     const int lead = (int) (0.001 * sr), w = (int) (0.0005 * sr);
     auto energy = [] (const juce::AudioBuffer<float>& b) { double e = 0.0; for (int c = 0; c < b.getNumChannels(); ++c) for (int i = 0; i < b.getNumSamples(); ++i) e += (double) b.getSample (c, i) * b.getSample (c, i); return e / std::max (1, b.getNumChannels()); };
@@ -3748,7 +4045,7 @@ static void testIrImport()
             const double lo = c.ok ? dtft (c.ir, 0, 100.0) : 0.0, mid = c.ok ? dtft (c.ir, 0, 1000.0) : 0.0, hi = c.ok ? dtft (c.ir, 0, 10000.0) : 0.0;
             const double spread = std::max ({ lo, mid, hi }) - std::min ({ lo, mid, hi });
             std::printf (" %d: %s at %d, energy %.3f, 100 Hz-10 kHz within %.3f dB;", at, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), pos, c.ok ? energy (c.ir) : 0.0, spread);
-            ok = ok && c.ok && c.kind == "IMPULSE" && pos >= lead && pos <= lead + w && std::abs (energy (c.ir) - ir::kEnergy) < 1e-3 && spread < 0.15;
+            ok = ok && c.ok && c.kind == "IR FILE" && pos >= lead && pos <= lead + w && std::abs (energy (c.ir) - ir::kEnergy) < 1e-3 && spread < 0.15;
         }
         std::printf ("\n");
         CHECK (ok, "IR import: a click near the file start is not kept as it is");
@@ -3794,13 +4091,13 @@ static void testIrImport()
                      c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), c.ok ? c.ir.getNumChannels() : 0, pr - pl, (double) (sl > 0 ? 1 : -1), (double) (srt > 0 ? 1 : -1), sl != 0.0f ? srt / sl : 0.0f);
         CHECK (c.ok && c.ir.getNumChannels() == 2 && pr - pl == 72 && std::abs (srt / sl + 0.8f) < 0.01f, "IR import: stereo timing or polarity lost");
     }
-    // 6. A click in 20 s of silence, at 0.5 s and at 12.5 s: a click, not a sweep.
+    // 6. A click in 20 s of silence, at 0.5 s and at 12.5 s: an IR file (silence before it), not a sweep.
     for (double t : { 0.5, 12.5 })
     {
         juce::AudioBuffer<float> b (1, (int) (20.0 * sr)); b.clear(); b.setSample (0, (int) (t * sr), 1.0f);
         const auto c = ir::analyse (b, sr);
         std::printf ("   a click at %.1f s in 20 s of silence: %s, %.3f s long\n", t, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), c.ok ? c.ir.getNumSamples() / sr : 0.0);
-        CHECK (c.ok && c.kind == "IMPULSE" && c.ir.getNumSamples() < (int) (0.1 * sr), "IR import: a click in silence taken for %s", c.kind.toRawUTF8());
+        CHECK (c.ok && c.kind == "IR FILE" && c.ir.getNumSamples() < (int) (0.1 * sr), "IR import: a click in silence taken for %s", c.kind.toRawUTF8());
     }
     // 7. The sweep in the left channel and inverted in the right: a sweep; the two IRs opposite.
     {
@@ -3815,7 +4112,7 @@ static void testIrImport()
         std::printf ("   the sweep, the right channel inverted: %s, left against right %.4f\n", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), corr);
         CHECK (c.ok && c.kind == "SWEEP x1" && corr < -0.999, "IR import: inverted stereo sweep (%s, %.4f)", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), corr);
     }
-    // 8. The built-in room recorded in 20 s of noise at -90, -70, -50 dBFS: a click recording. Over
+    // 8. The built-in room recorded in 20 s of noise at -90, -70, -50 dBFS: a clap recording. Over
     //    the noise, it is kept from its first arrival (10 % of the peak: as long before the peak as in
     //    the room), the room's shape from there; at -50 dB that arrival is in the noise (2 dB over
     //    it), so the shape is compared from the peak.
@@ -3841,7 +4138,7 @@ static void testIrImport()
             const double corr = m > 0 ? bandCorrelation (c.ir.getReadPointer (0) + from, room.getReadPointer (0) + roomFrom, m, sr) : 0.0;
             std::printf (" %.0f dB: %s, first arrival at %.2f ms, %.1f ms before the peak, from %s against the room %.4f;", noiseDb,
                          c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), fst * 1000.0 / sr, (pk - fst) * 1000.0 / sr, clean ? "there" : "the peak", corr);
-            ok = ok && c.ok && c.kind == "IMPULSE" && corr > (clean ? 0.99 : 0.85)          // -50 dB: what the noise allows (0.89)
+            ok = ok && c.ok && c.kind == "CLAP" && corr > (clean ? 0.99 : 0.85)             // -50 dB: what the noise allows (0.89)
                  && (! clean || (std::abs ((pk - fst) - (roomPeak - roomFirst)) <= 1 && fst >= lead));
         }
         std::printf ("\n");
@@ -3853,6 +4150,219 @@ static void testIrImport()
         const auto c = ir::analyse (b, sr);
         std::printf ("   a file with a NaN: %s\n", c.ok ? "taken" : c.error.toRawUTF8());
         CHECK (! c.ok, "IR import: a NaN taken in");
+    }
+    // 10. Sparse IR files (352df3c audit, A09): the direct sound at sample 0 and one reflection 0.25,
+    //     0.8 or 1.6 times as strong, 20, 80, 280 or 400 ms later, silence between; AUTO and IMPORT IR
+    //     FILE. Both arrivals in their spacing and ratio, nothing named, and the comb they make (the
+    //     response at 1 kHz, a peak, against the notch next to it) within 0.3 dB of the file's.
+    {
+        int bad = 0, cases = 0;
+        double worst = 0.0;
+        for (auto src : { ir::Source::Auto, ir::Source::IrFile })
+            for (float r : { 0.25f, 0.8f, 1.6f })
+                for (double ms : { 20.0, 80.0, 280.0, 400.0 })
+                {
+                    const int d = (int) std::lround (ms * 0.001 * sr);
+                    juce::AudioBuffer<float> b (1, d + (int) (0.1 * sr)); b.clear();
+                    b.setSample (0, 0, 1.0f); b.setSample (0, d, r);
+                    const auto c = ir::analyse (b, sr, src);
+                    const auto a = c.ok ? arrivals (c.ir, 0) : std::vector<int> {};
+                    const float ratio = a.size() == 2 ? c.ir.getSample (0, a[1]) / c.ir.getSample (0, a[0]) : 0.0f;
+                    const double notch = 1000.0 + 500.0 / ms;
+                    const double inC = dtft (b, 0, 1000.0) - dtft (b, 0, notch), outC = c.ok ? dtft (c.ir, 0, 1000.0) - dtft (c.ir, 0, notch) : 0.0;
+                    const bool good = c.ok && c.kind == "IR FILE" && c.note.isEmpty() && a.size() == 2 && a[1] - a[0] == d
+                                   && std::abs (ratio / r - 1.0f) < 0.02f && std::abs (outC - inC) < 0.3;
+                    worst = std::max (worst, std::abs (outC - inC));
+                    ++cases;
+                    if (! good)
+                    {
+                        ++bad;
+                        std::printf ("      %s, a reflection %.2f at %.0f ms: %s, %d arrivals, ratio %.3f, comb %.2f dB (the file's %.2f)\n", src == ir::Source::Auto ? "AUTO" : "IR FILE",
+                                     r, ms, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), (int) a.size(), ratio, outC, inC);
+                    }
+                }
+        std::printf ("   sparse IR files (a reflection 0.25 / 0.8 / 1.6 times the direct sound, 20-400 ms on; AUTO and IR FILE): %d of %d whole, the comb within %.3f dB\n", cases - bad, cases, worst);
+        CHECK (bad == 0, "IR import: %d of %d sparse IR files not kept as they are", bad, cases);
+    }
+    // 11. A sparse stereo IR file: the left 1 at 0 and 0.8 at 80 ms, the right -0.6 at 1.5 ms and 0.9
+    //     at 150 ms, silence between. Each arrival where it was against the other channel's, its sign,
+    //     its level against the left's first.
+    {
+        juce::AudioBuffer<float> b (2, (int) (0.3 * sr)); b.clear();
+        b.setSample (0, 0, 1.0f); b.setSample (0, 3840, 0.8f);
+        b.setSample (1, 72, -0.6f); b.setSample (1, 7200, 0.9f);
+        const auto c = ir::analyse (b, sr);
+        const auto l = c.ok ? arrivals (c.ir, 0) : std::vector<int> {};
+        const auto rgt = c.ok && c.ir.getNumChannels() == 2 ? arrivals (c.ir, 1) : std::vector<int> {};
+        bool ok = c.ok && c.kind == "IR FILE" && l.size() == 2 && rgt.size() == 2;
+        float g1 = 0.0f, g2 = 0.0f, g3 = 0.0f;
+        if (ok)
+        {
+            const float l0 = c.ir.getSample (0, l[0]);
+            g1 = c.ir.getSample (0, l[1]) / l0; g2 = c.ir.getSample (1, rgt[0]) / l0; g3 = c.ir.getSample (1, rgt[1]) / l0;
+            ok = l[1] - l[0] == 3840 && rgt[0] - l[0] == 72 && rgt[1] - l[0] == 7200
+              && std::abs (g1 / 0.8f - 1.0f) < 0.02f && std::abs (g2 / -0.6f - 1.0f) < 0.02f && std::abs (g3 / 0.9f - 1.0f) < 0.02f;
+        }
+        std::printf ("   a sparse stereo IR file: %s, the left's arrivals %d apart, the right's %d and %d after the left's first; levels %.3f %.3f %.3f (want 0.800 -0.600 0.900)\n",
+                     c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), l.size() == 2 ? l[1] - l[0] : 0, rgt.size() == 2 && ! l.empty() ? rgt[0] - l[0] : 0, rgt.size() == 2 && ! l.empty() ? rgt[1] - l[0] : 0, g1, g2, g3);
+        CHECK (ok, "IR import: a sparse stereo IR file not kept as it is");
+    }
+    // 12. A clap recording in -65 dBFS noise, a second clap 0.25 s after the first (its tail still over
+    //     the noise) or 1.2 s after (the tail down in it): AUTO and IMPORT CLAP end before the second
+    //     clap and name the cut only where it cut the tail; IMPORT IR FILE keeps both claps.
+    for (double gap : { 0.25, 1.2 })
+    {
+        std::mt19937 rng (5);
+        std::normal_distribution<float> g (0.0f, 1.0f);
+        juce::AudioBuffer<float> b (1, (int) (3.0 * sr));
+        for (int i = 0; i < b.getNumSamples(); ++i) b.setSample (0, i, 5.6e-4f * g (rng));
+        for (double t : { 0.5, 0.5 + gap })
+            for (int i = 0; i < (int) (1.2 * sr) && (int) (t * sr) + i < b.getNumSamples(); ++i)
+                b.addSample (0, (int) (t * sr) + i, 0.1f * g (rng) * std::exp (-6.9078f * (float) i / (float) sr / 0.5f));
+        std::printf ("   two claps %.2f s apart in noise:", gap);
+        for (auto src : { ir::Source::Auto, ir::Source::Clap, ir::Source::IrFile })
+        {
+            const auto c = ir::analyse (b, sr, src);
+            const double len = c.ok ? c.ir.getNumSamples() / sr : 0.0;
+            const bool asClap = src != ir::Source::IrFile;
+            // The second clap in the IR: its 10 ms against the first's.
+            double second = -300.0;
+            if (c.ok && (int) ((gap + 0.011) * sr) < c.ir.getNumSamples())
+            {
+                const int p = peakIndex (c.ir.getReadPointer (0), c.ir.getNumSamples());
+                auto e10 = [&] (int at) { double e = 0.0; for (int i = at; i < std::min (at + (int) (0.01 * sr), c.ir.getNumSamples()); ++i) e += (double) c.ir.getSample (0, i) * c.ir.getSample (0, i); return 10.0 * std::log10 (e + 1e-30); };
+                second = e10 (p + (int) (gap * sr)) - e10 (p);
+            }
+            std::printf (" %s %s, %.2f s%s%s;", src == ir::Source::Auto ? "AUTO:" : src == ir::Source::Clap ? "CLAP:" : "IR FILE:", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), len,
+                         c.note.isNotEmpty() ? ", " : "", c.note.toRawUTF8());
+            const bool ok = asClap ? (c.ok && c.kind == "CLAP" && len < gap + 0.01 && (gap < 0.5 ? c.note.startsWith ("CUT AT 0.7") : c.note.isEmpty()))
+                                   : (c.ok && c.kind == "IR FILE" && c.note.isEmpty() && len > gap + 0.2 && second > -3.0);
+            CHECK (ok, "IR import: two claps %.2f s apart, %s: %s %.2f s, note '%s', the second clap %.1f dB", gap, src == ir::Source::Auto ? "AUTO" : src == ir::Source::Clap ? "CLAP" : "IR FILE",
+                   c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), len, c.note.toRawUTF8(), second);
+        }
+        std::printf ("\n");
+    }
+    // 13. SF CAPTURE's take (352df3c audit, A10): the sweep file and 3 s more, through a known transfer
+    //     (four one-pole low-passes), analysed as the in-set import does (KnownSweep). Broad (5 kHz) and
+    //     narrow (500 Hz): a sweep, its response the transfer's (at 200 Hz-10 kHz, where it is within
+    //     40 dB of its top, to 1 dB: the sweep's flatness, as in testTerroir); stereo with one channel
+    //     narrow (each its own, and the right's delay against the left's), inverted, or silent (left
+    //     out, said, mono); noise 44 dB under the sweep; clipped (the sweep still, its shape squashed:
+    //     SF CAPTURE says when the mics clip, testCapture). No sweep (silence, noise, a click): the
+    //     take fails, and says so; never an IR of something else.
+    {
+        const auto file = ir::sweepFile (sr);
+        const int total = file.getNumSamples() + (int) (3.0 * sr);
+        auto lowpass = [&] (std::vector<float> x, double fc) { const float k = 1.0f - (float) std::exp (-2.0 * 3.141592653589793 * fc / sr); for (int st = 0; st < 4; ++st) { float y = 0.0f; for (auto& v : x) { y += k * (v - y); v = y; } } return x; };
+        auto through = [&] (double fc, float sign = 1.0f) { std::vector<float> x ((size_t) total, 0.0f); std::copy (file.getReadPointer (0), file.getReadPointer (0) + file.getNumSamples(), x.begin()); x = lowpass (x, fc); for (auto& v : x) v *= sign; return x; };
+        // The transfer's IR, and as every import treats it (high-passed at 20 Hz: ir::finish).
+        auto truth = [&] (double fc)
+        {
+            std::vector<float> x ((size_t) (0.5 * sr), 0.0f); x[0] = 1.0f;
+            x = lowpass (x, fc);
+            const double wc = 2.0 * 3.141592653589793 * 20.0 / sr, cs = std::cos (wc), al = std::sin (wc) / (2.0 * 0.70710678);
+            const double a0 = 1.0 + al, b0 = (1.0 + cs) / 2.0 / a0, b1 = -(1.0 + cs) / a0, b2 = b0, a1 = -2.0 * cs / a0, a2 = (1.0 - al) / a0;
+            double z1 = 0.0, z2 = 0.0;
+            for (auto& v : x) { const double in = v, y = b0 * in + z1; z1 = b1 * in - a1 * y + z2; z2 = b2 * in - a2 * y; v = (float) y; }
+            return x;
+        };
+        auto recording = [&] (const std::vector<float>& l, const std::vector<float>* r) { juce::AudioBuffer<float> b (r != nullptr ? 2 : 1, total); b.copyFrom (0, 0, l.data(), total); if (r != nullptr) b.copyFrom (1, 0, r->data(), total); return b; };
+        // The response's shape against the transfer's: dB at f less dB at 200 Hz, both; the largest difference.
+        auto shapeOff = [&] (const juce::AudioBuffer<float>& got, int ch, double fc)
+        {
+            const auto t = truth (fc);
+            juce::AudioBuffer<float> tb (1, (int) t.size()); tb.copyFrom (0, 0, t.data(), (int) t.size());
+            const double t0 = dtft (tb, 0, 200.0), g0 = dtft (got, ch, 200.0);
+            double worst = 0.0;
+            for (double f : { 500.0, 1000.0, 2000.0, 5000.0, 10000.0 })
+            {
+                const double tf = dtft (tb, 0, f) - t0;
+                if (tf < -40.0) continue;
+                worst = std::max (worst, std::abs ((dtft (got, ch, f) - g0) - tf));
+            }
+            return worst;
+        };
+        const auto broad = through (5000.0), narrow = through (500.0), inverted = through (5000.0, -1.0f);
+        const std::vector<float> silent ((size_t) total, 0.0f);
+        struct Take { const char* name; juce::AudioBuffer<float> rec; std::vector<double> fcs; double tol; };
+        std::vector<Take> takes;
+        takes.push_back ({ "broad (5 kHz)", recording (broad, nullptr), { 5000.0 }, 1.0 });
+        takes.push_back ({ "narrow (500 Hz)", recording (narrow, nullptr), { 500.0 }, 1.0 });
+        takes.push_back ({ "the left broad, the right narrow", recording (broad, &narrow), { 5000.0, 500.0 }, 1.0 });
+        takes.push_back ({ "the right inverted", recording (broad, &inverted), { 5000.0, 5000.0 }, 1.0 });
+        takes.push_back ({ "the right silent", recording (broad, &silent), { 5000.0 }, 1.0 });
+        {
+            std::mt19937 rng (9);
+            std::normal_distribution<float> g (0.0f, 1.0f);
+            auto noisy = recording (broad, nullptr);
+            for (int i = 0; i < total; ++i) noisy.addSample (0, i, 3.2e-3f * g (rng));   // -50 dBFS
+            takes.push_back ({ "noise 44 dB under the sweep", std::move (noisy), { 5000.0 }, 1.0 });
+            auto clipped = recording (broad, nullptr);
+            for (int i = 0; i < total; ++i) clipped.setSample (0, i, juce::jlimit (-0.2f, 0.2f, clipped.getSample (0, i)));
+            takes.push_back ({ "clipped at -14 dBFS", std::move (clipped), { 5000.0 }, 100.0 });   // still the sweep; its shape squashed (SF CAPTURE says the mics clipped: testCapture)
+        }
+        for (const auto& t : takes)
+        {
+            const auto c = ir::analyse (t.rec, sr, ir::Source::KnownSweep);
+            const bool mono = t.fcs.size() == 1;
+            double off = 0.0;
+            for (int ch = 0; c.ok && ch < (int) t.fcs.size() && ch < c.ir.getNumChannels(); ++ch) off = std::max (off, shapeOff (c.ir, ch, t.fcs[(size_t) ch]));
+            juce::String extra;
+            bool ok = c.ok && c.kind == "SWEEP x3" && c.ir.getNumChannels() == (int) t.fcs.size() && off < t.tol;
+            if (std::string (t.name) == "the right silent") ok = ok && c.note == "NO SWEEP IN THE RIGHT CHANNEL: MONO, FROM THE LEFT";
+            else ok = ok && c.note.isEmpty();
+            if (ok && ! mono && t.fcs[1] != t.fcs[0])
+            {
+                // The narrow right channel peaks later than the broad left, as its transfer does.
+                const auto tl = truth (t.fcs[0]), tr = truth (t.fcs[1]);
+                const int want = peakIndex (tr.data(), (int) tr.size()) - peakIndex (tl.data(), (int) tl.size());
+                const int got = peakIndex (c.ir.getReadPointer (1), c.ir.getNumSamples()) - peakIndex (c.ir.getReadPointer (0), c.ir.getNumSamples());
+                extra << ", the right peaks " << got << " samples after the left (the transfers: " << want << ")";
+                ok = ok && std::abs (got - want) <= 1;
+            }
+            if (ok && ! mono && t.fcs[1] == t.fcs[0])
+            {
+                double xy = 0.0, xx = 0.0, yy = 0.0;
+                for (int i = 0; i < c.ir.getNumSamples(); ++i) { const double x = c.ir.getSample (0, i), y = c.ir.getSample (1, i); xy += x * y; xx += x * x; yy += y * y; }
+                const double corr = xy / std::sqrt (xx * yy + 1e-30);
+                extra << ", left against right " << juce::String (corr, 4);
+                ok = ok && corr < -0.999;
+            }
+            std::printf ("   SF CAPTURE's take, %s: %s, %d channel(s), the response %.2f dB off the transfer's%s%s%s\n", t.name, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(),
+                         c.ok ? c.ir.getNumChannels() : 0, off, extra.toRawUTF8(), c.note.isNotEmpty() ? "; " : "", c.note.toRawUTF8());
+            CHECK (ok, "IR import: SF CAPTURE's take, %s: %s, %.2f dB off, note '%s'", t.name, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8(), off, c.note.toRawUTF8());
+        }
+        // The narrow take read as a file: AUTO finds it too (the repeats); one sweep of it is a sweep
+        // only when IMPORT says SWEEP (AUTO can't tell it from a clap: the limit, said in the manual).
+        {
+            const auto a = ir::analyse (recording (narrow, nullptr), sr, ir::Source::Auto);
+            juce::AudioBuffer<float> one (1, (int) ((ir::kLeadSec + ir::kSweepSec + 3.0) * sr));
+            one.copyFrom (0, 0, narrow.data(), one.getNumSamples());
+            const auto s1 = ir::analyse (one, sr, ir::Source::Sweep), a1 = ir::analyse (one, sr, ir::Source::Auto);
+            std::printf ("   the narrow take as a file: AUTO %s; one sweep of it: IMPORT SWEEP %s, AUTO %s\n", a.ok ? a.kind.toRawUTF8() : a.error.toRawUTF8(),
+                         s1.ok ? s1.kind.toRawUTF8() : s1.error.toRawUTF8(), a1.ok ? a1.kind.toRawUTF8() : a1.error.toRawUTF8());
+            CHECK (a.ok && a.kind == "SWEEP x3" && s1.ok && s1.kind == "SWEEP x1" && shapeOff (s1.ir, 0, 500.0) < 1.0, "IR import: the narrow sweep as a file (AUTO %s, IMPORT SWEEP %s)",
+                   a.ok ? a.kind.toRawUTF8() : a.error.toRawUTF8(), s1.ok ? s1.kind.toRawUTF8() : s1.error.toRawUTF8());
+        }
+        // No sweep in the take.
+        {
+            std::mt19937 rng (13);
+            std::normal_distribution<float> g (0.0f, 1.0f);
+            juce::AudioBuffer<float> quiet (2, total), noise (2, total), click (2, total);
+            quiet.clear(); click.clear();
+            for (int ch = 0; ch < 2; ++ch) for (int i = 0; i < total; ++i) noise.setSample (ch, i, 3.2e-3f * g (rng));
+            click.setSample (0, (int) (12.5 * sr), 0.5f); click.setSample (1, (int) (12.5 * sr) + 30, 0.4f);
+            for (auto* b : { &quiet, &noise, &click })
+            {
+                const auto c = ir::analyse (*b, sr, ir::Source::KnownSweep);
+                const char* what = b == &quiet ? "silence" : b == &noise ? "noise" : "a click";
+                std::printf ("   SF CAPTURE's take of %s: %s\n", what, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8());
+                CHECK (! c.ok && c.error == "THE SWEEP DIDN'T COME BACK (THE SPEAKER, THE MICS, THE ROUTING?)", "IR import: SF CAPTURE's take of %s: %s", what, c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8());
+            }
+            const auto c = ir::analyse (click, sr);
+            std::printf ("   the click as a file (AUTO): %s\n", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8());
+            CHECK (c.ok && c.kind == "IR FILE", "IR import: a click in 46 s of silence read as %s", c.ok ? c.kind.toRawUTF8() : c.error.toRawUTF8());
+        }
     }
 }
 
@@ -3878,8 +4388,11 @@ static void testCapture()
     air.prepare ((int) irL.size());
     air.offer (makeIrFilter (irL.data(), irR.data(), (int) irL.size()).release());
 
-    Rig2 terr ("TERROIR"), cap ("CAPTURE");
-    terr.head.playing = cap.head.playing = false;
+    Rig2 terr ("TERROIR");
+    auto capOwner = std::make_unique<Rig2> ("CAPTURE");
+    Rig2* cap = capOwner.get();
+    auto cs = [&] { return capture::status (d.capStatus); };
+    terr.head.playing = cap->head.playing = false;
     // TERROIR's display as the editor lays it out (896 wide): slot 4 and CAPTURE, as it draws them.
     const juce::Rectangle<float> disp (0.0f, 0.0f, 896.0f, 150.0f);
     auto click = [&] (float x) { terr.p->mod().displayMouse ({ x, 25.0f }, disp, true); terr.p->mod().displayMouseUp(); };
@@ -3888,21 +4401,23 @@ static void testCapture()
     std::mt19937 rng (5);
     std::normal_distribution<float> g (0.0f, 1.0f);
     std::vector<float> backL ((size_t) kBlock, 0.0f), backR ((size_t) kBlock, 0.0f), mono ((size_t) kBlock, 0.0f);
-    float outPeak = 0.0f;
+    float outPeak = 0.0f, micGain = 1.0f;          // micGain over 1: the mics hotter, clipped at the converter's full scale
     std::vector<float> lastOut;
     // One block: the mics hear what the speaker played (the engine's 512 samples and a block late).
     auto step = [&] (float extra = 0.0f)
     {
-        cap.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+        cap->step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
         {
             for (int i = 0; i < n; ++i)
             {
                 b.setSample (0, i, backL[(size_t) i] + g (rng) * 3.0e-4f + extra);
                 b.setSample (1, i, backR[(size_t) i] + g (rng) * 3.0e-4f + extra);
+                if (micGain != 1.0f)
+                    for (int ch = 0; ch < 2; ++ch) b.setSample (ch, i, juce::jlimit (-1.0f, 1.0f, micGain * b.getSample (ch, i)));
             }
         });
-        lastOut.assign (cap.buf.getReadPointer (0), cap.buf.getReadPointer (0) + kBlock);
-        for (int i = 0; i < kBlock; ++i) { mono[(size_t) i] = cap.buf.getSample (0, i); outPeak = std::max (outPeak, std::fabs (mono[(size_t) i])); }
+        lastOut.assign (cap->buf.getReadPointer (0), cap->buf.getReadPointer (0) + kBlock);
+        for (int i = 0; i < kBlock; ++i) { mono[(size_t) i] = cap->buf.getSample (0, i); outPeak = std::max (outPeak, std::fabs (mono[(size_t) i])); }
         air.process (mono.data(), backL.data(), backR.data(), kBlock);
         terr.step (kBlock, nullptr);
     };
@@ -3910,11 +4425,11 @@ static void testCapture()
     {
         for (const double until = juce::Time::getMillisecondCounterHiRes() + sec * 1000.0; juce::Time::getMillisecondCounterHiRes() < until;)
         {
-            if (d.capState.load() == want) return true;
+            if (cs().state == want) return true;
             step();
             juce::Thread::sleep (1);
         }
-        return d.capState.load() == want;
+        return cs().state == want;
     };
     auto placeIn = [&] (int slot, juce::String& kind, juce::String& name, juce::MemoryBlock& flac, double& srHz)
     {
@@ -3959,8 +4474,15 @@ static void testCapture()
     const bool asked = d.capSeq.load() == seq0 + 1;
     const bool playing = waitState (capture::Playing, 5.0);
     const int blocks = (int) ((ir::kLeadSec + ir::kRepeats * (ir::kSweepSec + ir::kGapSec) + capture::kTailSec) * kSr / kBlock) + 2;
-    for (int b = 0; b < blocks && d.capState.load() == capture::Playing; ++b) step();
+    for (int b = 0; b < blocks && cs().state == capture::Playing; ++b) step();
     const bool done = waitState (capture::Done, 60.0);
+    // Written (Done), then SF CAPTURE removed before or while SF TERROIR takes the take in: it stays
+    // Done, and the place still comes in (a recorder's removal never loses a finished take).
+    capOwner.reset(); cap = nullptr;
+    const bool doneStays = cs().state == capture::Done;
+    capOwner = std::make_unique<Rig2> ("CAPTURE");
+    cap = capOwner.get();
+    cap->head.playing = false;
     const auto take = capture::fileFor (d.capStamp.load());
     int takeCh = 0; double takeSec = 0.0;
     {
@@ -4004,10 +4526,41 @@ static void testCapture()
                  asked ? "yes" : "NO", playing ? "yes" : "NO", gainToDb (outPeak), done ? "yes" : "NO", takeCh, takeSec);
     std::printf ("   slot 4: %s \"%s\", %.0f Hz, %d channels; against the room: left %.4f, right %.4f; right %d samples later (want 72)\n",
                  stored ? kind.toRawUTF8() : "NOT STORED", name.toRawUTF8(), placeSr, chans, corrL, corrR, lag);
-    CHECK (asked && playing && done && std::abs (gainToDb (outPeak) + 6.0f) < 0.1f && takeCh == 2 && std::abs (takeSec - 46.0) < 0.01,
+    std::printf ("   SF CAPTURE removed once the take was written: %s\n", doneStays ? "still Done, taken in" : "NOT DONE");
+    CHECK (asked && playing && done && doneStays && std::abs (gainToDb (outPeak) + 6.0f) < 0.1f && takeCh == 2 && std::abs (takeSec - 46.0) < 0.01,
            "SF CAPTURE take wrong");
     CHECK (stored && kind == "SWEEP x3" && name.startsWith ("ROOM ") && chans == 2 && corrL > 0.99 && corrR > 0.99 && lag == 72,
            "capture into TERROIR's slot 4 wrong");
+
+    // 3b. A take with the mics clipping (18 dB hotter, at the converter's full scale; 352df3c audit,
+    //     A10): still the sweep, into slot 3, and the status line says the mics clipped. (Its file is
+    //     then removed: the takes counted below are the cases'.)
+    {
+        juce::Thread::sleep (100);
+        step();
+        micGain = 8.0f;
+        click (captureX); click (slotX (2));
+        const bool playing5 = waitState (capture::Playing, 5.0);
+        for (int b = 0; b < blocks && cs().state == capture::Playing; ++b) step();
+        const float peak5 = d.capPeak.load();
+        const bool done5 = waitState (capture::Done, 60.0);
+        micGain = 1.0f;
+        juce::String kind5, name5, status;
+        juce::MemoryBlock flac5;
+        double sr5 = 0.0;
+        bool stored5 = false;
+        for (const double until = juce::Time::getMillisecondCounterHiRes() + 180000.0; ! stored5 && juce::Time::getMillisecondCounterHiRes() < until;)
+        {
+            juce::Thread::sleep (50);
+            step();
+            stored5 = placeIn (2, kind5, name5, flac5, sr5);
+        }
+        for (int k = 0; k < 200 && ! status.startsWith ("SLOT 3"); ++k) { juce::Thread::sleep (10); step(); status = terr.p->mod().statusLine(); }
+        capture::fileFor (d.capStamp.load()).deleteFile();
+        std::printf ("   a take with the mics clipping (their peak %.2f): slot 3 %s; the status line: %s\n", peak5, stored5 ? kind5.toRawUTF8() : "NOT STORED", status.toRawUTF8());
+        CHECK (playing5 && done5 && peak5 >= 0.99f && stored5 && kind5 == "SWEEP x3" && status.contains ("THE MICS CLIPPED: TAKE IT AGAIN, SPEAKER OR GAIN DOWN"),
+               "a clipped capture: slot 3 %s, status '%s'", stored5 ? kind5.toRawUTF8() : "not stored", status.toRawUTF8());
+    }
 
     // 4. STOP (CAPTURE again) two seconds in: the sweep fades out over 10 ms, nothing is stored.
     auto stopTest = [&] (bool byTransport, int slot)
@@ -4017,13 +4570,13 @@ static void testCapture()
         click (captureX); click (slotX (slot));
         if (! waitState (capture::Playing, 5.0)) return std::make_pair (false, 0);
         for (int b = 0; b < (int) (2.5 * kSr / kBlock); ++b) step();
-        if (byTransport) cap.head.playing = true; else click (captureX);
+        if (byTransport) cap->head.playing = true; else click (captureX);
         std::vector<float> o;
         for (int b = 0; b < 8; ++b) { step(); o.insert (o.end(), lastOut.begin(), lastOut.end()); }
-        cap.head.playing = false;
+        cap->head.playing = false;
         int last = 0;
         for (int i = 0; i < (int) o.size(); ++i) if (o[(size_t) i] != 0.0f) last = i;
-        const bool stopped = d.capState.load() == capture::Failed && d.capError.load() == (byTransport ? capture::TransportStarted : capture::Cancelled);
+        const bool stopped = cs().state == capture::Failed && cs().error == (byTransport ? capture::TransportStarted : capture::Cancelled);
         return std::make_pair (stopped, last);
     };
     const auto [stopOk, stopLen] = stopTest (false, 4);
@@ -4039,14 +4592,14 @@ static void testCapture()
     // 5. Live prepares SF CAPTURE again (a new rate or buffer size) after it claimed a take and
     //    before the take starts: the take ends (Cancelled) instead of the bus saying Preparing for
     //    good, which would refuse every later capture; the next take starts.
-    auto failedWith = [&] (int err) { return d.capState.load() == capture::Failed && d.capError.load() == err; };
+    auto failedWith = [&] (int err) { return cs().state == capture::Failed && cs().error == err; };
     juce::Thread::sleep (100);
     step();
     click (captureX); click (slotX (6));
     bool preparing = false;
-    for (int k = 0; k < 500 && ! preparing; ++k) { juce::Thread::sleep (2); preparing = d.capState.load() == capture::Preparing; }
+    for (int k = 0; k < 500 && ! preparing; ++k) { juce::Thread::sleep (2); preparing = cs().state == capture::Preparing; }
     juce::Thread::sleep (500);                           // the take built and waiting for a block (no block runs meanwhile)
-    cap.p->prepareToPlay (kSr, kBlock);
+    cap->p->prepareToPlay (kSr, kBlock);
     const bool preparedEnds = preparing && failedWith (capture::Cancelled);
     juce::Thread::sleep (100);
     step();
@@ -4066,7 +4619,7 @@ static void testCapture()
     for (const double until = juce::Time::getMillisecondCounterHiRes() + 3000.0; ! panicRefused && juce::Time::getMillisecondCounterHiRes() < until;)
     {
         panic (true); step(); juce::Thread::sleep (2);
-        panicRefused = failedWith (capture::Cancelled) && d.capTaken.load() == d.capSeq.load();
+        panicRefused = failedWith (capture::Cancelled) && cs().seq == d.capSeq.load();
     }
     panic (false);
     for (int b = 0; b < 4; ++b) step();
@@ -4089,6 +4642,223 @@ static void testCapture()
     CHECK (preparedEnds && restarted && restartStops && panicRefused && panicPlays && panicStops && none67 && files == 1, "capture lifecycle wrong");
 
     for (auto* f : air.releaseAll()) delete f;
+    capture::testFolder.clear();
+    dir.deleteRecursively();
+    resetBus();
+}
+
+// A take's lifecycle (Nov 5 audit 2: A03, A07). The request is one thing from the ask to the
+// import: STOP holds whatever stage it has reached (before SF CAPTURE claims it, while the take is
+// being made, made but not yet started, playing, being written); PANIC or a new stream (prepare)
+// while it is being made ends it; a take STOPped before it started plays nothing, writes nothing
+// and fills no slot. The recorder removed while the take is being made or playing ends it (and a
+// new SF CAPTURE and SF TERROIR capture again); a recorder whose audio stands still loses it after
+// capture::kLeaseMs, and its take never sounds again. Held at fixed points by capture::testHold;
+// a 0.5 s tone for a take (capture::testShortTake).
+static void testCaptureLifecycle()
+{
+    std::printf ("-- A take's lifecycle: STOP at every stage, PANIC and prepare while it is made, the recorder removed or standing still\n");
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_capture_lifecycle");
+    const juce::Rectangle<float> disp (0.0f, 0.0f, 896.0f, 150.0f);
+    const float captureX = 896.0f - 172.0f + 35.0f;
+    auto slotX = [] (int i) { return 10.0f + (float) i * 30.0f + 13.0f; };
+    auto& d = Bus::get().d();
+    auto cs = [&] { return capture::status (d.capStatus); };
+    auto files = [&] { int n = 0; for (const auto& e : juce::RangedDirectoryIterator (dir, false, "*.wav")) { juce::ignoreUnused (e); ++n; } return n; };
+    auto slotFilled = [] (Rig2& terr, int slot)
+    {
+        juce::MemoryBlock st;
+        terr.p->getStateInformation (st);
+        const auto m = juce::ValueTree::readFromData (st.getData(), st.getSize()).getChildWithName ("MODULE");
+        for (int i = 0; i < m.getNumChildren(); ++i)
+            if (m.getChild (i).hasType ("PLACE") && (int) m.getChild (i).getProperty ("slot") == slot) return true;
+        return false;
+    };
+    struct World
+    {
+        std::unique_ptr<Rig2> terr, cap;
+        float peak = 0.0f;
+        bool capRuns = true;
+        World() : terr (std::make_unique<Rig2> ("TERROIR")), cap (std::make_unique<Rig2> ("CAPTURE")) { terr->head.playing = cap->head.playing = false; }
+        void click (float x)
+        {
+            const juce::Rectangle<float> r (0.0f, 0.0f, 896.0f, 150.0f);
+            terr->p->mod().displayMouse ({ x, 25.0f }, r, true); terr->p->mod().displayMouseUp();
+        }
+        void step()
+        {
+            if (cap != nullptr && capRuns)
+            {
+                cap->step (kBlock, nullptr);
+                peak = std::max (peak, cap->buf.getMagnitude (0, 0, kBlock));
+            }
+            if (terr != nullptr) terr->step (kBlock, nullptr);
+        }
+    };
+    juce::ignoreUnused (disp);
+    auto until = [&] (World& w, const std::function<bool()>& f, double sec, bool audio = true)
+    {
+        for (const double end = juce::Time::getMillisecondCounterHiRes() + sec * 1000.0; juce::Time::getMillisecondCounterHiRes() < end;)
+        {
+            if (f()) return true;
+            if (audio) w.step();
+            juce::Thread::sleep (1);
+        }
+        return f();
+    };
+    auto ask = [&] (World& w, int slot) { w.click (captureX); w.click (slotX (slot)); return d.capSeq.load(); };
+    auto failed = [&] (uint32_t seq, int err) { const auto c = cs(); return c.seq == seq && c.state == capture::Failed && c.error == err; };
+    auto settle = [&] (World& w, int blocks) { for (int b = 0; b < blocks; ++b) { w.step(); if (b % 8 == 0) juce::Thread::sleep (2); } };
+
+    // STOP, PANIC and prepare at each stage before the take starts: no sweep, no file, no slot.
+    const char* what[] = { "STOP before SF CAPTURE claims it", "STOP while the take is being made", "STOP once made, before it starts",
+                           "PANIC while the take is being made", "prepare while the take is being made" };
+    for (int variant = 0; variant < 5; ++variant)
+    {
+        resetBus();
+        dir.deleteRecursively(); dir.createDirectory();
+        capture::testFolder = dir.getFullPathName().toStdString();
+        capture::testShortTake = true;
+        World w;
+        settle (w, 4);
+        capture::testHold = variant == 0 ? capture::kHoldClaim : variant == 2 ? 0 : capture::kHoldPublish;
+        const uint32_t seq = ask (w, variant);
+        bool reached = true;
+        if (variant == 0) juce::Thread::sleep (50);                                  // the worker waits before the claim
+        else reached = until (w, [&] { return cs().seq == seq && cs().state == capture::Preparing; }, 3.0, false);
+        if (variant == 2) juce::Thread::sleep (300);                                 // made and handed over; no audio has run since
+        if (variant <= 2) w.click (captureX);                                        // STOP
+        if (variant == 3) w.cap->p->mod().reset();                                   // PANIC's reset
+        if (variant == 4) w.cap->p->prepareToPlay (kSr, kBlock);
+        capture::testHold = 0;
+        settle (w, 120);
+        const auto c = cs();
+        const bool ended = failed (seq, capture::Cancelled);
+        std::printf ("   %-38s %s; state %d error %d; sweep out %.1f dBFS, takes written %d, slot %s\n", what[variant], reached ? "reached" : "NOT REACHED",
+                     c.state, c.error, gainToDb (w.peak), files(), slotFilled (*w.terr, variant) ? "FILLED" : "empty");
+        CHECK (reached && ended && w.peak == 0.0f && files() == 0 && ! slotFilled (*w.terr, variant), "capture lifecycle (%s): state %d error %d, out %.1f dBFS", what[variant], c.state, c.error, gainToDb (w.peak));
+    }
+
+    // STOP while the take is being written: not written, not taken in.
+    {
+        resetBus();
+        dir.deleteRecursively(); dir.createDirectory();
+        capture::testFolder = dir.getFullPathName().toStdString();
+        capture::testShortTake = true;
+        World w;
+        settle (w, 4);
+        capture::testHold = capture::kHoldWrite;
+        const uint32_t seq = ask (w, 0);
+        const bool writing = until (w, [&] { return cs().seq == seq && cs().state == capture::Writing; }, 5.0);
+        w.click (captureX);
+        capture::testHold = 0;
+        settle (w, 60);
+        const bool ended = failed (seq, capture::Cancelled);
+        std::printf ("   STOP while it is being written:        %s; %s, takes written %d, slot %s\n", writing ? "reached" : "NOT REACHED", ended ? "Cancelled" : "NOT CANCELLED", files(), slotFilled (*w.terr, 0) ? "FILLED" : "empty");
+        CHECK (writing && ended && files() == 0 && ! slotFilled (*w.terr, 0), "STOP while writing");
+    }
+
+    // SF CAPTURE removed while the take is being made, or playing: the take ends (Removed); a new SF
+    // CAPTURE and a new SF TERROIR capture again, and the old take never sounds.
+    for (const bool playing : { false, true })
+    {
+        resetBus();
+        dir.deleteRecursively(); dir.createDirectory();
+        capture::testFolder = dir.getFullPathName().toStdString();
+        capture::testShortTake = true;
+        World w;
+        settle (w, 4);
+        capture::testHold = playing ? 0 : capture::kHoldPublish;
+        const uint32_t seq = ask (w, 0);
+        const bool reached = until (w, [&] { return cs().seq == seq && cs().state == (playing ? capture::Playing : capture::Preparing); }, 5.0, playing);
+        w.cap.reset();
+        const bool removed = failed (seq, capture::Removed);
+        capture::testHold = 0;
+        World w2;                                                              // a new SF CAPTURE and SF TERROIR
+        settle (w2, 4);
+        const uint32_t seq2 = ask (w2, 1);
+        const bool again = until (w2, [&] { return cs().seq == seq2 && cs().state == capture::Playing; }, 5.0);
+        w2.click (captureX);                                                   // STOP it
+        settle (w2, 20);
+        w.terr.reset();
+        std::printf ("   SF CAPTURE removed while the take %-8s %s; a new one asked: %s, then STOPped: %s\n", playing ? "plays:" : "is made:", removed ? "Removed" : "NOT ENDED",
+                     again ? "plays" : "DOESN'T PLAY", failed (seq2, capture::Cancelled) ? "yes" : "NO");
+        CHECK (reached && removed && seq2 > seq && again && failed (seq2, capture::Cancelled), "recorder removed while %s", playing ? "playing" : "preparing");
+    }
+
+    // The recorder's audio stands still while its take plays (its track off, Live's engine stopped):
+    // after capture::kLeaseMs SF TERROIR ends the take (Lost); when that audio runs again the take
+    // never sounds, and the same SF CAPTURE takes a new request. Or the SF TERROIR that asked is gone
+    // too, and a new one asks while a second SF CAPTURE runs: the stalled take is over (its recorder's
+    // lease ran out; the other SF CAPTURE's audio doesn't keep it), the second plays the new one, and
+    // the first, its audio back, never sounds the old take.
+    for (const bool newTerroir : { false, true })
+    {
+        resetBus();
+        dir.deleteRecursively(); dir.createDirectory();
+        capture::testFolder = dir.getFullPathName().toStdString();
+        capture::testShortTake = true;
+        World w;
+        settle (w, 4);
+        const uint32_t seq = ask (w, 0);
+        const bool started = until (w, [&] { return cs().seq == seq && cs().state == capture::Playing; }, 5.0);
+        w.capRuns = false;                                                     // its audio stands still
+        std::unique_ptr<World> other;
+        bool lost = false, again = false;
+        uint32_t seq2 = 0;
+        if (! newTerroir)
+            lost = until (w, [&] { return failed (seq, capture::Lost); }, 4.0);
+        else
+        {
+            w.terr.reset();                                                    // the SF TERROIR that asked: gone
+            other = std::make_unique<World>();                                 // a new SF TERROIR, a second SF CAPTURE
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            while (juce::Time::getMillisecondCounterHiRes() - t0 < (double) capture::kLeaseMs + 300.0) { other->step(); juce::Thread::sleep (5); }
+            seq2 = ask (*other, 1);
+            lost = seq2 > seq;
+            again = until (*other, [&] { return cs().seq == seq2 && cs().state == capture::Playing; }, 5.0);
+        }
+        w.peak = 0.0f;
+        w.capRuns = true;                                                      // its audio runs again
+        settle (w, 30);
+        if (other != nullptr) settle (*other, 10);
+        const float after = w.peak;
+        if (! newTerroir)
+        {
+            seq2 = ask (w, 1);
+            again = until (w, [&] { return cs().seq == seq2 && cs().state == capture::Playing; }, 5.0);
+            w.click (captureX);
+            settle (w, 20);
+        }
+        else { other->click (captureX); settle (*other, 20); }
+        std::printf ("   its audio stood still while playing%s: %s; then out %.1f dBFS; a new take plays: %s\n", newTerroir ? ", a new SF TERROIR and SF CAPTURE" : "",
+                     lost ? (newTerroir ? "taken over" : "Lost") : "STILL BUSY", gainToDb (after), again ? "yes" : "NO");
+        CHECK (started && lost && after == 0.0f && again && failed (seq2, capture::Cancelled), "recorder standing still (%s)", newTerroir ? "new SF TERROIR" : "same SF TERROIR");
+    }
+
+    // ... and with no SF TERROIR left at all to end it: the recorder, its audio back after the lease,
+    // ends the take itself (Lost) and never sounds it.
+    {
+        resetBus();
+        dir.deleteRecursively(); dir.createDirectory();
+        capture::testFolder = dir.getFullPathName().toStdString();
+        capture::testShortTake = true;
+        World w;
+        settle (w, 4);
+        const uint32_t seq = ask (w, 0);
+        const bool started = until (w, [&] { return cs().seq == seq && cs().state == capture::Playing; }, 5.0);
+        w.capRuns = false;
+        w.terr.reset();
+        juce::Thread::sleep ((int) capture::kLeaseMs + 300);
+        w.peak = 0.0f;
+        w.capRuns = true;
+        settle (w, 30);
+        std::printf ("   its audio stood still, no SF TERROIR left: %s; then out %.1f dBFS\n", failed (seq, capture::Lost) ? "Lost" : "STILL BUSY", gainToDb (w.peak));
+        CHECK (started && failed (seq, capture::Lost) && w.peak == 0.0f, "recorder standing still with no SF TERROIR");
+    }
+
+    capture::testHold = 0;
+    capture::testShortTake = false;
     capture::testFolder.clear();
     dir.deleteRecursively();
     resetBus();
@@ -4336,6 +5106,208 @@ static void testTerroirLifecycle()
         CHECK (pk48 < 0.99f && pk96 < 0.99f, "TERROIR test places clip");
         CHECK (std::abs (a48 - b48) < 0.05f && std::abs (a96 - b96) < 0.05f && std::abs (a48 - a96) < 0.05f,
                "TERROIR place level depends on rate: %.2f / %.2f / %.2f / %.2f dB", a48, b48, a96, b96);
+    }
+    resetBus();
+}
+
+// TERROIR's first sound is the room its knobs ask for (352df3c audit, A08). Real time, the first
+// input in the first block, nothing run before it: the state loaded before prepare or after it, or
+// prepared again after the knobs moved while it was off; a short room, a long one, a place of its
+// own, LENGTH at the state's tempo; the worker as it is and slowed to 400 ms an IR (so nothing it
+// builds can be what is heard). The output must be the same knobs' rendered, settled output, to
+// -60 dB. And a state loaded while the room rings, as defined in Terroir.cpp (restored): the knobs
+// are the state's from the next block, and its room, built in the state load and not by the worker,
+// goes into the engine at its next tail block and crossfades in over the one after (4096 samples
+// each) with the whole input history kept: the old room's output untouched for 4096 samples at
+// least, no jump, and from 3 x 4096 samples on exactly the output of the state's room all along.
+// States loaded from another thread while the audio runs end in the last one's room.
+static void testTerroirColdStart()
+{
+    std::printf ("-- TERROIR cold start: the first input in real time meets the knobs' room; a state loaded while it rings\n");
+    // sec seconds of input: 0 silence, 1 an impulse (0.2) at the first sample, 2 noise (0.05, seeded); the left output.
+    auto run = [] (Rig2& r, double sec, int input, uint32_t seed = 1)
+    {
+        std::vector<float> y;
+        std::mt19937 rng (seed);
+        std::uniform_real_distribution<float> u (-0.05f, 0.05f);
+        const int64_t n = (int64_t) std::llround (sec * r.sr);
+        for (int64_t t = 0; t < n;)
+        {
+            const int nn = (int) std::min<int64_t> (r.block, n - t);
+            r.step (nn, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int m)
+            {
+                for (int i = 0; i < m; ++i)
+                {
+                    const float x = input == 1 ? (t + i == 0 ? 0.2f : 0.0f) : input == 2 ? u (rng) : 0.0f;
+                    b.setSample (0, i, x); b.setSample (1, i, x);
+                }
+            });
+            for (int i = 0; i < nn; ++i) y.push_back (r.buf.getSample (0, i));
+            t += nn;
+        }
+        return y;
+    };
+    // What a leaves of ref over [from, to), in dB of ref's energy there.
+    auto residualDb = [] (const std::vector<float>& a, const std::vector<float>& ref, size_t from = 0, size_t to = SIZE_MAX)
+    {
+        double e = 0.0, r = 0.0;
+        for (size_t i = from; i < std::min ({ to, a.size(), ref.size() }); ++i) { const double d = (double) a[i] - ref[i]; e += d * d; r += (double) ref[i] * ref[i]; }
+        return (float) (10.0 * std::log10 ((e + 1e-30) / (r + 1e-30)));
+    };
+    auto stateOf = [] (Rig2& r) { juce::MemoryBlock m; r.p->getStateInformation (m); return m; };
+    auto load = [] (Rig2& r, const juce::MemoryBlock& m) { r.p->setStateInformation (m.getData(), (int) m.getSize()); };
+
+    // The starting state: wet only, the knobs at their defaults, and a place of its own in slot 3 (a
+    // stereo room, RT 0.9 s, stored as an import stores it).
+    juce::MemoryBlock base;
+    {
+        std::mt19937 rng (77);
+        std::normal_distribution<float> g (0.0f, 1.0f);
+        juce::AudioBuffer<float> h (2, 48000);
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < h.getNumSamples(); ++i)
+                h.setSample (c, i, i < 96 ? 0.0f : g (rng) * std::exp (-6.9078f * (float) i / 48000.0f / 0.9f));
+        ir::normalise (h);
+        CHECK (h.getMagnitude (0, h.getNumSamples()) < 0.99f, "TERROIR cold start: the test place clips");
+        juce::MemoryBlock flac;
+        {
+            juce::FlacAudioFormat fmt;
+            std::unique_ptr<juce::AudioFormatWriter> w (fmt.createWriterFor (new juce::MemoryOutputStream (flac, false), 48000.0, 2, 24, {}, 0));
+            w->writeFromAudioSampleBuffer (h, 0, h.getNumSamples());
+        }
+        resetBus();
+        Rig2 r ("TERROIR");
+        r.set ("mix", 1.0f); r.set ("dry", 0.0f); r.set ("duck", 0.0f); r.set ("lo_cut", 20.0f);
+        const auto s0 = stateOf (r);
+        auto root = juce::ValueTree::readFromData (s0.getData(), s0.getSize());
+        juce::ValueTree c ("PLACE");
+        c.setProperty ("slot", 2, nullptr); c.setProperty ("name", "TEST ROOM", nullptr); c.setProperty ("kind", "IR FILE", nullptr);
+        c.setProperty ("sr", 48000.0, nullptr); c.setProperty ("rt60", 0.9, nullptr); c.setProperty ("flac", flac, nullptr);
+        root.getChildWithName ("MODULE").appendChild (c, nullptr);
+        juce::MemoryOutputStream os (base, false);
+        root.writeToStream (os);
+    }
+    // The knobs' room: rendered (built in the block), settled, then the first input after a reset.
+    auto rendered = [&] (const std::vector<std::pair<const char*, float>>& knobs, double bpm, juce::MemoryBlock& state)
+    {
+        resetBus();
+        Rig2 r ("TERROIR");
+        r.head.bpm = bpm; r.p->setNonRealtime (true);
+        load (r, base);
+        for (const auto& [id, v] : knobs) r.set (id, v);
+        run (r, 0.1, 0);
+        state = stateOf (r);
+        r.p->mod().reset();
+        return run (r, 1.5, 1);
+    };
+
+    struct Cfg { const char* name; std::vector<std::pair<const char*, float>> knobs; double bpm; };
+    const std::vector<Cfg> cfgs {
+        { "DECAY 20 %", { { "decay", 0.2f } }, 120.0 },
+        { "SIZE 180 %", { { "size", 1.8f } }, 120.0 },
+        { "PLACE 3 (its own room), DECAY 60 %, DARK 30 %", { { "place", 2.0f }, { "decay", 0.6f }, { "dark", 0.3f } }, 120.0 },
+        { "LENGTH 1/8 at 132 BPM", { { "length", 6.0f } }, 132.0 },
+    };
+    static const char* hows[] = { "the state loaded before prepare", "the state loaded after prepare", "prepared again after the knobs moved while off" };
+    for (const auto& cfg : cfgs)
+    {
+        juce::MemoryBlock state;
+        const auto want = rendered (cfg.knobs, cfg.bpm, state);
+        juce::AudioBuffer<float> wb (1, (int) want.size());
+        wb.copyFrom (0, 0, want.data(), (int) want.size());
+        float worst = -400.0f;
+        for (int slow : { 0, 400 })
+            for (int how = 0; how < 3; ++how)
+            {
+                resetBus();
+                Rig2 r ("TERROIR");
+                r.head.bpm = cfg.bpm;
+                ir::testBuildDelayMs = slow;
+                if (how == 0) { load (r, state); r.p->prepareToPlay (r.sr, r.block); r.ppq = 0.0; }
+                else if (how == 1) load (r, state);
+                else
+                {
+                    load (r, base);
+                    run (r, 0.2, 0);                                     // playing, at the defaults
+                    for (const auto& [id, v] : cfg.knobs) r.set (id, v);   // turned while off
+                    r.p->prepareToPlay (r.sr, r.block); r.ppq = 0.0;
+                }
+                const auto first = run (r, 1.5, 1);
+                ir::testBuildDelayMs = 0;
+                const float e = residualDb (first, want);
+                worst = std::max (worst, e);
+                CHECK (e < -60.0f && r.p->faultCount.load() == 0, "TERROIR cold start, %s, %s, worker %s: the first input's output is %.1f dB off the knobs' room (faults %d)",
+                       cfg.name, hows[how], slow ? "at 400 ms an IR" : "as it is", e, r.p->faultCount.load());
+            }
+        std::printf ("   %s (RT %.3f s): the first input against the settled room, worst of 6 (state before / after prepare, prepared again; worker as is / slow): %.1f dB\n",
+                     cfg.name, ir::rt60 (wb, kSr), worst);
+    }
+
+    // A state loaded while the room rings: A (SIZE 150 %, DECAY 100 %) to B (DECAY 20 %) at 0.3 s, in
+    // real time, the worker at 1 s an IR. The same noise into three: A all along and B all along,
+    // rendered (each built in the block), and A then B.
+    juce::MemoryBlock A, B;
+    std::vector<float> wantB;
+    rendered ({ { "size", 1.5f }, { "decay", 1.0f } }, 120.0, A);
+    wantB = rendered ({ { "decay", 0.2f } }, 120.0, B);
+    {
+        auto feed = [&] (const juce::MemoryBlock& first, const juce::MemoryBlock* then, int& faults)
+        {
+            resetBus();
+            Rig2 r ("TERROIR");
+            r.p->setNonRealtime (then == nullptr);
+            load (r, first);
+            auto y = run (r, 0.3, 2, 11);
+            if (then != nullptr) load (r, *then);
+            const auto z = run (r, 0.7, 2, 12);
+            y.insert (y.end(), z.begin(), z.end());
+            faults = r.p->faultCount.load();
+            return y;
+        };
+        int fa = 0, fb = 0, fab = 0;
+        const auto a = feed (A, nullptr, fa), b = feed (B, nullptr, fb);
+        ir::testBuildDelayMs = 1000;
+        const auto ab = feed (A, &B, fab);
+        ir::testBuildDelayMs = 0;
+        const size_t at = (size_t) std::llround (0.3 * kSr), settled = at + 3 * (size_t) IrFilter::kB2;
+        size_t leaves = at, joins = at;
+        for (size_t i = at; i < ab.size(); ++i) if (std::abs (ab[i] - a[i]) > 1e-6f) { leaves = i; break; }
+        for (size_t i = ab.size(); i-- > at;) if (std::abs (ab[i] - b[i]) > 1e-6f) { joins = i + 1; break; }
+        float jumpAB = 0.0f, jumpRef = 0.0f;
+        for (size_t i = at - 2400; i < settled; ++i)
+        {
+            jumpAB = std::max (jumpAB, std::abs (ab[i] - ab[i - 1]));
+            jumpRef = std::max ({ jumpRef, std::abs (a[i] - a[i - 1]), std::abs (b[i] - b[i - 1]) });
+        }
+        const float before = residualDb (ab, a, 0, at), after = residualDb (ab, b, settled);
+        std::printf ("   state B loaded into A ringing (worker at 1 s an IR): A's output for %d samples after, B's exactly from %d (before: %.1f dB off A; from %d: %.1f dB off B); largest step %.4f (A's or B's own %.4f)\n",
+                     (int) (leaves - at), (int) (joins - at), before, (int) (settled - at), after, jumpAB, jumpRef);
+        CHECK (before < -60.0f && after < -60.0f && leaves - at >= (size_t) IrFilter::kB2 && joins <= settled && fa + fb + fab == 0,
+               "TERROIR state loaded while ringing: %.1f dB off A before, %.1f dB off B after; A's for %d samples, B's from %d (faults %d)",
+               before, after, (int) (leaves - at), (int) (joins - at), fa + fb + fab);
+        CHECK (jumpAB <= 1.5f * jumpRef, "TERROIR state loaded while ringing: a step of %.4f in the change (A's and B's own at most %.4f)", jumpAB, jumpRef);
+    }
+    // States loaded from another thread while the audio runs (A, B, A ... then B): no fault, and then B's room.
+    {
+        resetBus();
+        Rig2 r ("TERROIR");
+        load (r, A);
+        std::atomic<bool> done { false };
+        std::thread loader ([&]
+        {
+            for (int i = 0; i < 40; ++i) { load (r, i % 2 ? A : B); juce::Thread::sleep (2); }
+            load (r, B);
+            done = true;
+        });
+        uint32_t blocks = 0;
+        while (! done.load()) run (r, r.block / r.sr, 2, ++blocks);
+        loader.join();
+        run (r, 0.3, 0);
+        r.p->mod().reset();
+        const auto y = run (r, 1.5, 1);
+        const float e = residualDb (y, wantB);
+        std::printf ("   41 states loaded from another thread over %u blocks of audio, B last: then %.1f dB off B's room, faults %d\n", blocks, e, r.p->faultCount.load());
+        CHECK (e < -60.0f && r.p->faultCount.load() == 0, "TERROIR states loaded while the audio runs: then %.1f dB off the last one's room (faults %d)", e, r.p->faultCount.load());
     }
     resetBus();
 }

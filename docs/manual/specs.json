@@ -830,6 +830,7 @@
   {"id": "duck_shape", "name": "DUCK SHAPE", "type": "knob", "primary": false, "slow": false, "min": "0 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},
   {"id": "input", "name": "INPUT", "type": "menu", "primary": false, "slow": false, "min": "", "max": "", "def": "ALWAYS", "choices": "ALWAYS|THROW ONLY", "macro": 0},
   {"id": "dry", "name": "DRY", "type": "toggle", "primary": false, "slow": false, "min": "", "max": "", "def": "ON", "choices": "", "macro": 0},
+  {"id": "import", "name": "IMPORT", "type": "menu", "primary": false, "slow": false, "min": "", "max": "", "def": "AUTO", "choices": "AUTO|IR FILE|CLAP|SWEEP", "macro": 0},
   {"id": "slow", "name": "SLOW", "type": "menu", "primary": false, "slow": false, "min": "", "max": "", "def": "CONTROL", "choices": "CONTROL|1 BAR|2 BAR|4 BAR|8 BAR|16 BAR|32 BAR|64 BAR|OFF", "macro": 0},
   {"id": "macro_src", "name": "MACRO SRC", "type": "menu", "primary": false, "slow": false, "min": "", "max": "", "def": "OFF", "choices": "OFF|MACRO 1|MACRO 2|MACRO 3|MACRO 4|MACRO 5|MACRO 6", "macro": 0},
   {"id": "macro_amt", "name": "MACRO AMT", "type": "knob", "primary": false, "slow": false, "min": "-100 %", "max": "100 %", "def": "50 %", "choices": "", "macro": 0},

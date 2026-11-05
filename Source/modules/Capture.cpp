@@ -14,7 +14,8 @@ namespace sf
 // track's rate and played at SWEEP LEVEL, then 3 s more, the input recorded all the while on the
 // interface's own clock; written as a 32-bit float WAV, then TERROIR analyses it. Live's transport
 // must be stopped: a take refuses to start while it plays and stops (10 ms fade) if it starts.
-// PANIC, a new sample rate or a fault end a take too; an ended take is never written.
+// PANIC, a new sample rate, a fault or TERROIR's STOP end a take at any stage, before it has started
+// too; an ended take is never played on, written or imported. Removing the plugin ends its take.
 class CaptureModule : public Module, private juce::Thread
 {
 public:
@@ -27,9 +28,14 @@ public:
     ~CaptureModule() override
     {
         stopThread (10000);                                  // a take being written is finished first
+        // A take still this plugin's ends with it: the bus outlives the plugin, and a take left in
+        // progress there would refuse every capture after it. (A take written stays Done: TERROIR
+        // takes it in.)
+        if (const uint32_t s = tookSeq.load(); s != 0)
+            capture::advance (Bus::get().d().capStatus, s, capture::kBusyMask, capture::Failed, capture::Removed);
         delete pending.exchange (nullptr);
         delete finished.exchange (nullptr);
-        delete aborted.exchange (nullptr);
+        for (auto& r : retired) delete r.exchange (nullptr);
         delete job;
     }
 
@@ -43,33 +49,37 @@ public:
     }
     double tailSeconds() const override { return 0.0; }
 
+    // A new stream: a take built before it (or being built) is for another one and never starts.
     void prepare (double r, int) override
     {
         rate.store (r);
         fadeLen = std::max (64, (int) std::lround (0.01 * r));
-        if (job != nullptr) { stop (capture::Cancelled); }   // built for the old rate
-        if (auto* t = pending.exchange (nullptr))            // claimed, not started: ended too, or the bus would say Preparing for good
-        {
-            delete t;
-            auto& d = Bus::get().d();
-            d.capError = capture::Cancelled;
-            d.capState = capture::Failed;
-        }
+        epoch.fetch_add (1, std::memory_order_acq_rel);
+        if (job != nullptr) endJob (capture::Cancelled);
+        if (auto* t = pending.exchange (nullptr)) { end (t->seq, capture::Cancelled); delete t; }
         meter[0] = meter[1] = 0.0f;
     }
-    // PANIC or a fault: silent now (no fade).
+    // PANIC or a fault (audio thread): silent now (no fade), and a take being made never starts.
     void reset() override
     {
-        if (job != nullptr) stop (capture::Cancelled);
+        epoch.fetch_add (1, std::memory_order_acq_rel);
+        if (job != nullptr) endJob (capture::Cancelled);
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {
         auto& d = Bus::get().d();
-        const int64_t now = Bus::nowMs();
+        const int64_t now = Bus::nowMs(), gap = now - lastBlockMs.load();
         d.captureSeenMs = now;
         lastBlockMs = now;
         const int n = c.n;
+        // This plugin's audio stood still longer than the lease (its track off, Live's engine
+        // stopped): a take it had is over and never goes on (SF TERROIR may have ended it already).
+        if (gap > capture::kLeaseMs)
+        {
+            if (job != nullptr) endJob (capture::Lost);
+            if (auto* t = pending.exchange (nullptr, std::memory_order_acq_rel)) { end (t->seq, capture::Lost); retire (t); }
+        }
         float* L = io.getWritePointer (0);
         float* R = io.getNumChannels() > 1 ? io.getWritePointer (1) : nullptr;
         // The mics, for the meters.
@@ -81,22 +91,28 @@ public:
             const float m = meter[ch].load() * std::pow (0.5f, (float) n / (float) (0.3 * c.sr));   // falls by half in 0.3 s
             meter[ch] = std::max (m, pk);
         }
+        // A take of this plugin's in progress: its lease (TERROIR ends a take whose recorder stops answering).
+        const auto st = capture::status (d.capStatus);
+        if (const uint32_t mine = tookSeq.load(); mine != 0 && st.seq == mine && capture::busy (st.state)) d.capOwnerSeenMs = now;
         // PANIC held (SF CONTROL): this plugin's input and output are muted; a take would be silence.
         const bool panic = d.panicHeld.load() != 0 && Bus::get().controlAlive();
         if (job == nullptr)
             if (auto* t = pending.exchange (nullptr, std::memory_order_acq_rel))
             {
-                if (c.playing || c.offline) { d.capError = capture::TransportStarted; d.capState = capture::Failed; retire (t); }
-                else if (panic || t->rate != c.sr) { d.capError = capture::Cancelled; d.capState = capture::Failed; retire (t); }   // or built for another rate
-                else
-                {
-                    job = t; pos = 0; fade = -1; takePeak = 0.0f;
-                    cancelAt = d.capCancel.load();
-                    d.capState = capture::Playing;
-                }
+                // Started only if it is still the request in force, not stopped, and made for this stream.
+                const int32_t why = c.playing || c.offline ? capture::TransportStarted
+                                  : panic || t->rate != c.sr || t->epoch != epoch.load (std::memory_order_acquire)
+                                      || d.capCancel.load() == t->seq ? capture::Cancelled : capture::None;
+                if (why != capture::None) { end (t->seq, why); retire (t); }
+                else if (! capture::advance (d.capStatus, t->seq, capture::bit (capture::Preparing), capture::Playing, capture::None)) retire (t);
+                else { job = t; pos = 0; fade = -1; takePeak = 0.0f; }
             }
         if (job == nullptr) { io.clear(); return; }                   // never the input
-        if (fade < 0 && (c.playing || c.offline || panic || d.capCancel.load() != cancelAt))
+        // Given up on while this plugin's audio stood still (the lease ran out; maybe a newer take
+        // since): over, at once and silently. Its sound had stopped with the audio already.
+        const auto js = capture::status (d.capStatus);
+        if (js.seq != job->seq || js.state != capture::Playing) { retire (job); job = nullptr; io.clear(); return; }
+        if (fade < 0 && (c.playing || c.offline || panic || d.capCancel.load() == job->seq))
         {
             fade = fadeLen;
             stopReason = c.playing || c.offline ? capture::TransportStarted : capture::Cancelled;
@@ -122,11 +138,14 @@ public:
         }
         d.capProgress = (float) std::min (1.0, (double) pos / (double) total);
         d.capPeak = takePeak;
-        if (fade == 0) stop (stopReason);
+        if (fade == 0) endJob (stopReason);
         else if (pos >= total)
         {
-            d.capState = capture::Writing;
-            delete finished.exchange (job, std::memory_order_acq_rel);    // (none waiting: one take at a time)
+            if (capture::advance (d.capStatus, job->seq, capture::bit (capture::Playing), capture::Writing, capture::None))
+            {
+                if (auto* old = finished.exchange (job, std::memory_order_acq_rel)) retire (old);   // (none: one take at a time)
+            }
+            else retire (job);
             job = nullptr;
         }
     }
@@ -138,24 +157,25 @@ public:
         ui::frame (g, r, "ROOM MICS");
         auto& d = Bus::get().d();
         auto in = r.reduced (10, 18);
-        const bool mine = d.capTaken.load() == tookSeq.load() && tookSeq.load() != 0;
-        const int st = mine ? d.capState.load() : capture::Idle;
+        const auto st = capture::status (d.capStatus);
+        const bool mine = tookSeq.load() != 0 && st.seq == tookSeq.load();
+        const int state = mine ? st.state : capture::Idle;
         juce::String text = "READY. SF TERROIR'S CAPTURE STARTS A TAKE; THE TRANSPORT MUST BE STOPPED";
         juce::Colour col = ui::kDim;
         const double total = takeSeconds();
-        if (st == capture::Preparing) { text = "STARTING A TAKE"; col = ui::kAmber; }
-        else if (st == capture::Playing)
+        if (state == capture::Preparing) { text = "STARTING A TAKE"; col = ui::kAmber; }
+        else if (state == capture::Playing)
         {
             text = "PLAYING THE SWEEP: " + juce::String ((int) (d.capProgress.load() * total)) + " OF " + juce::String ((int) total) + " S. QUIET PLEASE";
             col = ui::kGreen;
         }
-        else if (st == capture::Writing) { text = "WRITING THE TAKE"; col = ui::kGreen; }
-        else if (st == capture::Done) { text = "TAKE WRITTEN: " + lastName(); col = ui::kText; }
-        else if (st == capture::Failed)
+        else if (state == capture::Writing) { text = "WRITING THE TAKE"; col = ui::kGreen; }
+        else if (state == capture::Done) { text = "TAKE WRITTEN: " + lastName(); col = ui::kText; }
+        else if (state == capture::Failed)
         {
-            const int e = d.capError.load();
+            const int e = st.error;
             text = e == capture::TransportStarted ? "STOPPED: THE TRANSPORT STARTED" : e == capture::CantWrite ? "STOPPED: CAN'T WRITE IN " + capture::folder().getFullPathName().toUpperCase()
-                 : e == capture::NoMemory ? "STOPPED: NOT ENOUGH MEMORY" : "STOPPED";
+                 : e == capture::NoMemory ? "STOPPED: NOT ENOUGH MEMORY" : e == capture::Lost ? "STOPPED: THIS TRACK'S AUDIO STOOD STILL. CAPTURE AGAIN" : "STOPPED";
             col = ui::kRed;
         }
         ui::label (g, text, in.removeFromTop (16), col, 11.0f);
@@ -167,7 +187,7 @@ public:
             ui::levelBar (g, row.reduced (0, 2), meter[ch].load());
             in.removeFromTop (4);
         }
-        const float pk = mine && st != capture::Idle ? d.capPeak.load() : 0.0f;
+        const float pk = mine && state != capture::Idle ? d.capPeak.load() : 0.0f;
         const juce::String foot = pk >= 0.99f ? "THE MICS CLIPPED IN THIS TAKE: SPEAKER OR GAIN DOWN, AND AGAIN"
                                 : "OUT: THE SWEEP ONLY, NEVER THE MICS. TAKES GO TO MUSIC/SF LIVE SUITE/TERROIR/CAPTURES";
         ui::label (g, foot, in.removeFromBottom (14), pk >= 0.99f ? ui::kAmber : ui::kFaint, 10.0f);
@@ -179,21 +199,35 @@ private:
         juce::AudioBuffer<float> sweep, rec;       // mono sweep at this rate; the stereo take
         double rate = 0.0;                         // the rate both were made for
         int64_t stamp = 0;
-        uint32_t seq = 0;
+        uint32_t seq = 0, epoch = 0;               // the request; the stream it was made for (prepare / reset)
     };
-    // Audio thread: the take ends here, unfinished.
-    void stop (int32_t reason)
+    // Request seq, if still in progress, ends (Failed, why).
+    static void end (uint32_t seq, int32_t why)
     {
-        auto& d = Bus::get().d();
-        d.capError = reason;
-        d.capState = capture::Failed;
+        capture::advance (Bus::get().d().capStatus, seq, capture::kBusyMask, capture::Failed, why);
+    }
+    // Audio thread: the take playing ends here, unfinished.
+    void endJob (int32_t why)
+    {
+        end (job->seq, why);
         retire (job);
         job = nullptr;
     }
-    void retire (Take* t) { delete aborted.exchange (t, std::memory_order_acq_rel); }   // the worker frees it
+    // Audio thread: a take for the worker to free (never freed here, but with every slot full).
+    void retire (Take* t)
+    {
+        for (auto& r : retired)
+        {
+            Take* e = nullptr;
+            if (r.compare_exchange_strong (e, t, std::memory_order_acq_rel)) return;
+        }
+        delete t;                                    // eight waiting: the worker has stood still for a while
+    }
 
     static double takeSeconds() { return ir::kLeadSec + ir::kRepeats * (ir::kSweepSec + ir::kGapSec) + capture::kTailSec; }
     juce::String lastName() const { const juce::SpinLock::ScopedLockType sl (nameLock); return lastFile; }
+    // Tests: wait here while the bit is set (capture::testHold).
+    void hold (int bit) { while ((capture::testHold.load() & bit) != 0 && ! threadShouldExit()) wait (1); }
 
     // ------------------------------------------------------------------------------------- worker
     void run() override
@@ -202,40 +236,61 @@ private:
         while (! threadShouldExit())
         {
             wait (10);
-            delete aborted.exchange (nullptr, std::memory_order_acq_rel);
+            for (auto& r : retired) delete r.exchange (nullptr, std::memory_order_acq_rel);
             if (auto* t = finished.exchange (nullptr, std::memory_order_acq_rel)) { write (*t); delete t; }
             const uint32_t seq = d.capSeq.load (std::memory_order_acquire);
             if (seq == seenSeq) continue;
+            hold (capture::kHoldClaim);
+            if (threadShouldExit()) return;
             seenSeq = seq;
-            // Only an instance whose audio runs (its track on, Live's engine going) takes a request,
-            // and only one: the first to claim it.
-            // A request older than 2 s (from before this instance ran) is never taken: no sweep out of the blue.
-            // TERROIR waits 3 s for the claim, so a claim always lands while it still waits.
-            if (Bus::nowMs() - lastBlockMs.load() > 500 || capture::busy (d.capState.load())
-                || std::abs (juce::Time::currentTimeMillis() - d.capStamp.load()) > 2000) continue;
-            uint32_t taken = d.capTaken.load();
-            if (taken == seq || ! d.capTaken.compare_exchange_strong (taken, seq)) continue;
+            // Only an instance whose audio runs (its track on, Live's engine going) takes a request.
+            // A request older than 2 s (from before this instance ran) is never taken: no sweep out
+            // of the blue. TERROIR waits 3 s for the claim, then ends the request itself.
+            if (Bus::nowMs() - lastBlockMs.load() > 500 || std::abs (juce::Time::currentTimeMillis() - d.capStamp.load()) > 2000) continue;
+            // The claim: one plugin moves the request from Idle to Preparing (one STOPped before it
+            // was claimed, or given up on, is no longer Idle). Its lease starts here.
+            d.capOwnerSeenMs = Bus::nowMs();
+            if (! capture::advance (d.capStatus, seq, capture::bit (capture::Idle), capture::Preparing, capture::None)) continue;
             tookSeq = seq;
-            d.capError = capture::None; d.capProgress = 0.0f; d.capPeak = 0.0f;
-            d.capState = capture::Preparing;
+            d.capProgress = 0.0f; d.capPeak = 0.0f;
+            const uint32_t ep = epoch.load (std::memory_order_acquire);
+            std::unique_ptr<Take> t;
             try
             {
-                auto t = std::make_unique<Take>();
+                t = std::make_unique<Take>();
                 const double r = rate.load();
                 t->rate = r;
-                t->sweep = ir::sweepFile (r);
-                t->rec.setSize (2, t->sweep.getNumSamples() + (int) std::lround (capture::kTailSec * r));
+                if (capture::testShortTake.load())
+                {
+                    t->sweep.setSize (1, (int) std::lround (0.5 * r));
+                    for (int i = 0; i < t->sweep.getNumSamples(); ++i) t->sweep.setSample (0, i, 0.5f * (float) std::sin (6.283185307 * 1000.0 * i / r));
+                    t->rec.setSize (2, t->sweep.getNumSamples() + (int) std::lround (0.2 * r));
+                }
+                else
+                {
+                    t->sweep = ir::sweepFile (r);
+                    t->rec.setSize (2, t->sweep.getNumSamples() + (int) std::lround (capture::kTailSec * r));
+                }
                 t->rec.clear();
                 t->stamp = d.capStamp.load();
                 t->seq = seq;
-                delete pending.exchange (t.release(), std::memory_order_acq_rel);
+                t->epoch = ep;
             }
-            catch (const std::bad_alloc&) { d.capError = capture::NoMemory; d.capState = capture::Failed; }
+            catch (const std::bad_alloc&) { end (seq, capture::NoMemory); continue; }
+            hold (capture::kHoldPublish);
+            if (threadShouldExit()) return;
+            // STOPped, or the stream changed (prepare, PANIC), while it was being made: never played.
+            if (d.capCancel.load() == seq || ep != epoch.load (std::memory_order_acquire)) { end (seq, capture::Cancelled); continue; }
+            delete pending.exchange (t.release(), std::memory_order_acq_rel);    // (an older one, never started: its request is over)
         }
     }
     void write (const Take& t)
     {
         auto& d = Bus::get().d();
+        hold (capture::kHoldWrite);
+        // STOPped as it was being finished, or given up on: not written, not taken in.
+        auto stillOn = [&] { const auto s = capture::status (d.capStatus); return s.seq == t.seq && s.state == capture::Writing && d.capCancel.load() != t.seq; };
+        if (! stillOn()) { end (t.seq, capture::Cancelled); return; }
         const auto f = capture::fileFor (t.stamp);
         f.getParentDirectory().createDirectory();
         f.deleteFile();
@@ -250,19 +305,22 @@ private:
                 ok = w->writeFromAudioSampleBuffer (t.rec, 0, t.rec.getNumSamples());
             }
         }
-        if (! ok) { f.deleteFile(); d.capError = capture::CantWrite; d.capState = capture::Failed; return; }
+        if (! ok) { f.deleteFile(); end (t.seq, capture::CantWrite); return; }
+        if (! stillOn()) { f.deleteFile(); end (t.seq, capture::Cancelled); return; }
         { const juce::SpinLock::ScopedLockType sl (nameLock); lastFile = f.getFileNameWithoutExtension().toUpperCase(); }
-        d.capState = capture::Done;
+        capture::advance (d.capStatus, t.seq, capture::bit (capture::Writing), capture::Done, capture::None);
     }
 
     std::atomic<double> rate { 48000.0 };
-    std::atomic<Take*> pending { nullptr }, finished { nullptr }, aborted { nullptr };
+    std::atomic<Take*> pending { nullptr }, finished { nullptr };
+    std::array<std::atomic<Take*>, 8> retired {};
     Take* job = nullptr;                             // audio thread: the take playing
     int pos = 0, fade = -1, fadeLen = 480;            // the stop's fade: 10 ms (a stop never clicks)
     int32_t stopReason = capture::Cancelled;
-    uint32_t cancelAt = 0, seenSeq = 0;
+    uint32_t seenSeq = 0;
     float takePeak = 0.0f;
-    std::atomic<uint32_t> tookSeq { 0 };             // the last request this instance took
+    std::atomic<uint32_t> tookSeq { 0 };             // the last request this instance claimed
+    std::atomic<uint32_t> epoch { 0 };               // prepare and reset: a take made before is for another stream
     std::atomic<int64_t> lastBlockMs { 0 };
     std::atomic<float> meter[2] { { 0.0f }, { 0.0f } };
     mutable juce::SpinLock nameLock;

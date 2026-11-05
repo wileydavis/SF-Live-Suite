@@ -140,9 +140,14 @@ public:
     // State beyond parameters (samples, track lists, stored tables). Message thread.
     virtual void save (juce::ValueTree&) const {}
     virtual void load (const juce::ValueTree&) {}
+    // A state is in place (its parameters, then load): what the module makes from both can be made
+    // ready here, off the audio thread, for the next block. Message thread; the audio may be running.
+    virtual void restored() {}
 
     // Display panel (message thread). Read only atomics / benign values set by the audio thread.
     virtual int displayHeight() const               { return 140; }
+    // The status line the display shows (SF TERROIR's imports and captures), as text. Message thread.
+    virtual juce::String statusLine() const         { return {}; }
     virtual void paint (juce::Graphics&, juce::Rectangle<float>) {}
     virtual void displayMouse (juce::Point<float>, juce::Rectangle<float>, bool down) { juce::ignoreUnused (down); }
     virtual void displayMouseUp() {}

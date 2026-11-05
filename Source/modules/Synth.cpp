@@ -243,6 +243,7 @@ public:
         echoes.reset();
         for (auto& v : voices) v.active = false;
         held.clear();
+        numDown = 0;
         dec.reset();
         for (auto& d : dec4) d.reset();
         ens.reset();
@@ -281,6 +282,7 @@ public:
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
         struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; } grains[8];
         int grainClock = 0;
+        uint64_t born = 0;                // renderTick when it started: one that hasn't sounded yet is never stolen
         float level() const { return active ? amp.v * vel * gain : 0.0f; }
     };
 
@@ -298,35 +300,27 @@ public:
         {
             // MODEL change, at once: what sounds releases on the old model (its own release, so a
             // mono/poly switch can't leave a voice hanging), and the keys still down start again on
-            // the new one, in the order they went down: a held chord goes on in the new sound. Echoes
-            // don't come back.
+            // the new one, in the order they went down, each at its own velocity: a held chord goes
+            // on in the new sound. The keys come from the ledger of keys down (down), not from the
+            // voices: a voice's place in the pool says nothing about when its key went down (a
+            // freed voice is reused by a newer key). Echoes don't come back.
             lastModel = modelA;
-            std::array<int, 32> keys {};
-            std::array<float, 32> vels {};
-            int nk = 0;
-            float lastVel = 1.0f;
-            auto add = [&] (int note, float vel)
-            {
-                for (int k = 0; k < nk; ++k) if (keys[(size_t) k] == note) return;
-                if (nk < (int) keys.size()) { keys[(size_t) nk] = note; vels[(size_t) nk] = vel; ++nk; }
-            };
-            for (auto& v : voices) if (v.active && ! v.releasing && v.gen == 0 && v.layer == 0) lastVel = v.vel0;
-            for (int note : held) add (note, lastVel);                                      // a mono model's stack
-            for (auto& v : voices) if (v.active && ! v.releasing && v.gen == 0 && v.layer == 0) add (v.note, v.vel0);
             for (auto& v : voices) if (v.active) { v.amp.off(); v.fenv.off(); v.releasing = true; }
             held.clear();
             // A mono model plays the newest key; the others go back on its stack (no slide through them).
             const bool monoA = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelA)].mono;
             const bool monoB = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelB)].mono;
-            for (int k = 0; k < nk; ++k)
+            restarting = true;
+            for (int k = 0; k < numDown; ++k)
             {
-                const bool newest = k == nk - 1;
+                const bool newest = k == numDown - 1;
                 NoteEvent ev;
-                ev.note = keys[(size_t) k]; ev.vel = vels[(size_t) k];
+                ev.note = down[(size_t) k].note; ev.vel = down[(size_t) k].vel;
                 if (monoA && ! newest) held.push_back (ev.note);
                 else noteOn (c, modelA, ev, 1.0f / (1.0f + layer * 0.5f), 0, autoOff, relMul);
                 if (layer > 0.01f && (! monoB || newest)) noteOn (c, modelB, ev, layer / (1.0f + layer * 0.5f), 1, autoOff, relMul);
             }
+            restarting = false;
         }
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
@@ -336,6 +330,12 @@ public:
             while (e < events.size() && events[e].offset <= i0)
             {
                 const auto& ev = events[e++];
+                if (ev.gen == 0)                       // the keys down (echoes aren't keys)
+                {
+                    if (ev.on) keyDown (ev.note, ev.vel);
+                    else if (ev.note < 0) numDown = 0;
+                    else keyUp (ev.note);
+                }
                 if (ev.on)
                 {
                     // ev.gain: the DENSITY fade, applied after the velocity response (v.gain is post-filter).
@@ -370,6 +370,7 @@ public:
             }
             dec.process (0, L2, L + i0, n);
             dec.process (1, R2, R + i0, n);
+            ++renderTick;                              // every voice started before now has sounded
             i0 += n;
         }
         ens.process (L, R, c.n, ensembleAmt * c.v (SPACE) * 2.0f);
@@ -383,7 +384,9 @@ public:
     {
         auto left = r.removeFromLeft (r.getWidth() * 0.4f);
         ui::frame (g, left, "VOICES");
-        ui::label (g, juce::String (activeVoices.load()) + " / " + juce::String ((int) voices.size()), left.reduced (10, 18), ui::kText, 18.0f, juce::Justification::centred);
+        // Playing has kPlayVoices; more sound only while a MODEL change lets the old sound release.
+        const int nv = activeVoices.load();
+        ui::label (g, juce::String (nv) + (nv <= kPlayVoices ? " / " + juce::String (kPlayVoices) : juce::String()), left.reduced (10, 18), ui::kText, 18.0f, juce::Justification::centred);
         auto s = sample.get();
         ui::label (g, s ? s->name.toUpperCase() + (s->rootHz > 0 ? " ROOT " + juce::MidiMessage::getMidiNoteName ((int) std::lround (s->rootNote), true, true, 3) : "") : "NO SAMPLE",
                    left.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f);
@@ -407,14 +410,21 @@ private:
             Voice* v = nullptr;
             for (auto& x : voices) if (x.active && x.layer == layerId && x.model == modelIdx && ! x.releasing) v = &x;
             const bool legato = v != nullptr && ev.gen == 0 && held.size() > 1;
-            if (v == nullptr) v = &voices[(size_t) pickVoice (voices)];
+            if (v == nullptr)
+            {
+                const int i = allocVoice (ev.gen);
+                if (i < 0) return;
+                v = &voices[(size_t) i];
+            }
             setupVoice (c, *v, m, modelIdx, ev, (float) ev.note + tune, gain, layerId, autoOff, relMul, ! legato, accent);
             if (legato) v->glideCoef = std::exp (-1.0f / (0.06f * (float) v->rate * (m.acid ? 1.0f : 0.5f + c.v (GLIDE) * 3.0f)));
             return;
         }
         for (size_t k = 0; k < chord.size(); ++k)
         {
-            auto& v = voices[(size_t) pickVoice (voices)];
+            const int i = allocVoice (ev.gen);
+            if (i < 0) return;                         // no voice for it (allocVoice)
+            auto& v = voices[(size_t) i];
             setupVoice (c, v, m, modelIdx, ev, (float) (ev.note + chord[k]) + tune, gain / std::sqrt ((float) chord.size()), layerId, autoOff, relMul, true, accent);
         }
     }
@@ -451,6 +461,51 @@ private:
         v.autoOff = autoOff > 0 ? autoOff * v.os : autoOff;
         v.t = 0.0f;
         v.ctlStale = true;
+        v.born = renderTick;
+    }
+
+    // A voice for a new note (gen: 0 played, 1.. a DENSITY echo): a free one; else one that is
+    // releasing (the quietest); else an echo's (the quietest); else, for a played note only, the
+    // oldest one held: an echo never takes a held key's voice (with the pool full of held notes it
+    // is dropped). Never a voice started at this same instant and not yet heard (a chord's other
+    // tones, the keys a MODEL change plays again): its level is still 0, the quietest of all, and
+    // each new tone used to take the one before it, so of a full chord only the last sounded.
+    // Playing uses kPlayVoices; a MODEL change (restarting) may use the whole pool, so the chord it
+    // plays again doesn't cut off the release of the one it replaces.
+    // -1: no voice for it (every one started at this instant, or held, for an echo): dropped.
+    int allocVoice (int gen) const
+    {
+        int active = 0;
+        for (const auto& v : voices) active += v.active ? 1 : 0;
+        if (restarting || active < kPlayVoices)
+            for (size_t i = 0; i < voices.size(); ++i) if (! voices[i].active) return (int) i;
+        int best = -1, bestRank = 3;
+        float bestLvl = 0.0f;
+        uint64_t bestBorn = 0;
+        for (size_t i = 0; i < voices.size(); ++i)
+        {
+            const auto& v = voices[i];
+            if (! v.active || v.born == renderTick) continue;     // a free one past kPlayVoices isn't for playing
+            const int rank = v.releasing ? 0 : v.gen > 0 ? 1 : 2;
+            if (rank == 2 && gen > 0) continue;
+            const float l = v.level();
+            const bool better = rank < bestRank || (rank == bestRank && (rank < 2 ? l < bestLvl : v.born < bestBorn));
+            if (better) { best = (int) i; bestRank = rank; bestLvl = l; bestBorn = v.born; }
+        }
+        return best;
+    }
+
+    // The keys down, in the order they went down, with their velocities (allocation-free).
+    void keyDown (int note, float vel)
+    {
+        keyUp (note);                                  // a key played again is the newest
+        if (numDown < (int) down.size()) down[(size_t) numDown++] = { note, vel };
+    }
+    void keyUp (int note)
+    {
+        int w = 0;
+        for (int r = 0; r < numDown; ++r) if (down[(size_t) r].note != note) down[(size_t) w++] = down[(size_t) r];
+        numDown = w;
     }
 
     void noteOff (int note, int gen, float relMul)
@@ -765,8 +820,16 @@ private:
     std::vector<SynthModel> models;
     float dCut, dRes, dEnv, dGate, dPocket;
     double sr = 48000.0;
-    std::array<Voice, 16> voices;
+    // Playing has kPlayVoices; the pool is twice that, so a held chord of 16 voices plays on through a
+    // MODEL change while the 16 it replaces release (allocVoice).
+    static constexpr int kPlayVoices = 16;
+    std::array<Voice, 2 * kPlayVoices> voices;
+    bool restarting = false;                           // a MODEL change is playing the keys down again
     std::vector<int> held;
+    struct Down { int note; float vel; };
+    std::array<Down, 128> down {};                     // the keys down, oldest first (keyDown / keyUp)
+    int numDown = 0;
+    uint64_t renderTick = 1;                           // counts rendered sub-blocks (allocVoice)
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
     RoleOutput out;

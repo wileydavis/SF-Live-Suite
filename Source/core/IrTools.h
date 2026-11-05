@@ -3,16 +3,20 @@
 // transforms SIZE, DECAY, DARK and the mono-to-stereo spread apply to one. Message / background
 // thread only (they allocate and take time).
 //
-// A capture is either
+// A capture is one of
 //   a sweep: the sweep file played from a speaker and recorded. Deconvolved against the sweep;
 //            every sweep in the recording found, the playback clock's drift measured from their
 //            spacing and corrected, the responses averaged (3 sweeps: 4.8 dB less noise). The
-//            speaker's distortion lands before each response and is left out.
-//   an impulse: a clap, a balloon, a click from the speaker, or an IR file. The loudest event, from
-//            just before its onset to where its tail meets the noise floor (cut before a second
-//            event).
-// Either way the result starts 1 ms before the onset, its tail fades out where it meets the noise,
-// it is high-passed at 20 Hz and scaled to a fixed energy, so every place plays at the same level.
+//            speaker's distortion lands before each response and is left out. A channel the sweep
+//            isn't in (a dead mic) is left out too: the place is mono, and that is named.
+//   an IR file: a finished impulse response, kept as it is: every arrival however strong, every
+//            gap, to where it ends (its last moment over the floor).
+//   a clap:  a room recorded around a clap or a balloon (or a click from the speaker). The loudest
+//            event, from just before its onset to where its tail meets the noise floor, cut before
+//            a second clap; a cut is named (Capture::note).
+// Every one starts 1 ms before its first arrival, fades out at its end, is high-passed at 20 Hz and
+// scaled to a fixed energy, so every place plays at the same level. What a file is can be said
+// (Source); AUTO decides, and the kind it returns says what it took the file for.
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
 #include <vector>
@@ -35,21 +39,36 @@ std::vector<float> sweep (double sr);
 // The file to play from the speaker: kLeadSec of silence, then kRepeats x (sweep, kGapSec silence), -6 dBFS.
 juce::AudioBuffer<float> sweepFile (double sr);
 
+// What a recording is, when it is known.
+//   Auto:       decide. A sweep if the deconvolution has the sweep's spike and it is broadband or
+//               comes back at the sweep's spacing (a narrow speaker or room still repeats, a click
+//               in silence doesn't); else an IR file if there is nothing before its first arrival
+//               (under -95 dBFS, or under 5 ms of file: an edited IR; the arrival 20 dB over the
+//               file's quietest 50 ms), else a clap recording. One sweep through a narrow speaker
+//               is neither broadband nor repeated: AUTO reads it as a clap (IMPORT SWEEP takes it).
+//   IrFile, Clap, Sweep: the performer says so (SF TERROIR's IMPORT). Sweep: no spectrum test.
+//   KnownSweep: SF CAPTURE's in-set take, the sweep played in step with the recording: it must
+//               come back (its spike, at least two of its repeats at their spacing); if not, the
+//               take fails. Never an impulse.
+enum class Source { Auto, IrFile, Clap, Sweep, KnownSweep };
+
 struct Capture
 {
     bool ok = false;
     juce::String error;                        // why not (ok == false)
-    juce::String kind;                         // "SWEEP x3", "IMPULSE"
+    juce::String kind;                         // "SWEEP x3", "IR FILE", "CLAP"
+    juce::String note;                         // what was done to it beyond the rules above (a clap cut short, a channel left out)
     juce::AudioBuffer<float> ir;               // 1 or 2 channels, at the recording's rate
     double sr = 48000.0;
     float snrDb = 0.0f;                        // decay range above the noise floor
     float rt60 = 0.0f;                         // seconds
     double driftPpm = 0.0;                     // sweep: playback clock against the recorder's
 };
-// A sweep recording if it holds the sweep, else an impulse. rec: 1 or 2 channels.
-Capture analyse (const juce::AudioBuffer<float>& rec, double sr);
-Capture fromSweep (const juce::AudioBuffer<float>& rec, double sr);
-Capture fromImpulse (const juce::AudioBuffer<float>& rec, double sr);
+// rec: 1 or 2 channels. source: what it is, if known (Source).
+Capture analyse (const juce::AudioBuffer<float>& rec, double sr, Source source = Source::Auto);
+Capture fromSweep (const juce::AudioBuffer<float>& rec, double sr, Source source = Source::Auto);
+// asIs: an IR file (every arrival kept); else a clap recording (cut before a second clap).
+Capture fromImpulse (const juce::AudioBuffer<float>& rec, double sr, bool asIs = false);
 
 // Reverberation time from the energy decay (Schroeder): T20, or T10 when the decay is too short.
 float rt60 (const juce::AudioBuffer<float>& ir, double sr);

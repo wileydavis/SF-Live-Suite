@@ -117,21 +117,29 @@ struct BusData
     // SLOW ALL changes (v8): one rule for every plugin, whatever order Live processes the tracks
     // in. A change counts from the next host block, the song position slowAllFromPpq: a plugin
     // whose block starts before it uses slowAllPrev (the plugins after SF CONTROL in that block
-    // see the new value already, those before it can't). -1: at once (transport stopped).
+    // see the new value already, those before it can't). -1: at once (transport stopped). The
+    // fence holds for that host block only: SF CONTROL sets slowAllFromPpq back to -1 in its next
+    // one, and a plugin that has started a block at or after it takes it as spent (a loop back to
+    // that song position is a new move's time, with the new length).
     // slowSeq: odd while SF CONTROL writes the three.
     std::atomic<uint32_t> slowSeq;
     std::atomic<int32_t> slowAllPrev;
     std::atomic<double> slowAllFromPpq;
 
-    // Place capture (v9, Source/core/Capture.h). SF TERROIR asks: capStamp and capSlot, then capSeq
-    // up. One SF CAPTURE takes the request (capTaken = capSeq), plays the sweep out of its track and
-    // records its input, writes the take and reports in capState / capError, with its progress and
-    // the input's peak. capCancel up: stop. SF CAPTURE is alive while captureSeenMs is recent.
-    std::atomic<uint32_t> capSeq, capTaken, capCancel;
+    // Place capture (v10, Source/core/Capture.h). SF TERROIR asks: capStatus = (request, Idle),
+    // capStamp and capSlot, then capSeq = the request. One SF CAPTURE claims it (capStatus from
+    // (request, Idle) to (request, Preparing): capture::advance), plays the sweep out of its track and
+    // records its input, writes the take and reports in capStatus, with its progress and the input's
+    // peak. capStatus changes only for the request it holds, so a recorder that lost its take can't
+    // change a newer one. capCancel = a request: TERROIR's STOP for it, at any stage. The claimant's
+    // audio keeps capOwnerSeenMs fresh while the take is in progress (its lease, capture::kLeaseMs).
+    // An SF CAPTURE is there at all while captureSeenMs is recent.
+    std::atomic<uint32_t> capSeq, capCancel;
     std::atomic<int64_t> capStamp;                // when it was asked for (wall clock, ms): names the file
-    std::atomic<int32_t> capSlot, capState, capError;
+    std::atomic<int32_t> capSlot;
+    std::atomic<uint64_t> capStatus;              // capture::pack (request, state, error)
     std::atomic<float> capProgress, capPeak;      // 0..1 through the take; the input's peak so far (linear)
-    std::atomic<int64_t> captureSeenMs;
+    std::atomic<int64_t> captureSeenMs, capOwnerSeenMs;
 };
 
 class Bus

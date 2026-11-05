@@ -83,7 +83,17 @@ public:
         // SLOW ALL: a change counts from the next host block in every plugin (Bus.h), so a move or
         // a recall made in the same block takes the same length everywhere. (Each plugin read the
         // length at its own block start: those Live processed before SF CONTROL took the old one,
-        // those after it the new one, for the whole move.)
+        // those after it the new one, for the whole move.) The fence is for that one host block:
+        // cleared in the next (the change is published in a block's last chunk, so any later call
+        // is a later block), or an Arrangement loop or a relocate back to the song position of the
+        // change would give a new move the old length again.
+        if (slowFenceUp)
+        {
+            slowFenceUp = false;
+            d.slowSeq.fetch_add (1);
+            d.slowAllFromPpq = -1.0;
+            d.slowSeq.fetch_add (1);
+        }
         if (c.lastChunk)
         {
             const int sa = juce::jlimit (0, 7, c.ci (SLOWALL));
@@ -94,6 +104,7 @@ public:
                 d.slowAllFromPpq = c.playing ? c.ppqAt (c.n) : -1.0;
                 d.slowAll = sa;
                 d.slowSeq.fetch_add (1);
+                slowFenceUp = c.playing;
             }
         }
         const bool pn = c.b (PANIC);
@@ -298,6 +309,7 @@ private:
     }
     int lastSongParam = -1, storeTo = -1;
     bool storeWas = false, panicWas = false, storeHeld = false, storeKeepSong = false;
+    bool slowFenceUp = false;              // a SLOW ALL change's fence is on the bus: cleared next block
 };
 ModulePtr makeCONTROL() { return std::make_unique<ControlModule>(); }
 

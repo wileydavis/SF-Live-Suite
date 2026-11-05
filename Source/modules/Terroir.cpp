@@ -178,7 +178,7 @@ private:
 class TerroirModule : public Module, private juce::Thread
 {
 public:
-    enum { SIZE, DECAY, DARK, PREDELAY, DUCK, FREEZE, THROW, MIX, PLACE, LENGTH, REVERSE, START, WIDTH, LOCUT, DUCKSHAPE, INPUT, DRYON };
+    enum { SIZE, DECAY, DARK, PREDELAY, DUCK, FREEZE, THROW, MIX, PLACE, LENGTH, REVERSE, START, WIDTH, LOCUT, DUCKSHAPE, INPUT, DRYON, IMPORT };
     static constexpr int kSlots = 8;
     static constexpr double kMaxIrSec = 16.0;
 
@@ -197,6 +197,8 @@ public:
         stopThread (30000);                                  // an import in progress finishes first
         for (auto* f : conv.releaseAll()) delete f;
         delete ready.exchange (nullptr);
+        delete handoff.exchange (nullptr);
+        delete restoredIr;
         delete holdRetired;
         delete offlinePending;
         while (auto* f = popRetired()) delete f;
@@ -221,7 +223,22 @@ public:
                  knob ("lo_cut", "LO CUT", 20.0f, 800.0f, 120.0f, "Hz", 160.0f),
                  pct ("duck_shape", "DUCK SHAPE", 0.5f),
                  choice ("input", "INPUT", { "ALWAYS", "THROW ONLY" }, 0),
-                 dryParam() };
+                 dryParam(),
+                 importParam() };
+    }
+    // What a dropped or loaded file is (ir::Source): AUTO decides and says what it took it for; IR
+    // FILE keeps every arrival; CLAP cuts before a second clap; SWEEP is the sweep file recorded.
+    // How files come in, not a sound: in no song or preset.
+    static ParamSpec importParam()
+    {
+        auto p = choice ("import", "IMPORT", { "AUTO", "IR FILE", "CLAP", "SWEEP" }, 0);
+        p.song = false; p.preset = false;
+        return p;
+    }
+    ir::Source importSource() const
+    {
+        static const ir::Source s[] = { ir::Source::Auto, ir::Source::IrFile, ir::Source::Clap, ir::Source::Sweep };
+        return s[getParam ? juce::jlimit (0, 3, (int) std::lround (getParam (IMPORT))) : 0];
     }
     int latency() const override { return Pocket::kLatency; }
     double tailSeconds() const override { return kMaxIrSec + 4.0; }
@@ -235,17 +252,18 @@ public:
         if (files.isEmpty()) return;
         files.sort (true);
         const int base = getParam ? juce::jlimit (0, kSlots - 1, (int) std::lround (getParam (PLACE))) : 0;
+        const auto source = importSource();
         std::vector<Job> add;
         if (files.size() == 2 && pairPrefix (files[0], files[1]).isNotEmpty())
         {
             // "CULVERT L.wav" + "CULVERT R.wav": one stereo place (left first).
             juce::StringArray lr (files);
             if (sideOf (files[0]) == 'R') lr.move (1, 0);
-            add.push_back ({ lr, base, pairPrefix (files[0], files[1]) });
+            add.push_back ({ lr, base, pairPrefix (files[0], files[1]), {}, source });
         }
         else
             for (int k = 0; k < std::min (files.size(), kSlots); ++k)
-                add.push_back ({ juce::StringArray (files[k]), (base + k) % kSlots, juce::File (files[k]).getFileNameWithoutExtension() });
+                add.push_back ({ juce::StringArray (files[k]), (base + k) % kSlots, juce::File (files[k]).getFileNameWithoutExtension(), {}, source });
         {
             const std::lock_guard<std::mutex> g (jobLock);
             for (auto& j : add) jobs.push_back (j);
@@ -256,6 +274,8 @@ public:
     // ------------------------------------------------------------------------------------- state
     void save (juce::ValueTree& t) const override
     {
+        // The tempo last played (LENGTH's notes): a set opens at it, and its first IR is built at it.
+        if (lastBpm.load() > 0.0) { t.setProperty ("bpm", lastBpm.load(), nullptr); t.setProperty ("bar", lastBar.load(), nullptr); }
         std::array<PlacePtr, kSlots> s;
         { const std::lock_guard<std::mutex> g (slotLock); s = slots; }
         for (int i = 0; i < kSlots; ++i)
@@ -276,6 +296,8 @@ public:
     }
     void load (const juce::ValueTree& t) override
     {
+        const double bpm = t.getProperty ("bpm", 0.0), bar = t.getProperty ("bar", 0.0);
+        if (bpm >= 20.0 && bpm <= 400.0 && bar >= 0.5 && bar <= 32.0) { lastBpm.store (bpm); lastBar.store (bar); }
         std::array<PlacePtr, kSlots> s {};
         for (int i = 0; i < t.getNumChildren(); ++i)
         {
@@ -294,6 +316,16 @@ public:
             s[(size_t) slot] = p;
         }
         for (int i = 0; i < kSlots; ++i) setSlot (i, s[(size_t) i]);
+    }
+    // The state's knobs and places are in: their IR, built here and now (not by the worker, however
+    // busy), waits for the audio thread, which takes it when its knobs ask for it (realtimeStep).
+    // Before the first prepare there is no rate yet: prepare builds it.
+    void restored() override
+    {
+        const double rate = preparedRate.load (std::memory_order_acquire);
+        if (rate <= 0.0 || ! getParam) return;
+        const uint64_t tag = ((uint64_t) liveEpoch.load (std::memory_order_acquire) << 32) | (2u * (syncSerial.fetch_add (1) + 1u) + 1u);
+        if (auto f = build (keyNow (rate), tag)) delete handoff.exchange (f.release(), std::memory_order_acq_rel);
     }
 
     // ------------------------------------------------------------------------------------- audio
@@ -315,20 +347,25 @@ public:
         freeze.prepare (rate);
         dryFol.set (0.002f, 0.25f, rate);
         dryRamp.prepare (rate);
-        // An IR now, in place, from the knobs as they last stood: the plugin sounds from its first
-        // sample. The first block puts the knobs' own in its place before anything goes in (install).
-        lastKey.srHz = (int) std::lround (rate);
+        // The first IR, here and now, for the knobs as they stand (a state's, or turned while the
+        // plugin was off): the one the first block asks for, so the first sound is the right room
+        // whatever the worker is doing. A state's IR still waiting (restored) is for another stream.
+        delete handoff.exchange (nullptr, std::memory_order_acq_rel);
+        delete restoredIr;
+        restoredIr = nullptr;
+        const Key first = keyNow (rate);
         haveKnown = false;
-        if (auto f = build (lastKey, syncTag()))
+        if (auto f = build (first, syncTag()))
         {
             shownTag.store (f->tag, std::memory_order_release);
             conv.offer (f.release());
-            have = lastKey; haveKnown = true;
+            have = first; haveKnown = true;
         }
         haveSeq = reqSeq.load (std::memory_order_relaxed);
         postedValid = false;
-        offlineKey = lastKey; offlineKeyValid = haveKnown;
+        offlineKey = first; offlineKeyValid = haveKnown;
         offlineAt = -1000000;                                // the stream starts again at 0
+        preparedRate.store (rate, std::memory_order_release);
         reset();
     }
     void reset() override
@@ -348,7 +385,8 @@ public:
         wet.setSize (2, n, false, false, true);
         // Which IR the knobs ask for; built off this thread (or here, rendering offline).
         const Key k = keyFrom (c);
-        lastKey = k;
+        lastBpm.store (c.bpm, std::memory_order_relaxed);
+        lastBar.store (c.beatsPerBar, std::memory_order_relaxed);
         lastPlaying.store (c.playing || c.offline);          // CAPTURE needs the transport stopped
         if (c.offline != wasOffline) modeChange (c.offline);
         if (c.offline) offlineStep (c, k);
@@ -399,6 +437,7 @@ public:
 
     // ------------------------------------------------------------------------------------- display
     int displayHeight() const override { return 150; }
+    juce::String statusLine() const override { const juce::SpinLock::ScopedLockType sl (dispLock); return disp.status; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         ui::frame (g, r, "PLACE");
@@ -491,6 +530,7 @@ private:
             return slot == o.slot && ver == o.ver && size == o.size && decay == o.decay && dark == o.dark && start == o.start
                 && len == o.len && srHz == o.srHz && rev == o.rev;
         }
+        std::array<int64_t, 10> code() const { return { slot, ver, size, decay, dark, start, len, rev ? 1 : 0, srHz, 0 }; }   // IrFilter::from
     };
     struct Disp
     {
@@ -499,25 +539,37 @@ private:
         float seconds = 0.0f;
         std::vector<float> env;
     };
-    struct Job { juce::StringArray files; int slot; juce::String name; juce::String note = {}; };   // note: added to its status line
+    // note: added to its status line. source: what the files are (IMPORT; an in-set take: KnownSweep).
+    struct Job { juce::StringArray files; int slot; juce::String name; juce::String note = {}; ir::Source source = ir::Source::Auto; };
 
-    Key keyFrom (const Ctx& c) const
+    // The IR the knobs ask for. v: a knob's value; LENGTH's notes at bpm and beatsPerBar.
+    template <typename V>
+    Key makeKey (V v, double rate, double bpm, double beatsPerBar) const
     {
         static const double lenBars[] = { 0.0, 4.0, 2.0, 1.0 };
         static const double lenBeats[] = { 0.0, 0.0, 0.0, 0.0, 2.0, 1.0, 0.5, 0.25 };
         Key k;
-        k.slot = juce::jlimit (0, kSlots - 1, c.ci (PLACE));
+        k.slot = juce::jlimit (0, kSlots - 1, (int) std::lround (v (PLACE)));
         k.ver = slotVer[(size_t) k.slot].load (std::memory_order_acquire);
-        k.size = (int) std::lround (c.v (SIZE) * 1000.0f);
-        k.decay = (int) std::lround (c.v (DECAY) * 1000.0f);
-        k.dark = (int) std::lround (c.v (DARK) * 1000.0f);
-        k.start = (int) std::lround (c.v (START) * 10.0f);
-        const int li = juce::jlimit (0, 7, c.ci (LENGTH));
-        const double beats = li == 0 ? 0.0 : li <= 3 ? lenBars[li] * c.beatsPerBar : lenBeats[li];
-        k.len = (int) std::lround (beats * c.samplesPerBeat());
-        k.rev = c.b (REVERSE);
-        k.srHz = (int) std::lround (sr);
+        k.size = (int) std::lround (v (SIZE) * 1000.0f);
+        k.decay = (int) std::lround (v (DECAY) * 1000.0f);
+        k.dark = (int) std::lround (v (DARK) * 1000.0f);
+        k.start = (int) std::lround (v (START) * 10.0f);
+        const int li = juce::jlimit (0, 7, (int) std::lround (v (LENGTH)));
+        const double beats = li == 0 ? 0.0 : li <= 3 ? lenBars[li] * beatsPerBar : lenBeats[li];
+        k.len = (int) std::lround (beats * (rate * 60.0 / bpm));
+        k.rev = v (REVERSE) > 0.5f;
+        k.srHz = (int) std::lround (rate);
         return k;
+    }
+    Key keyFrom (const Ctx& c) const { return makeKey ([&c] (int i) { return c.v (i); }, sr, c.bpm, c.beatsPerBar); }
+    // Off the audio thread (prepare, restored): what the first block will ask for. Its knobs start
+    // where they stand (the processor's first block glides nothing); the tempo is the last played.
+    Key keyNow (double rate) const
+    {
+        if (! getParam) { Key k; k.slot = 0; k.ver = slotVer[0].load (std::memory_order_acquire); k.srHz = (int) std::lround (rate); return k; }
+        const double bpm = lastBpm.load(), bar = lastBar.load();
+        return makeKey ([this] (int i) { return getParam (i); }, rate, bpm > 0.0 ? bpm : 120.0, bpm > 0.0 ? bar : 4.0);
     }
 
     // Audio thread, realtime: hand the key to the worker (a sequence lock: odd while writing). The
@@ -558,7 +610,7 @@ private:
     // moving is followed, and an answer to an older request than the engine's never lands. While
     // nothing has gone into the engine since prepare / reset, a new IR replaces the old at once (no
     // morph from a room nobody heard).
-    uint64_t syncTag() { return ((uint64_t) epoch << 32) | (2u * ++syncSerial + 1u); }   // odd: built here, not by the worker
+    uint64_t syncTag() { return ((uint64_t) epoch << 32) | (2u * (syncSerial.fetch_add (1) + 1u) + 1u); }   // odd: built here, not by the worker
     void modeChange (bool toOffline)
     {
         wasOffline = toOffline;
@@ -577,6 +629,27 @@ private:
     bool canInstall() const { return holdRetired == nullptr && (! heard || ! conv.busy()); }
     void realtimeStep (const Key& k)
     {
+        // A restored state's IR (restored): the newest waits here until the knobs ask for its key (it
+        // is that key's IR whenever they do); then it goes in like any other, and answers to requests
+        // made so far are older than it. Built for another stream, or the engine has the key: out.
+        if (handoff.load (std::memory_order_relaxed) != nullptr)
+            if (auto* h = handoff.exchange (nullptr, std::memory_order_acq_rel))
+            {
+                if (restoredIr != nullptr) retire (restoredIr);
+                restoredIr = h;
+            }
+        if (restoredIr != nullptr)
+        {
+            const bool asked = restoredIr->from == k.code();
+            if ((uint32_t) (restoredIr->tag >> 32) != epoch || (asked && haveKnown && k == have)) { retire (restoredIr); restoredIr = nullptr; }
+            else if (asked && canInstall())
+            {
+                install (restoredIr);
+                restoredIr = nullptr;
+                have = k; haveKnown = true;
+                posted = k; postedValid = true; postedSeq = haveSeq = reqSeq.load (std::memory_order_relaxed);
+            }
+        }
         if (! postedValid || ! (k == posted))
         {
             if (haveKnown && k == have)
@@ -687,6 +760,7 @@ private:
         }
         auto f = makeIrFilter (ch[0].data(), ch[1].data(), len);
         f->tag = tag;
+        f->from = k.code();
         // For the display: the level of the IR as it plays, 160 points over its length.
         Disp nd;
         nd.seconds = (float) (len / hostSr);
@@ -792,7 +866,7 @@ private:
             ir::Capture side[2];
             for (size_t k = 0; k < 2; ++k)
             {
-                side[k] = ir::analyse (takes[k], fileSr);
+                side[k] = ir::analyse (takes[k], fileSr, job.source);
                 if (! side[k].ok) { setStatus (juce::File (job.files[(int) k]).getFileNameWithoutExtension().toUpperCase() + ": " + side[k].error, 2); return; }
             }
             cap = ir::joinTakes (side[0], side[1]);
@@ -810,7 +884,7 @@ private:
             }
             // The same signal on both channels (a mono take saved as stereo): a mono place, its tail spread.
             if (rec.getNumChannels() == 2 && ir::sameChannels (rec)) rec.setSize (1, rec.getNumSamples(), true);
-            cap = ir::analyse (rec, fileSr);
+            cap = ir::analyse (rec, fileSr, job.source);
         }
         const auto name = job.name.toUpperCase().substring (0, 32);
         if (! cap.ok) { setStatus (name + ": " + cap.error, 2); return; }
@@ -828,8 +902,9 @@ private:
                        + juce::String ((int) std::lround (cap.snrDb)) + " DB OVER THE NOISE";
         if (cap.kind.startsWith ("SWEEP") && std::abs (cap.driftPpm) > 0.5) s << "  CLOCK " << juce::String (cap.driftPpm, 0) << " PPM";
         if (tracks.isNotEmpty()) s << "  FROM " << tracks;
+        if (cap.note.isNotEmpty()) s << "  " << cap.note;
         if (job.note.isNotEmpty()) { s << "  " << job.note; setStatus (s, 1); return; }
-        setStatus (s, cap.snrDb < 30.0f ? 1 : 0);
+        setStatus (s, cap.snrDb < 30.0f || cap.note.isNotEmpty() ? 1 : 0);
     }
     void setStatus (const juce::String& s, int level)
     {
@@ -873,7 +948,17 @@ private:
     void captureClicked()
     {
         const int ph = capPhase.load();
-        if (ph == 2) { Bus::get().d().capCancel.fetch_add (1); setStatus ("STOPPING THE CAPTURE", 0); return; }
+        if (ph == 2)
+        {
+            // STOP names the request: it holds at whatever stage the take has reached. Not claimed
+            // yet: over now (no SF CAPTURE will take it); claimed: SF CAPTURE ends it.
+            auto& d = Bus::get().d();
+            const uint32_t seq = capMine.load();
+            d.capCancel = seq;
+            capture::advance (d.capStatus, seq, capture::bit (capture::Idle), capture::Failed, capture::Cancelled);
+            setStatus ("STOPPING THE CAPTURE", 0);
+            return;
+        }
         if (ph == 1) { capPhase = 0; setStatus ("CAPTURE OFF", 0); return; }
         capPhase = 1;
         setStatus ("CAPTURE ARMED: CLICK THE SLOT TO FILL. SF CAPTURE PLAYS THE SWEEP FROM ITS TRACK FOR " + juce::String (takeSeconds()) + " S", 1);
@@ -885,13 +970,23 @@ private:
         capPhase = 0;
         if (lastPlaying.load()) { setStatus ("STOP LIVE'S TRANSPORT FIRST: THE SWEEP NEEDS THE ROOM QUIET", 2); return; }
         if (! bus.captureAlive()) { setStatus ("NO SF CAPTURE: PUT IT ON THE ROOM MICS' TRACK, MONITOR IN (94 ROOM IN SF SHOW)", 2); return; }
-        if (capture::busy (d.capState.load())) { setStatus ("A CAPTURE IS ALREADY RUNNING", 1); return; }
-        d.capState = capture::Idle;                           // an earlier take's Done or Failed is never read as this one's
+        const auto st = capture::status (d.capStatus);
+        if (capture::busy (st.state))
+        {
+            if (Bus::nowMs() - d.capOwnerSeenMs.load() < capture::kLeaseMs) { setStatus ("A CAPTURE IS ALREADY RUNNING", 1); return; }
+            // Its recorder stopped answering (removed, its track or Live's audio stood still): over.
+            capture::advance (d.capStatus, st.seq, capture::kBusyMask, capture::Failed, capture::Lost);
+        }
+        // A new request: its state first (an earlier take's Done or Failed is never read as this
+        // one's), then what it asks for, then its number, which SF CAPTURE watches.
         const int64_t stamp = juce::Time::currentTimeMillis();
+        const uint32_t seq = d.capSeq.load() + 1;
         capStampMine = stamp; capSlotMine = slot; capAskedMs = Bus::nowMs(); lastCapKey = -1;
+        d.capStatus = capture::pack (seq, capture::Idle, capture::None);
         d.capStamp = stamp;
         d.capSlot = slot;
-        capMine = d.capSeq.fetch_add (1) + 1;                 // after the stamp and the slot
+        capMine = seq;
+        d.capSeq.store (seq, std::memory_order_release);
         capPhase = 2;
         setStatus ("CAPTURE FOR SLOT " + juce::String (slot + 1) + " ASKED", 0);
     }
@@ -901,16 +996,25 @@ private:
         if (capPhase.load() != 2) return;
         auto& d = Bus::get().d();
         const int slot = capSlotMine.load();
-        const bool taken = d.capTaken.load() == capMine.load();
-        const int st = d.capState.load();
-        if (! taken || st == capture::Idle)                   // not claimed yet, or claimed this instant (SF CAPTURE takes it within 2 s)
+        const uint32_t mine = capMine.load();
+        const auto cs = capture::status (d.capStatus);
+        if (cs.seq != mine) { capPhase = 0; setStatus ("CAPTURE REPLACED: ANOTHER SF TERROIR ASKED FOR ONE", 1); return; }
+        const int st = cs.state;
+        if (st == capture::Idle)                              // not claimed yet (SF CAPTURE takes it within 2 s)
         {
-            if (Bus::nowMs() - capAskedMs.load() > 3000) { capPhase = 0; setStatus ("SF CAPTURE DIDN'T ANSWER: IS ITS TRACK ON, MONITOR IN?", 2); }
+            if (Bus::nowMs() - capAskedMs.load() > 3000
+                && capture::advance (d.capStatus, mine, capture::bit (capture::Idle), capture::Failed, capture::NoAnswer))
+            { capPhase = 0; setStatus ("SF CAPTURE DIDN'T ANSWER: IS ITS TRACK ON, MONITOR IN?", 2); }
             return;
         }
         const bool clip = d.capPeak.load() >= 0.99f;
-        if (st == capture::Preparing || st == capture::Playing || st == capture::Writing)
+        if (capture::busy (st))
         {
+            // Its recorder stopped answering (removed with no word, its track or Live's audio stood
+            // still): the take is over, and a new one can be asked for.
+            if (Bus::nowMs() - d.capOwnerSeenMs.load() > capture::kLeaseMs
+                && capture::advance (d.capStatus, mine, capture::kBusyMask, capture::Failed, capture::Lost))
+            { capPhase = 0; setStatus ("CAPTURE STOPPED: SF CAPTURE STOPPED ANSWERING (REMOVED, OR ITS TRACK'S AUDIO STOOD STILL)", 2); return; }
             const int sec = (int) (d.capProgress.load() * (float) takeSeconds());
             const int key = st == capture::Writing ? 100000 : sec * 2 + (clip ? 1 : 0);
             if (key == lastCapKey) return;
@@ -925,14 +1029,19 @@ private:
         {
             const auto f = capture::fileFor (capStampMine.load());
             const juce::String note = clip ? "THE MICS CLIPPED: TAKE IT AGAIN, SPEAKER OR GAIN DOWN" : "";
-            { const std::lock_guard<std::mutex> g (jobLock); jobs.push_back ({ juce::StringArray (f.getFullPathName()), slot, f.getFileNameWithoutExtension(), note }); }
+            // SF CAPTURE's take is the sweep: analysed as one (and if it didn't come back, it fails
+            // and the slot stays as it was; it is never taken for a clap).
+            { const std::lock_guard<std::mutex> g (jobLock); jobs.push_back ({ juce::StringArray (f.getFullPathName()), slot, f.getFileNameWithoutExtension(), note, ir::Source::KnownSweep }); }
             setStatus ("ANALYSING THE TAKE FOR SLOT " + juce::String (slot + 1), 0);
             return;
         }
-        const int e = d.capError.load();
+        const int e = cs.error;
         setStatus (e == capture::TransportStarted ? "CAPTURE STOPPED: THE TRANSPORT STARTED"
                  : e == capture::CantWrite ? "CAPTURE STOPPED: SF CAPTURE CAN'T WRITE IN " + capture::folder().getFullPathName().toUpperCase()
-                 : e == capture::NoMemory ? "CAPTURE STOPPED: NOT ENOUGH MEMORY" : "CAPTURE STOPPED", e == capture::Cancelled ? 0 : 2);
+                 : e == capture::NoMemory ? "CAPTURE STOPPED: NOT ENOUGH MEMORY"
+                 : e == capture::Removed ? "CAPTURE STOPPED: SF CAPTURE WAS REMOVED"
+                 : e == capture::Lost ? "CAPTURE STOPPED: SF CAPTURE STOPPED ANSWERING"
+                 : e == capture::NoAnswer ? "SF CAPTURE DIDN'T ANSWER: IS ITS TRACK ON, MONITOR IN?" : "CAPTURE STOPPED", e == capture::Cancelled ? 0 : 2);
     }
     void exportSweep()
     {
@@ -993,14 +1102,18 @@ private:
 
     // Requests (audio thread -> worker) and results (worker -> audio thread); the lifecycle (audio
     // thread and prepare): see modeChange.
-    Key lastKey;                                    // the knobs, as of the last block
+    std::atomic<double> lastBpm { 0.0 }, lastBar { 4.0 };     // the tempo last played or the state's (keyNow); 0: neither, 120
+    std::atomic<double> preparedRate { 0.0 };       // 0 until prepare
+    std::atomic<IrFilter*> handoff { nullptr };     // a restored state's IR, built off the audio thread (restored)
+    IrFilter* restoredIr = nullptr;                 // audio thread: the newest, until its key is asked for
     Key posted; bool postedValid = false;           // the newest request to the worker, this epoch
     uint32_t postedSeq = 0;
     Key have; bool haveKnown = false;               // the newest IR handed to the engine (unknown: one on the way)
     uint32_t haveSeq = 0;                           // no answer to a request up to this one replaces it
     Key offlineKey; bool offlineKeyValid = false;   // rendering: the last IR built here, and when
     int64_t offlineAt = -1000000;
-    uint32_t epoch = 1, syncSerial = 0;
+    uint32_t epoch = 1;
+    std::atomic<uint32_t> syncSerial { 0 };
     bool wasOffline = false, heard = false;         // heard: anything into the engine since prepare / reset
     std::atomic<uint32_t> liveEpoch { 1 }, rqEpoch { 0 };
     std::atomic<uint64_t> shownTag { 0 };           // the IR in the engine (the display draws its shape)

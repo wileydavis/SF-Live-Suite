@@ -726,7 +726,7 @@ story.append(P("SF TERROIR can take the place you play in as a PLACE, without le
 story += numbered(["A speaker on the headphone out (a MiniRig on its line in), where the sound should come from, aimed at a wall or into the room. In TotalMix the mics must not reach the headphone out, or the speaker plays them and feeds back.",
                    "The mics where the audience will be, or where the place should be heard from (SF TERROIR's IN THE FIELD, MICS). The speaker as loud as it goes without buzzing; the headphone level sets it, SWEEP LEVEL on SF CAPTURE is only for headroom.",
                    "Stop the transport. In SF TERROIR click <b>CAPTURE</b> (amber), then the slot to fill. 46 s: keep the room quiet while the status line counts.",
-                   "TERROIR analyses the take: the slot takes the name ROOM and the date and time; the status line should read SWEEP x3 and 30 dB or more over the noise. Under 30 dB: the speaker louder or the mics closer; THE MICS CLIPPED: the speaker or the gain down. Then again.",
+                   "TERROIR analyses the take: the slot takes the name ROOM and the date and time; the status line should read SWEEP x3 and 30 dB or more over the noise. Under 30 dB: the speaker louder or the mics closer; THE MICS CLIPPED: the speaker or the gain down. Then again. THE SWEEP DIDN'T COME BACK: nothing reached the mics (TROUBLESHOOTING); the slot stays as it was.",
                    "PLACE is stored per song, so a recall goes back to the slot the song was stored with: STORE the songs that should play the new place. The take stays in Music/SF Live Suite/TERROIR/Captures."])
 story.append(P("CAPTURE again (it reads STOP) ends a take early; so do starting the transport and PANIC. The sweep fades out in 10 ms and nothing is stored. The PA stays silent: 94 ROOM goes to the headphone out only.", "smallgrey"))
 story.append(H2T("RECORDING THE SET"))
@@ -749,7 +749,9 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds: rebuild and install the whole suite, restart Live."],
     ["A return doubles the dry signal", "DRY off on SF DELAY or SF REVERB on the returns."],
     ["SF TERROIR won't capture", "Its status line says why: the transport playing; NO SF CAPTURE (94 ROOM's device off); a take already running."],
-    ["A capture comes back IMPULSE or under 30 dB", "The sweep didn't reach the speaker or the mics: the speaker on the headphone out, 94 ROOM on and up; Input Config 1/2 a stereo pair, Monitor In. Then louder or closer."]], [1.9 * inch, W - 1.9 * inch], mono_first=False))
+    ["A capture says THE SWEEP DIDN'T COME BACK, or under 30 dB", "The sweep didn't reach the speaker or the mics: the speaker on the headphone out, 94 ROOM on and up; Input Config 1/2 a stereo pair, Monitor In. Then louder or closer. The slot stays as it was."],
+    ["A capture says NO SWEEP IN THE RIGHT CHANNEL", "That mic heard nothing (its cable, its gain): the place is mono. Fix it, capture again."],
+    ["A capture says SF CAPTURE STOPPED ANSWERING", "94 ROOM's SF CAPTURE was removed or switched off. Put it back, capture again: nothing was stored."]], [1.9 * inch, W - 1.9 * inch], mono_first=False))
 story.append(PageBreak())
 
 # ---------------- appendix

@@ -112,6 +112,7 @@ private:
     void parameterGestureChanged (int, bool) override {}
     bool movedSinceRecall (size_t i) const;
     bool overrideHolds (size_t i, int advance);
+    bool overrideInForce (size_t i) const;      // overrideHolds without dropping anything (any thread)
     void applySong (int s);
     void updateParams (const sf::Ctx&, int n, float motionInput);
     void processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
@@ -128,12 +129,15 @@ private:
     // 3 s give-up runs only once Live has been told (a message thread busy saving the set mustn't
     // undo a recall). reportExtGen: extGen just before the report: once Live holds the recalled
     // value, every change it makes after that is the performer's, whatever its value.
+    // departGen: the recall (recallGen) during which Live sent a value away from ovrFrom: a move,
+    // which stays newer than the recall even if Live's value comes back to ovrFrom before the report.
     std::unique_ptr<std::atomic<float>[]> ovrFrom;
-    std::unique_ptr<std::atomic<uint32_t>[]> extGen, ovrGen, recallGen, reportedGen, reportExtGen;
+    std::unique_ptr<std::atomic<uint32_t>[]> extGen, ovrGen, recallGen, reportedGen, reportExtGen, departGen;
     std::atomic<int> notifying { -1 };            // the parameter flushHostNotifications is writing
     // SLOW: a move's length (beats) is fixed when it is made; 0 = not travelling.
     std::vector<double> glideElapsed, glideBeats;
     int slowAllNow = 0;                           // SF CONTROL's SLOW ALL this block (0 while CONTROL isn't running)
+    uint32_t slowPassed = 0xffffffffu;            // the SLOW ALL change whose fence this plugin has passed (slowAllFor)
     // GLIDE RINGS: this plugin's knobs on the E16 (E16Map.h, found by the Live track's name), and
     // the bus slot where the travelling ones are reported for SF CONTROL. Audio thread only.
     struct E16Entry { int param; uint32_t addr; float lo, hi; };
@@ -157,8 +161,10 @@ private:
     uint32_t motionSeed = 1;
     float noteVel = 0.0f;
 
-    // Songs
+    // Songs. songWrite: per song, odd while its values are being written (STORE on the audio
+    // thread, a state load): the state save reads a song whole, never half stored.
     std::array<std::array<float, kMaxParams>, sf::kSongs> songVals {};
+    std::array<std::atomic<uint32_t>, sf::kSongs> songWrite {};
     std::array<std::atomic<bool>, sf::kSongs> songHas {};
     std::atomic<int> songIndex { -1 }, pendingSong { -1 };
     uint32_t lastSongSeq = 0, lastStoreSeq = 0, lastPanicSeq = 0;

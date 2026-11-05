@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstring>
 #include <random>
+#include <thread>
 
 using namespace sf;
 
@@ -18,8 +19,11 @@ static double posMod (double x, double m)
 // SF CONTROL's SLOW ALL for a host block starting at ppq0 (blockBeats long): a change SF CONTROL
 // made in this same host block counts from the next one, in every plugin, whichever side of SF
 // CONTROL Live processes it on (Bus.h). The three values are read as one (slowSeq); a writer that
-// never finishes can't hold up the audio thread.
-static int slowAllFor (const BusData& d, bool playing, double ppq0, double blockBeats)
+// never finishes can't hold up the audio thread. passed: the change (its slowSeq) whose song
+// position this plugin has already reached, or left behind with the transport stopped: its fence
+// is spent here, and returning to that position later (a loop, a relocate) takes the new length.
+// (SF CONTROL clears the fence in its next block as well.)
+static int slowAllFor (const BusData& d, bool playing, double ppq0, double blockBeats, uint32_t& passed)
 {
     for (int tries = 0; tries < 8; ++tries)
     {
@@ -28,7 +32,9 @@ static int slowAllFor (const BusData& d, bool playing, double ppq0, double block
         const int now = d.slowAll.load(), before = d.slowAllPrev.load();
         const double from = d.slowAllFromPpq.load();
         if (d.slowSeq.load() != s0) continue;
-        const bool sameBlock = playing && from >= 0.0 && ppq0 < from - 1e-9 && ppq0 > from - 2.0 * blockBeats;
+        if (from < 0.0) return juce::jlimit (0, 7, now);
+        if (! playing || ppq0 >= from - 1e-9) passed = s0;
+        const bool sameBlock = passed != s0 && ppq0 < from - 1e-9 && ppq0 > from - 2.0 * blockBeats;
         return juce::jlimit (0, 7, sameBlock ? before : now);
     }
     return juce::jlimit (0, 7, (int) d.slowAll.load());
@@ -106,7 +112,9 @@ SFProcessor::SFProcessor (ModulePtr m)
     recallGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
     reportedGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
     reportExtGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
-    for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; reportExtGen[i] = 0; }
+    departGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
+    for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; reportExtGen[i] = 0; departGen[i] = 0; }
+    for (auto& w : songWrite) w = 0;
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
@@ -202,11 +210,16 @@ void SFProcessor::publishGlides (sf::Bus& bus)
 
 // Any thread: Live (automation, a MIDI-mapped knob, the host's own controls), the editor, a
 // preset. Not this plugin's own report of a recalled value back to Live.
-void SFProcessor::parameterValueChanged (int index, float)
+void SFProcessor::parameterValueChanged (int index, float newValue)
 {
     if (index < 0 || index >= (int) specs.size()) return;
     if (index == notifying.load() && juce::MessageManager::existsAndIsCurrentThread()) return;
-    extGen[(size_t) index].fetch_add (1);
+    const size_t i = (size_t) index;
+    // A value away from Live's value at the recall is a move, newer than the recall, even if a
+    // later one goes back to that value before the recall is reported (+3 then 0 dB, in one block).
+    const float v = params[i]->convertFrom0to1 (newValue), from = ovrFrom[i].load();
+    if (std::abs (v - from) > 1e-4f * (1.0f + std::abs (from))) departGen[i] = recallGen[i].load();
+    extGen[i].fetch_add (1);
 }
 
 // A change in Live newer than the recall: it wins.
@@ -215,12 +228,15 @@ void SFProcessor::parameterValueChanged (int index, float)
 //   before the recall included. (Compared with that value, a return to it used to count as an
 //   echo, and the recall held on for the 3 s give-up while the knob showed the new setting.)
 //   Until then Live still holds its value from before the recall and may send it again: only a
-//   move away from it is newer (a count alone can't tell an echo from a move).
+//   move away from it is newer (a count alone can't tell an echo from a move). A move away and
+//   back again before the report is still a move (departGen): the value it ends on is the
+//   performer's, even though it equals the one from before the recall.
 bool SFProcessor::movedSinceRecall (size_t i) const
 {
     const uint32_t e = extGen[i].load();
     if (reportedGen[i].load() == recallGen[i].load()) return e != reportExtGen[i].load();
     if (e == ovrGen[i].load()) return false;
+    if (departGen[i].load() == recallGen[i].load()) return true;
     const float t = raw[i]->load(), from = ovrFrom[i].load();
     return std::abs (t - from) > 1e-4f * (1.0f + std::abs (from));
 }
@@ -238,6 +254,13 @@ bool SFProcessor::overrideHolds (size_t i, int advance)
     if (reportedGen[i].load() == recallGen[i].load()) ovrAge[i] += advance;
     if (std::abs (t - o) < eps || movedSinceRecall (i) || ovrAge[i] > (int) (3.0 * sr)) { ovr[i] = NAN; return false; }
     return true;
+}
+
+// Any thread (the state save): whether a recalled value is what the sound uses now. The audio
+// thread drops a recall that has given way (overrideHolds); this only reads.
+bool SFProcessor::overrideInForce (size_t i) const
+{
+    return ! std::isnan (ovr[i].load()) && ! movedSinceRecall (i);
 }
 
 int SFProcessor::paramIndex (const std::string& id) const
@@ -427,7 +450,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // key left there by a deleted CONTROL (or the last set) must not transpose anything. The same
     // for SLOW ALL: a length left there must not slow the next set's knobs.
     const bool controlOn = bus.controlAlive();
-    slowAllNow = controlOn ? slowAllFor (d, c.playing, ppq0, total * bps) : 0;
+    slowAllNow = controlOn ? slowAllFor (d, c.playing, ppq0, total * bps, slowPassed) : 0;
 
     // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
     if (! seqInit)
@@ -480,7 +503,9 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         // a newer change in Live has superseded it: the same decision the sound makes this block
         // (a recall, a newer knob move, then STORE in one host block used to store the recall
         // while the sound took the move).
+        songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);             // odd: being written
         for (size_t i = 0; i < specs.size(); ++i) songVals[(size_t) s][i] = overrideHolds (i, 0) ? ovr[i].load() : raw[i]->load();
+        songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);
         songHas[(size_t) s] = true;
     }
     bool panicNow = localPanic.exchange (false);
@@ -903,16 +928,35 @@ void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
     root.setProperty ("motionSeed", (int) motionSeed, nullptr);
     root.setProperty ("uid", juce::String::toHexString ((juce::int64) instanceUid.load()), nullptr);
     root.setProperty ("preset", currentPreset, nullptr);
-    root.appendChild (apvts.copyState(), nullptr);
+    // The settings in force, as the sound and STORE have them: a value just recalled that Live
+    // hasn't been told yet is the setting (Live still holds the one from before the recall), unless
+    // a newer change in Live superseded it. Targets, not where a glide, MACRO or MOTION has them.
+    auto params = apvts.copyState();
+    for (auto row : params)
+    {
+        const int i = paramIndex (row.getProperty ("id").toString().toStdString());
+        if (i >= 0 && overrideInForce ((size_t) i)) row.setProperty ("value", ovr[(size_t) i].load(), nullptr);
+    }
+    root.appendChild (params, nullptr);
     juce::ValueTree songs ("SONGS");
     songs.setProperty ("active", songIndex.load(), nullptr);
     for (int s = 0; s < kSongs; ++s)
     {
         if (! songHas[(size_t) s].load()) continue;
+        // A song whole: a STORE on the audio thread meanwhile means reading it again.
+        std::array<float, kMaxParams> v {};
+        for (int tries = 0; tries < 1000; ++tries)
+        {
+            const uint32_t w0 = songWrite[(size_t) s].load (std::memory_order_acquire);
+            if ((w0 & 1u) != 0) { std::this_thread::yield(); continue; }
+            v = songVals[(size_t) s];
+            std::atomic_thread_fence (std::memory_order_acquire);
+            if (songWrite[(size_t) s].load (std::memory_order_relaxed) == w0) break;
+        }
         juce::ValueTree t ("SONG");
         t.setProperty ("index", s, nullptr);
         for (size_t i = 0; i < specs.size(); ++i)
-            if (specs[i].song) t.setProperty (juce::Identifier (specs[i].id), songVals[(size_t) s][i], nullptr);
+            if (specs[i].song) t.setProperty (juce::Identifier (specs[i].id), v[i], nullptr);
         songs.appendChild (t, nullptr);
     }
     root.appendChild (songs, nullptr);
@@ -957,13 +1001,16 @@ void SFProcessor::setStateInformation (const void* data, int size)
         {
             const int s = (int) t.getProperty ("index", -1);
             if (s < 0 || s >= kSongs) continue;
+            songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);
             for (size_t i = 0; i < specs.size(); ++i)
                 songVals[(size_t) s][i] = t.hasProperty (juce::Identifier (specs[i].id)) ? (float) t.getProperty (juce::Identifier (specs[i].id)) : specs[i].def;
+            songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);
             songHas[(size_t) s] = true;
         }
     }
     auto m = root.getChildWithName ("MODULE");
     if (m.isValid()) module->load (m);
+    module->restored();
     firstBlock = true;
 }
 
