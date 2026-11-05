@@ -56,7 +56,8 @@ def knock(c, x, y, text, size=5.6, col=GREY, font="Mono", align="l"):
 # ------------------------------------------------------------------ 1: the rig
 class RigDiagram(Flowable):
     """The three parts and what runs between them: notes and Program Change from the ONE, clock back
-    to it; knobs and presses from the E16, values back to its rings; audio to the interface."""
+    to it; knobs and presses from the E16, values back to its rings; audio to the interface, and the
+    room mics into it."""
     H = 266
     def wrap(self, aw, ah): self.aw = aw; return aw, self.H
     def draw(self):
@@ -94,9 +95,12 @@ class RigDiagram(Flowable):
         ow = 118
         xp, xh = xl + lw / 2 - ow - 22, xl + lw / 2 + 22
         box(c, xp, 0, ow, 28, "PA", ("FROM 92 PA (ROOM EQ)",))
-        box(c, xh, 0, ow, 28, "HEADPHONES", ("CUE OUT",))
+        box(c, xh, 0, ow, 28, "HEADPHONES", ("CUE OUT; 94 ROOM'S SWEEP",))
         arrow(c, xl + lw / 2 - 10, yi, xp + ow / 2, 28)
         arrow(c, xl + lw / 2 + 10, yi, xh + ow / 2, 28)
+        # The room mics: 94 ROOM records them with the set; SF CAPTURE takes SF TERROIR's places with them.
+        box(c, xo, yi, bw, hi, "ROOM MICS", ("INPUTS 1/2: 94 ROOM",))
+        arrow(c, xo + bw, yi + hi / 2, xl, yi + hi / 2)
 
 
 # ------------------------------------------------------------------ 3: the ONE's sequencers
@@ -440,7 +444,8 @@ story.append(table([["TRACK", "DEVICES", "MIDI FROM", "OUT"],
     ["90 LIVE BUS", "SF ISOLATOR &gt; BUILD &gt; GLUE &gt; TONE &gt; LOWEND; SF ALLOC (off at first)", "sends disabled", "Main"],
     ["Main", "SF LIMIT", "", "5/6: a pair that goes nowhere"],
     ["92 PA", "SF ROOM EQ", "audio: Resampling", "the PA outputs (1/2)"],
-    ["93 REC", "nothing", "audio: Resampling, Monitor Off", "Sends Only"]],
+    ["93 REC", "nothing", "audio: Resampling, Monitor Off", "Sends Only"],
+    ["94 ROOM", "SF CAPTURE", "audio: Ext. In 1/2, the room mics; Monitor In", "the headphones (3/4)"]],
     [1.25 * inch, 2.35 * inch, 1.75 * inch, W - 5.35 * inch], pad=2.6))
 story.append(Spacer(1, 4))
 story.append(P("Every instrument track is on Monitor In: it plays from the ONE whether or not it is armed. The kick stays outside LOW, so the bass and the rumble fade together while the kick holds the floor.", "smallgrey"))
@@ -449,10 +454,11 @@ story.append(RoutingDiagram())
 story.append(Spacer(1, 6))
 story += bullets(["Main is the set: exporting or resampling it gives the release mix. The venue's correction (ROOM EQ) exists only on 92 PA, so the recording never hears it.",
                   "<b>Every send on 90 LIVE BUS is disabled.</b> The returns feed LIVE BUS, and Live can't compensate a return's delay on a track whose matching send is active, even at zero.",
-                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK play on. Mute 92 PA and the speakers go silent while REC keeps recording."])
+                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK play on. Mute 92 PA and the speakers go silent while REC keeps recording.",
+                  "94 ROOM is the room mics, a stereo pair. Armed, it records them with the set. Its SF CAPTURE never passes them (the set never hears the mics): it only plays SF TERROIR's sweep, to a speaker on the headphone out, when you capture the room (chapter 8)."])
 story.append(H2T("FINISH THE SET: FIVE STEPS"))
 story += numbered(["<b>MIDI From</b> on the twelve MIDI tracks, as in the table above (chapter 3 shows the ONE's side). Every track opens on No Input: an instrument plays nothing until it is set. Never All Ins: every instrument would play every part.",
-                   "<b>Outputs.</b> 92 PA to the pair that feeds the PA (1/2 in the set). Cue Out, on the Main track, to the headphones (3/4). Main to a pair that goes nowhere (5/6). Check all three before any sound reaches a PA: the PA pair carries 92 PA and nothing else.",
+                   "<b>Inputs and outputs.</b> 92 PA to the pair that feeds the PA (1/2 in the set). Cue Out, on the Main track, to the headphones (3/4), and 94 ROOM there too. Main to a pair that goes nowhere (5/6). Check all three before any sound reaches a PA: the PA pair carries 92 PA and nothing else. The room mics on inputs 1 and 2 (1: the mic on your left as you face the speaker), and in Live's Settings &gt; Audio &gt; Input Config, 1/2 as a stereo pair: 94 ROOM's input.",
                    "<b>Two computer keys</b> (Cmd-K), never E16 presses: PANIC on SF CONTROL, and 92 PA's activator. Pick keys you can find in the dark.",
                    "<b>Two options:</b> Delay Compensation on; Reduced Latency When Monitoring off.",
                    "<b>Save</b> as a template (File &gt; Save Live Set As Template) or into your show folder. MIDI and key mappings belong to the set, so every set made from it starts mapped."])
@@ -713,9 +719,18 @@ story += numbered(["Every SF plugin from the same build: SF CONTROL shows BUS SH
                    "SLOW ALL where you want it for the opening (knob 1 pressed; OFF for direct moves), then back to LOW ENERGY.",
                    "A drop rehearsed with the night's GAP, TAIL and DROP DUCK settings.",
                    "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording.",
-                   "Soundcheck the busiest passage: SF LIMIT INPUT for 1-3 dB of limiting there, AUTO on, DOWN ONLY."])
+                   "Soundcheck the busiest passage: SF LIMIT INPUT for 1-3 dB of limiting there, AUTO on, DOWN ONLY.",
+                   "The room mics on 94 ROOM: IN L and IN R move on its SF CAPTURE, the same gain on both, well under the top at the loudest."])
+story.append(H2T("CAPTURING THE ROOM"))
+story.append(P("SF TERROIR can take the place you play in as a PLACE, without leaving Live: SF CAPTURE on 94 ROOM plays the sweep to a speaker on the headphone out and records the room mics, and TERROIR turns the take into a place. SF TERROIR has to be in the set (on B SPACE in place of SF REVERB: controllers/e16 README, SF TERROIR ON B SPACE). At soundcheck or after the set: the transport stopped."))
+story += numbered(["A speaker on the headphone out (a MiniRig on its line in), where the sound should come from, aimed at a wall or into the room. In TotalMix the mics must not reach the headphone out, or the speaker plays them and feeds back.",
+                   "The mics where the audience will be, or where the place should be heard from (SF TERROIR's IN THE FIELD, MICS). The speaker as loud as it goes without buzzing; the headphone level sets it, SWEEP LEVEL on SF CAPTURE is only for headroom.",
+                   "Stop the transport. In SF TERROIR click <b>CAPTURE</b> (amber), then the slot to fill. 46 s: keep the room quiet while the status line counts.",
+                   "TERROIR analyses the take: the slot takes the name ROOM and the date and time; the status line should read SWEEP x3 and 30 dB or more over the noise. Under 30 dB: the speaker louder or the mics closer; THE MICS CLIPPED: the speaker or the gain down. Then again.",
+                   "PLACE is stored per song, so a recall goes back to the slot the song was stored with: STORE the songs that should play the new place. The take stays in Music/SF Live Suite/TERROIR/Captures."])
+story.append(P("CAPTURE again (it reads STOP) ends a take early; so do starting the transport and PANIC. The sweep fades out in 10 ms and nothing is stored. The PA stays silent: 94 ROOM goes to the headphone out only.", "smallgrey"))
 story.append(H2T("RECORDING THE SET"))
-story += bullets(["Press RESET on SF LIMIT, arm the instrument tracks and 93 REC, Automation Arm on, Arrangement record, play. The stereo recording on REC is the set; the MIDI and automation are for editing and rehearsal.",
+story += bullets(["Press RESET on SF LIMIT, arm the instrument tracks, 93 REC and 94 ROOM, Automation Arm on, Arrangement record, play. The stereo recording on REC is the set, the one on ROOM the room mics for the mix; the MIDI and automation are for editing and rehearsal.",
                   "Collect All and Save after the show. SF samples are inside the set; DECK tracks are referenced by path, so keep the files where they are."])
 story.append(H2T("TROUBLESHOOTING"))
 story.append(table([["SYMPTOM", "CHECK"],
@@ -732,7 +747,9 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["Every move glides (or none does)", "SLOW ALL is saved with the set: press knob 1 and set it. A plugin whose own SLOW isn't CONTROL keeps its own."],
     ["An E16 knob jumps when touched", "Auto Transmit is on, or the E16 keeps a value per page: chapter 4, check 3."],
     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds: rebuild and install the whole suite, restart Live."],
-    ["A return doubles the dry signal", "DRY off on SF DELAY or SF REVERB on the returns."]], [1.9 * inch, W - 1.9 * inch], mono_first=False))
+    ["A return doubles the dry signal", "DRY off on SF DELAY or SF REVERB on the returns."],
+    ["SF TERROIR won't capture", "Its status line says why: the transport playing; NO SF CAPTURE (94 ROOM's device off); a take already running."],
+    ["A capture comes back IMPULSE or under 30 dB", "The sweep didn't reach the speaker or the mics: the speaker on the headphone out, 94 ROOM on and up; Input Config 1/2 a stereo pair, Monitor In. Then louder or closer."]], [1.9 * inch, W - 1.9 * inch], mono_first=False))
 story.append(PageBreak())
 
 # ---------------- appendix

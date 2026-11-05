@@ -122,6 +122,16 @@ struct BusData
     std::atomic<uint32_t> slowSeq;
     std::atomic<int32_t> slowAllPrev;
     std::atomic<double> slowAllFromPpq;
+
+    // Place capture (v9, Source/core/Capture.h). SF TERROIR asks: capStamp and capSlot, then capSeq
+    // up. One SF CAPTURE takes the request (capTaken = capSeq), plays the sweep out of its track and
+    // records its input, writes the take and reports in capState / capError, with its progress and
+    // the input's peak. capCancel up: stop. SF CAPTURE is alive while captureSeenMs is recent.
+    std::atomic<uint32_t> capSeq, capTaken, capCancel;
+    std::atomic<int64_t> capStamp;                // when it was asked for (wall clock, ms): names the file
+    std::atomic<int32_t> capSlot, capState, capError;
+    std::atomic<float> capProgress, capPeak;      // 0..1 through the take; the input's peak so far (linear)
+    std::atomic<int64_t> captureSeenMs;
 };
 
 class Bus
@@ -159,6 +169,7 @@ public:
 
     bool allocAlive() const   { return nowMs() - data->allocSeenMs.load() < 1500; }
     bool controlAlive() const { return nowMs() - data->controlSeenMs.load() < 1500; }
+    bool captureAlive() const { return nowMs() - data->captureSeenMs.load() < 1500; }
 
 private:
     Bus();

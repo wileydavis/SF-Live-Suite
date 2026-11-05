@@ -177,6 +177,7 @@ lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Ma
        ["Main (master)", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT. SF ALLOC anywhere on it. Its output to an output pair you don't use."],
        ["Audio track PA", "Audio From = Resampling (the Main output), Monitor In, SF ROOM EQ, Audio To = the PA outputs. The venue hears ROOM EQ."],
        ["Audio track REC", "Audio From = Resampling, Monitor Off, armed: records the set without ROOM EQ."],
+       ["Audio track ROOM", "Audio From = the room mics (a stereo pair), Monitor In, SF CAPTURE, Audio To = the outputs a speaker can go on (the headphones), sends disabled. SF TERROIR captures the place from here (SF CAPTURE); armed, it records the room with the set."],
        ["Live instruments / hardware", "SF STRIP last on the track: the suite's performance row, Pocket and ALLOC for any sound."],
        ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
@@ -201,7 +202,7 @@ story.append(PageBreak())
 story.append(H1("7  THE SHOW TEMPLATE"))
 story.append(Rule())
 story.append(P("One Live set for every show, built on fixed roles. The OXI ONE plays the notes and patterns; the E16 plays the sound, the balance and the transitions. The E16's top half is the same on every page, so the whole arrangement is always under one hand while the other works deep in one sound.", "summary"))
-story.append(P("The set is built: <b>controllers/live/SF SHOW.als</b> in the repository holds every track, group and return below, every SF plugin with its starting settings, the routing, and every E16 address mapped. Open it, do the five steps its README lists (MIDI From, the outputs, the two keys, two options, the save), and keep it as your template."))
+story.append(P("The set is built: <b>controllers/live/SF SHOW.als</b> in the repository holds every track, group and return below, every SF plugin with its starting settings, the routing, and every E16 address mapped. Open it, do the five steps its README lists (MIDI From, the inputs and outputs, the two keys, two options, the save), and keep it as your template."))
 
 story.append(H2("TRACKS"))
 story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
@@ -227,7 +228,8 @@ story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
     ["90 LIVE BUS", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND; SF ALLOC (off at first)", ""],
     ["Main", "SF LIMIT", ""],
     ["92 PA", "SF ROOM EQ", "audio: Resampling"],
-    ["93 REC", "nothing", "audio: Resampling"]], [1.35 * inch, 3.25 * inch, W - 4.6 * inch]))
+    ["93 REC", "nothing", "audio: Resampling"],
+    ["94 ROOM", "SF CAPTURE", "audio: Ext. In 1/2, the room mics"]], [1.35 * inch, 3.25 * inch, W - 4.6 * inch]))
 story.append(Spacer(1, 6))
 story += bullets(["The kick stays outside LOW, so bass and rumble fade together while the kick holds the floor. In each section decide whether BASS or RUMBLE carries the sustained low end: one of two knobs then steers it.",
                   "The PERCs are separate instruments: CHOKE works inside one track only, so a closed hat doesn't cut the open hat on its own track. Write the open hat's rhythm and DECAY for that.",
@@ -248,6 +250,7 @@ story.append(table([["TRACK", "INPUT / MONITOR", "OUTPUT"],
     ["Main", "", "an output pair that goes nowhere"],
     ["92 PA", "Audio From Resampling, Monitor In, sends disabled", "the PA outputs"],
     ["93 REC", "Audio From Resampling, Monitor Off, sends disabled", "Sends Only"],
+    ["94 ROOM", "Ext. In 1/2 (the room mics, a stereo pair), Monitor In, sends disabled", "the headphone outputs: a speaker on them for a capture"],
     ["Cue", "Live's Cue Out; DECK's CUE track", "the headphone outputs"]], [1.75 * inch, 2.75 * inch, W - 4.5 * inch]))
 story.append(Spacer(1, 6))
 story += bullets(["Main is the set. Exporting or resampling it gives the release mix; the venue's correction (ROOM EQ) exists only on 92 PA, so the recording never hears it.",
@@ -255,7 +258,8 @@ story += bullets(["Main is the set. Exporting or resampling it gives the release
                   "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK keep playing. Mute 92 PA and the speakers go silent while REC keeps recording. Put 92 PA's on/off on a computer key (Cmd-K, click its activator, press the key), not on an E16 press: a knob is easily pressed while it is turned.",
                   "PANIC silences every SF plugin, DECK included, but not Live's own clips and devices: for total silence, mute 92 PA.",
                   "BRIDGE is for transitions and regrouping. It still needs Live: it is not a backup for a computer failure.",
-                  "ROOM EQ only cuts, so it needs no limiter after it; LIMIT's -1 dB ceiling leaves the margin."])
+                  "ROOM EQ only cuts, so it needs no limiter after it; LIMIT's -1 dB ceiling leaves the margin.",
+                  "94 ROOM is the room: armed, it records the mics with the set, for the mix. Its SF CAPTURE never passes them, so the set never hears the mics; for SF TERROIR it plays the sweep to a speaker on the headphone out (transport stopped) and records the place (SF CAPTURE)."])
 
 story.append(H2("THE MASTER DEVICES"))
 story += bullets(["Start GLUE, TONE and LOWEND gently: the set doesn't need every processor working all the time. Soundcheck the busiest passage of the night and set LIMIT's INPUT for 1-3 dB of limiting there.",
@@ -374,12 +378,12 @@ story += bullets(["The roles stay put for the whole set: a new track changes wha
 
 story.append(H2("RECORDING AND REHEARSAL"))
 story += bullets(["Instrument tracks on Monitor In: they play from the ONE whether or not they're armed.",
-                  "To record: RESET on SF LIMIT, arm the instrument tracks and 93 REC, Automation Arm on, Arrangement record, play. The stereo recording on REC is the set; the MIDI and automation are for editing and rehearsal.",
+                  "To record: RESET on SF LIMIT, arm the instrument tracks, 93 REC and 94 ROOM, Automation Arm on, Arrangement record, play. The stereo recording on REC is the set, the one on ROOM the room mics for the mix; the MIDI and automation are for editing and rehearsal.",
                   "To replay recorded MIDI: stop the ONE, set those tracks to Monitor Auto and disarm them (Monitor In ignores a track's own clips).",
                   "Collect All and Save. SF samples are inside the set; DECK tracks are referenced by path, so keep the files where they are."])
 
 story.append(H2("BUILD ORDER"))
-story += numbered(["SF SHOW.als (controllers/live): MIDI From, the outputs, PANIC and 92 PA on their keys, the two options; saved as a template.",
+story += numbered(["SF SHOW.als (controllers/live): MIDI From, the inputs and outputs, PANIC and 92 PA on their keys, the two options; saved as a template.",
                    "CONTROL, KICK, BASS, RUMBLE, LIVE BUS, PA and REC playing. Clock and latency calibrated, a short recording made.",
                    "CLOSED, OPEN, CLAP and STRIKE.",
                    "ACID, STAB, TEXTURE and VOICE, one at a time.",
@@ -395,12 +399,13 @@ story += bullets(["CONTROL shows BUS SHARED and KICK REPORTING; the pump lands o
                   "PANIC from its key: silence, and every header shows PANIC. Again: back without a click. 92 PA muted from its key: the speakers silent, REC still recording.",
                   "Every E16 hold press (DROP, THROW, ROLL) held for three seconds stays on for the whole hold and goes off on release.",
                   "The shared E16 knobs don't jump: LOW ENERGY turned on page 2, then a step on page 1, moves a step. Changing pages sends nothing (Live's MIDI input indicator stays dark).",
-                  "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording."])
+                  "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording.",
+                  "With SF TERROIR in the set: a capture from 94 ROOM into an empty slot ends SWEEP x3, 30 dB or more over the noise, and the PA stays silent through it."])
 story.append(PageBreak())
 
 # ---------------- PART 2: modules
 order = [("INSTRUMENTS", ["KICK", "PERC", "RUMBLE", "BASS", "LEAD", "PAD", "VOICE", "STRIKE", "DECK", "CONTROL"]),
-         ("EFFECTS", ["STRIP", "FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "TERROIR", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
+         ("EFFECTS", ["STRIP", "FILTER", "GATE", "DENSITY", "DELAY", "REVERB", "TERROIR", "CAPTURE", "DRIVE", "RADIO", "REPEAT", "DUCK", "ENERGY"]),
          ("MASTER AND MIX", ["ISOLATOR", "BUILD", "GLUE", "TONE", "LOWEND", "LIMIT", "ROOMEQ", "ALLOC", "TAP"])]
 SYSTEM_IDS = ("slow", "macro_src", "macro_amt")
 def is_system(pid): return pid in SYSTEM_IDS or pid[:3] in ("m1_", "m2_")
@@ -474,7 +479,8 @@ story.append(table([["PLUGIN", "NOTES", "DOES"],
 story.append(H2("WHERE THINGS ARE SAVED"))
 story += bullets(["Songs, samples, ALLOC choices, MOTION random seeds, DECK tracklist and venue EQs: inside the Live set (plugin state).",
                   "User presets: Music/SF Live Suite/Presets/&lt;PLUGIN&gt;, one file per preset.",
-                  "DECK track log: Documents/SF Live Suite/tracklog.txt.", "DECK tracks are referenced by file path, not embedded: keep the files where they are."])
+                  "DECK track log: Documents/SF Live Suite/tracklog.txt.",
+                  "SF TERROIR: its places are inside the Live set; the sweep file is in Music/SF Live Suite/TERROIR, and every take captured in the set (SF CAPTURE) in Music/SF Live Suite/TERROIR/Captures, one WAV each.", "DECK tracks are referenced by file path, not embedded: keep the files where they are."])
 story.append(H2("WHEN SOMETHING ISN'T RIGHT"))
 story.append(table([["SYMPTOM", "CHECK"],
                     ["SF SHOW.als: a plugin is missing", "The suite isn't installed, or VST3 is off (Settings &gt; Plug-Ins). Install or turn VST3 on, then open the set again."],
@@ -490,6 +496,8 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["A knob shows GLIDE", "SLOW ALL or the plugin's SLOW is on: the knob is travelling to where you set it."],
                     ["A knob moves on its own", "MOTION: check M1 / M2 TARGET in the plugin's MOTION row."],
                     ["Header shows FAULT (red)", "The plugin caught an invalid value or a runaway and reset itself to silence. It carries on working. If it happens again, note what was playing: it is a bug."],
+                    ["SF TERROIR won't capture", "Its status line says why. The transport must be stopped; NO SF CAPTURE: put it on the room mics' track (94 ROOM in SF SHOW), its device on; one take at a time."],
+                    ["A capture comes back IMPULSE or under 30 dB", "The speaker didn't play the sweep, or the mics didn't hear it: the speaker on 94 ROOM's output (3/4), the track on and up; the mics on 94 ROOM's input (Input Config: 1/2 a stereo pair), Monitor In. Then louder or closer."],
                     ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out, clears and stays silent while held. Live's own clips and devices aren't SF: mute the PA track for those."],
                     ["Header shows PANIC (red)", "PANIC is on at SF CONTROL: held in its window, or flipped on by its key or button. A key flips it back."],
                     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds. Rebuild and install the whole suite."],

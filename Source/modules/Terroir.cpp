@@ -12,6 +12,7 @@
 // depends on thread timing) and swap in through a 4096-sample crossfade with the whole input
 // history (see Convolver). Imports run on the same worker thread, never the message thread.
 #include "Kit.h"
+#include "../core/Capture.h"
 #include "../core/Convolver.h"
 #include "../core/IrTools.h"
 #include <array>
@@ -348,6 +349,7 @@ public:
         // Which IR the knobs ask for; built off this thread (or here, rendering offline).
         const Key k = keyFrom (c);
         lastKey = k;
+        lastPlaying.store (c.playing || c.offline);          // CAPTURE needs the transport stopped
         if (c.offline != wasOffline) modeChange (c.offline);
         if (c.offline) offlineStep (c, k);
         else realtimeStep (k);
@@ -425,7 +427,13 @@ public:
         const auto sb = sweepBox (r);
         g.setColour (ui::kDim); g.drawRect (sb, 1.0f);
         ui::label (g, "SWEEP FILE", sb, ui::kText, 10.0f, juce::Justification::centred);
-        if (dispFreeze.load() > 0.01f) ui::label (g, "FROZEN", row.withTrimmedRight (sb.getWidth() + 10), ui::kGreen, 11.0f, juce::Justification::centredRight);
+        // CAPTURE: off (white), armed (amber: click a slot), running (STOP, red).
+        const auto cb = captureBox (r);
+        const int ph = capPhase.load();
+        const juce::Colour cc = ph == 1 ? ui::kAmber : ph == 2 ? ui::kRed : ui::kDim;
+        g.setColour (cc); g.drawRect (cb, 1.0f);
+        ui::label (g, ph == 2 ? "STOP" : "CAPTURE", cb, ph == 0 ? ui::kText : cc, 10.0f, juce::Justification::centred);
+        if (dispFreeze.load() > 0.01f) ui::label (g, "FROZEN", row.withTrimmedRight (r.getRight() - cb.getX() + 10), ui::kGreen, 11.0f, juce::Justification::centredRight);
         in.removeFromTop (6);
         auto nameRow = in.removeFromTop (18);
         const bool empty = ! filled[(size_t) sel];
@@ -433,7 +441,7 @@ public:
         ui::label (g, d.info, nameRow, ui::kDim, 10.0f, juce::Justification::centredRight);
         auto statusRow = in.removeFromBottom (14);
         if (d.status.isEmpty())   // nothing loaded yet: how (a drag from Finder loses the window, which Live hides)
-            ui::label (g, "LOAD (TOP RIGHT) A RECORDING OF THE SWEEP, A CLAP OR AN IR INTO SLOT " + juce::String (sel + 1) + ", OR DROP IT HERE", statusRow, ui::kFaint, 10.0f);
+            ui::label (g, "LOAD (TOP RIGHT) A RECORDING OF THE SWEEP, A CLAP OR AN IR INTO SLOT " + juce::String (sel + 1) + ", OR DROP IT HERE; OR CAPTURE THE ROOM", statusRow, ui::kFaint, 10.0f);
         else
             ui::label (g, d.status, statusRow, d.statusLevel == 2 ? ui::kRed : d.statusLevel == 1 ? ui::kAmber : ui::kFaint, 10.0f);
         // The IR as it plays now (SIZE, DECAY, DARK, LENGTH, REVERSE applied): level in dB, 0 to -60.
@@ -459,8 +467,14 @@ public:
     {
         if (! down) return;
         for (int i = 0; i < kSlots; ++i)
-            if (slotBox (r, i).contains (p)) { if (setParam) setParam (PLACE, (float) i); return; }
+            if (slotBox (r, i).contains (p))
+            {
+                if (setParam) setParam (PLACE, (float) i);
+                if (capPhase.load() == 1) startCapture (i);
+                return;
+            }
         if (sweepBox (r).contains (p)) exportSweep();
+        if (captureBox (r).contains (p)) captureClicked();
     }
 
 private:
@@ -485,7 +499,7 @@ private:
         float seconds = 0.0f;
         std::vector<float> env;
     };
-    struct Job { juce::StringArray files; int slot; juce::String name; };
+    struct Job { juce::StringArray files; int slot; juce::String name; juce::String note = {}; };   // note: added to its status line
 
     Key keyFrom (const Ctx& c) const
     {
@@ -710,6 +724,7 @@ private:
         {
             wait (10);
             while (auto* f = popRetired()) delete f;
+            watchCapture();
             runImport();
             Key k;
             uint32_t seq = 0, ep = 0;
@@ -813,6 +828,7 @@ private:
                        + juce::String ((int) std::lround (cap.snrDb)) + " DB OVER THE NOISE";
         if (cap.kind.startsWith ("SWEEP") && std::abs (cap.driftPpm) > 0.5) s << "  CLOCK " << juce::String (cap.driftPpm, 0) << " PPM";
         if (tracks.isNotEmpty()) s << "  FROM " << tracks;
+        if (job.note.isNotEmpty()) { s << "  " << job.note; setStatus (s, 1); return; }
         setStatus (s, cap.snrDb < 30.0f ? 1 : 0);
     }
     void setStatus (const juce::String& s, int level)
@@ -847,6 +863,77 @@ private:
         return { r.getX() + 10.0f + (float) i * 30.0f, r.getY() + 16.0f, 26.0f, 18.0f };
     }
     static juce::Rectangle<float> sweepBox (juce::Rectangle<float> r) { return { r.getRight() - 96.0f, r.getY() + 16.0f, 86.0f, 18.0f }; }
+    static juce::Rectangle<float> captureBox (juce::Rectangle<float> r) { return { r.getRight() - 172.0f, r.getY() + 16.0f, 70.0f, 18.0f }; }
+
+    // ------------------------------------------------------------------------------------- capture
+    // In the set (Source/core/Capture.h): CAPTURE arms; a slot clicked then asks SF CAPTURE, on the
+    // room mics' track, to play the sweep and record; the take comes back here and is analysed into
+    // that slot like a dropped file. Message thread (clicks) and the worker (watchCapture).
+    static int takeSeconds() { return (int) std::lround (ir::kLeadSec + ir::kRepeats * (ir::kSweepSec + ir::kGapSec) + capture::kTailSec); }
+    void captureClicked()
+    {
+        const int ph = capPhase.load();
+        if (ph == 2) { Bus::get().d().capCancel.fetch_add (1); setStatus ("STOPPING THE CAPTURE", 0); return; }
+        if (ph == 1) { capPhase = 0; setStatus ("CAPTURE OFF", 0); return; }
+        capPhase = 1;
+        setStatus ("CAPTURE ARMED: CLICK THE SLOT TO FILL. SF CAPTURE PLAYS THE SWEEP FROM ITS TRACK FOR " + juce::String (takeSeconds()) + " S", 1);
+    }
+    void startCapture (int slot)
+    {
+        auto& bus = Bus::get();
+        auto& d = bus.d();
+        capPhase = 0;
+        if (lastPlaying.load()) { setStatus ("STOP LIVE'S TRANSPORT FIRST: THE SWEEP NEEDS THE ROOM QUIET", 2); return; }
+        if (! bus.captureAlive()) { setStatus ("NO SF CAPTURE: PUT IT ON THE ROOM MICS' TRACK, MONITOR IN (94 ROOM IN SF SHOW)", 2); return; }
+        if (capture::busy (d.capState.load())) { setStatus ("A CAPTURE IS ALREADY RUNNING", 1); return; }
+        d.capState = capture::Idle;                           // an earlier take's Done or Failed is never read as this one's
+        const int64_t stamp = juce::Time::currentTimeMillis();
+        capStampMine = stamp; capSlotMine = slot; capAskedMs = Bus::nowMs(); lastCapKey = -1;
+        d.capStamp = stamp;
+        d.capSlot = slot;
+        capMine = d.capSeq.fetch_add (1) + 1;                 // after the stamp and the slot
+        capPhase = 2;
+        setStatus ("CAPTURE FOR SLOT " + juce::String (slot + 1) + " ASKED", 0);
+    }
+    // Worker thread: the take's progress on the status line; when it's written, its import.
+    void watchCapture()
+    {
+        if (capPhase.load() != 2) return;
+        auto& d = Bus::get().d();
+        const int slot = capSlotMine.load();
+        const bool taken = d.capTaken.load() == capMine.load();
+        const int st = d.capState.load();
+        if (! taken || st == capture::Idle)                   // not claimed yet, or claimed this instant (SF CAPTURE takes it within 2 s)
+        {
+            if (Bus::nowMs() - capAskedMs.load() > 3000) { capPhase = 0; setStatus ("SF CAPTURE DIDN'T ANSWER: IS ITS TRACK ON, MONITOR IN?", 2); }
+            return;
+        }
+        const bool clip = d.capPeak.load() >= 0.99f;
+        if (st == capture::Preparing || st == capture::Playing || st == capture::Writing)
+        {
+            const int sec = (int) (d.capProgress.load() * (float) takeSeconds());
+            const int key = st == capture::Writing ? 100000 : sec * 2 + (clip ? 1 : 0);
+            if (key == lastCapKey) return;
+            lastCapKey = key;
+            if (st == capture::Writing) setStatus ("WRITING THE TAKE FOR SLOT " + juce::String (slot + 1), 0);
+            else setStatus ("CAPTURING SLOT " + juce::String (slot + 1) + ": " + juce::String (sec) + " OF " + juce::String (takeSeconds()) + " S. QUIET PLEASE"
+                            + (clip ? ". THE MICS CLIP: SPEAKER OR GAIN DOWN" : ""), clip ? 1 : 0);
+            return;
+        }
+        capPhase = 0;
+        if (st == capture::Done)
+        {
+            const auto f = capture::fileFor (capStampMine.load());
+            const juce::String note = clip ? "THE MICS CLIPPED: TAKE IT AGAIN, SPEAKER OR GAIN DOWN" : "";
+            { const std::lock_guard<std::mutex> g (jobLock); jobs.push_back ({ juce::StringArray (f.getFullPathName()), slot, f.getFileNameWithoutExtension(), note }); }
+            setStatus ("ANALYSING THE TAKE FOR SLOT " + juce::String (slot + 1), 0);
+            return;
+        }
+        const int e = d.capError.load();
+        setStatus (e == capture::TransportStarted ? "CAPTURE STOPPED: THE TRANSPORT STARTED"
+                 : e == capture::CantWrite ? "CAPTURE STOPPED: SF CAPTURE CAN'T WRITE IN " + capture::folder().getFullPathName().toUpperCase()
+                 : e == capture::NoMemory ? "CAPTURE STOPPED: NOT ENOUGH MEMORY" : "CAPTURE STOPPED", e == capture::Cancelled ? 0 : 2);
+    }
     void exportSweep()
     {
         auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("SF Live Suite").getChildFile ("TERROIR");
@@ -937,6 +1024,13 @@ private:
     std::array<Shape, 16> shapes;                   // the last IRs built, by tag
     int shapeNext = 0;
     Shape shown;                                    // message thread: what the display drew last
+
+    // Capture: 0 off, 1 armed (a slot click asks), 2 asked or running (until it's written or stops).
+    std::atomic<int> capPhase { 0 }, capSlotMine { 0 };
+    std::atomic<uint32_t> capMine { 0 };            // the request this plugin made
+    std::atomic<int64_t> capStampMine { 0 }, capAskedMs { 0 };
+    std::atomic<bool> lastPlaying { false };
+    std::atomic<int> lastCapKey { -1 };             // the status line shown for the take (reset by a new request)
 };
 
 ModulePtr makeTERROIR() { return std::make_unique<TerroirModule>(); }

@@ -57,8 +57,8 @@ class Swatch(Flowable):
 
 class RoutingDiagram(Flowable):
     """The show template's signal flow, drawn in the manual's own type: sources > LIVE BUS > Main >
-    PA and REC (both from Resampling)."""
-    H = 214
+    PA and REC (both from Resampling); along the bottom, the room mics > 94 ROOM > the headphone pair."""
+    H = 244
     def wrap(self, aw, ah): self.aw = aw; return aw, self.H
     def box(self, x, y, w, h, text, subs=(), heavy=False):
         c = self.canv
@@ -124,6 +124,13 @@ class RoutingDiagram(Flowable):
         self.arrow(x2 + w2, ym + h2 / 2 + 10, x3, yo[0] + bh / 2, dashed=True)
         self.arrow(x2 + w2, ym + h2 / 2, x3, yo[1] + bh / 2)
         self.arrow(x2 + w2, ym + h2 / 2 - 10, x3, yo[2] + bh / 2)
+        # The room: its own path, never into the set (SF CAPTURE passes nothing but TERROIR's sweep).
+        yr = 2
+        self.box(x0, yr, w0, bh, "ROOM MICS", ("INPUTS 1/2",))
+        self.box(x1, yr, w1, bh, "94 ROOM", ("SF CAPTURE",))
+        self.box(x3, yr, w3, bh, "HEADPHONES 3/4", ("CUE; THE CAPTURE SPEAKER",))
+        self.arrow(x0 + w0, yr + bh / 2, x1, yr + bh / 2)
+        self.arrow(x1 + w1, yr + bh / 2, x3, yr + bh / 2, dashed=True)
 
 class E16Grid(Flowable):
     """The E16 in SF SHOW: a 4 x 4 grid numbered row by row from the top left. Rows 1-2 are the same on

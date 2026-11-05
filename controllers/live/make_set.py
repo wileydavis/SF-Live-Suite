@@ -74,6 +74,11 @@ SHOW = [
          devices=[("ROOMEQ", {})]),
     dict(name="93 REC", kind="audio", colour=DARK_RED, audio_in="resampling", monitor="off", sends=False, out="none",
          devices=[]),
+    # The room mics (a stereo pair on inputs 1/2): arm it to record the room with the set. SF CAPTURE
+    # plays TERROIR's sweep out of the headphone pair (a speaker on it) and records the mics; it never
+    # passes them, so its output is silent the rest of the time.
+    dict(name="94 ROOM", kind="audio", colour=DARK_RED, audio_in="ext:S0", monitor="in", sends=False, out="ext:S1",
+         devices=[("CAPTURE", {})], setup="inputs 1/2 as a stereo pair (Settings > Audio > Input Config)"),
     dict(name="A DUB", kind="return", colour=GREY, out="90 LIVE BUS", devices=[("DELAY", {"dry": "off"})]),
     dict(name="B SPACE", kind="return", colour=GREY, out="90 LIVE BUS", devices=[("REVERB", {"dry": "off"})]),
 ]
@@ -445,6 +450,9 @@ class Builder:
                 self.route(t, "AudioInputRouting", "AudioIn/None", "No Input")
             elif audio_in == "resampling":
                 self.route(t, "AudioInputRouting", "AudioIn/Main", "Resampling")
+            elif audio_in and audio_in.startswith("ext:S"):           # a stereo pair of the interface's inputs
+                n = int(audio_in[5:])
+                self.route(t, "AudioInputRouting", f"AudioIn/External/S{n}", "Ext. In", f"{2 * n + 1}/{2 * n + 2}")
             if s["kind"] == "midi":                     # silent until its MIDI From is set: never every part at once
                 self.route(t, "MidiInputRouting", "MidiIn/None", "No Input")
             self.set_sends(t, len(returns), s.get("sends", s["kind"] != "return"))
@@ -611,6 +619,10 @@ def main():
     for s in SHOW:
         if s.get("midi") and not s["midi"].startswith("none"):
             print(f"  {s['name']:12s} {s['midi']}")
+    print("Audio setup in Live's Settings:")
+    for s in SHOW:
+        if s.get("setup"):
+            print(f"  {s['name']:12s} {s['setup']}")
 
 
 if __name__ == "__main__":

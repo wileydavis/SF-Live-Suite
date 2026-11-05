@@ -2,7 +2,7 @@
 
 Ableton Live plugins for performing hypnotic / dub techno live. Private. `SPEC.md` is the source of truth.
 
-31 plugins, one shared core: 10 instruments (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE, STRIKE, DECK, CONTROL), 12 effects (STRIP, FILTER, GATE, DENSITY, DELAY, REVERB, TERROIR, DRIVE, RADIO, REPEAT, DUCK, ENERGY), 9 master/mix tools (ISOLATOR, BUILD, GLUE, TONE, LOWEND, LIMIT, ROOM EQ, ALLOC, TAP).
+32 plugins, one shared core: 10 instruments (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE, STRIKE, DECK, CONTROL), 13 effects (STRIP, FILTER, GATE, DENSITY, DELAY, REVERB, TERROIR, CAPTURE, DRIVE, RADIO, REPEAT, DUCK, ENERGY), 9 master/mix tools (ISOLATOR, BUILD, GLUE, TONE, LOWEND, LIMIT, ROOM EQ, ALLOC, TAP).
 
 The reference manual is `docs/SF-Live-Suite-Manual.pdf`.
 
@@ -14,9 +14,9 @@ The reference manual is `docs/SF-Live-Suite-Manual.pdf`.
 
 The first run installs CMake via Homebrew if needed and clones JUCE 8.0.4 into `./JUCE`. It builds every plugin as AU and VST3 and copies them into `~/Library/Audio/Plug-Ins/Components` and `~/Library/Audio/Plug-Ins/VST3`. Then rescan in Live (Settings > Plug-Ins > Rescan). Use AU or VST3, not both. They show up as `SF KICK`, `SF BASS` and so on.
 
-One plugin only: `./build.sh KICK` (any module id: KICK PERC RUMBLE BASS LEAD PAD VOICE STRIKE DECK CONTROL FILTER GATE DENSITY DELAY REVERB TERROIR DRIVE RADIO REPEAT DUCK ENERGY ISOLATOR BUILD GLUE TONE LOWEND LIMIT ROOMEQ ALLOC TAP STRIP).
+One plugin only: `./build.sh KICK` (any module id: KICK PERC RUMBLE BASS LEAD PAD VOICE STRIKE DECK CONTROL FILTER GATE DENSITY DELAY REVERB TERROIR CAPTURE DRIVE RADIO REPEAT DUCK ENERGY ISOLATOR BUILD GLUE TONE LOWEND LIMIT ROOMEQ ALLOC TAP STRIP).
 
-The full build compiles 31 plugins and takes a while the first time (each plugin carries the whole core). Always rebuild and install the whole suite together: plugins from different builds don't share the SF BUS (Pocket, songs, macros, KEY, PANIC).
+The full build compiles 32 plugins and takes a while the first time (each plugin carries the whole core). Always rebuild and install the whole suite together: plugins from different builds don't share the SF BUS (Pocket, songs, macros, KEY, PANIC).
 
 Offline tests (no host needed):
 
@@ -55,7 +55,7 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH in the MOTION row). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. Odd rates (3/16, 5/16, 7/16, dotted, triplet, 3/5/7 BAR) run against the bar for polyrhythm and line up with it again every few bars. They are saved with songs and presets, and random sources replay the same way every time the set is played.
 
-**Places (SF TERROIR):** a convolution reverb for spaces you capture yourself. Clap in a room (or play the plugin's sweep file from any speaker) and record it with one mic or a stereo pair (a recorder's poly file as it comes: its mix tracks are skipped), drop the recording on the plugin, and the place is in one of eight PLACE slots, stored inside the Live set and recalled with songs. SIZE, DECAY, DARK, LENGTH (gated to a note), REVERSE and START reshape it; FREEZE holds its sound. Its first eight controls are SF REVERB's, so it swaps in on B SPACE with the E16 as it is (map six controls once).
+**Places (SF TERROIR):** a convolution reverb for spaces you capture yourself. Clap in a room (or play the plugin's sweep file from any speaker) and record it with one mic or a stereo pair (a recorder's poly file as it comes: its mix tracks are skipped), drop the recording on the plugin, and the place is in one of eight PLACE slots, stored inside the Live set and recalled with songs. SIZE, DECAY, DARK, LENGTH (gated to a note), REVERSE and START reshape it; FREEZE holds its sound. Its first eight controls are SF REVERB's, so it swaps in on B SPACE with the E16 as it is (map six controls once). **In the set (SF CAPTURE):** with the room mics on their own track (94 ROOM in SF SHOW) holding SF CAPTURE, TERROIR's CAPTURE button and a slot click play the sweep to a speaker on the headphone out and record the mics, 46 s with the transport stopped; the take lands in the slot as if dropped. SF CAPTURE never passes the mics.
 
 **Presets:** the PRESET button in every header. 191 factory presets; SAVE USER PRESET writes to `~/Music/SF Live Suite/Presets/<MODULE>/`.
 
@@ -69,8 +69,8 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 | LIMIT output true peak (8x, independent check) | never above CEILING: dense programme +12 dB into -1.0 gives -1.12 dBTP; noise +12 dB gives -1.02 dBTP |
 | Loudness meter (BS.1770-4 / EBU R128) | -20.00 LUFS on the 1 kHz reference; EBU Tech 3341 cases 1-5 and 9 (level, both gates, short-term) within 0.02 LU |
 | REVERB RT60 of the lows at DECAY 1 / 3 / 8 s | 0.99 / 3.04 / 8.00 s |
-| Buffer-size independence | 31 of 31 plugins bit-identical at buffer sizes 1 to 2048 |
-| Sample rates | all 30 clean at 44.1, 48 and 96 kHz |
+| Buffer-size independence | 32 of 32 plugins bit-identical at buffer sizes 1 to 2048 |
+| Sample rates | all 32 clean at 44.1, 48 and 96 kHz |
 | Gain staging | every model of every instrument at its role's target within 0.1 dB (VOICE phrase models within 0.6 dB): KICK -15, PERC -22, RUMBLE -20, BASS -18, LEAD -20, PAD -22, VOICE -20, STRIKE -20 LUFS |
 | PANIC | feedback delay, 20 s reverb and a held pad silenced to -140 dB; held: -140 dB while held, back in 5 ms on release with no step, also through effects with latency |
 | Song recall | on the bar line at every buffer size and song position tested, whichever order Live processes the tracks in (20 of 20, no plugin a bar late); its KEY switches on that bar too (it used to switch up to a buffer early or late); inside an Arrangement loop that never reaches the bar, on the next bar line after the jump back |
@@ -98,6 +98,7 @@ Offline, one instance at default settings, 48 kHz, buffer 256, measured on the 2
 | DECK | 0.4 | DUCK | 0.4 | TAP | 0.5 |
 | CONTROL | 0.1 | ENERGY | 0.6 | STRIP | 1.3 |
 | | | TERROIR | 1.5 | | |
+| | | CAPTURE | 0.3 | | |
 
 A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DECK, 4 ENERGY, DELAY, REVERB, DENSITY and the whole master chain) adds up to about 36 % of one core here (best of three runs; timings on this shared machine vary by 10-20 % from run to run).
 
@@ -131,7 +132,9 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 
 Fixes from an independent audit of the Nov 4 build (revision 0fbbd7f): one gesture, one meaning; the newest intent wins.
 
-- **Rebuild and install everything.** The SF BUS moved to v8; old and new builds don't talk to each other. **Load SF SHOW.oxie16 into the E16 again** (its script changed).
+- **Rebuild and install everything.** The SF BUS moved to v9; old and new builds don't talk to each other. **Load SF SHOW.oxie16 into the E16 again** (its script changed).
+- **New: SF CAPTURE** (32 plugins), for capturing the room you play in as an SF TERROIR place without leaving Live: on the room mics' track, it plays TERROIR's sweep to a speaker and records the mics; TERROIR's new CAPTURE button asks for it (manual: SF CAPTURE; operator's manual, chapter 8, CAPTURING THE ROOM). It never passes the mics. A new plugin: nothing in an existing set changes.
+- **SF SHOW.als has a new track, 94 ROOM:** the room mics (Ext. In 1/2, a stereo pair: Live's Settings > Audio > Input Config), Monitor In, SF CAPTURE, out to the headphones (3/4). Armed, it records the room with the set. Take the new set (its section 2 again: the input and the outputs are yours to check), or add the track to your own.
 - **SF BUILD: one drop per press.** Holding DROP through the drop (and turning BUILD back down while still holding) used to plan a second drop, with a second GAP, on the next bar. Press again for another drop.
 - **A recalled knob turned back** to where it was before the recall now sounds at once (it used to stay on the recalled value for 3 s). **STORE after a recall** stores what you hear: your newer move if you made one (STORE TO too); it used to store the recalled value.
 - **A Program Change for the song already playing** cancels one still waiting for its bar.

@@ -34,6 +34,7 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 | 90 LIVE BUS | SF ISOLATOR > BUILD > GLUE > TONE > LOWEND; SF ALLOC, ENABLE off | No Input, Monitor In, sends disabled | Main |
 | 92 PA | SF ROOM EQ | Resampling, Monitor In, sends disabled | Ext. Out 1/2 |
 | 93 REC | none | Resampling, Monitor Off, sends disabled | Sends Only |
+| 94 ROOM | SF CAPTURE | Ext. In 1/2 (the room mics, a stereo pair), Monitor In, sends disabled | Ext. Out 3/4 |
 | A DUB (return) | SF DELAY, DRY off | | 90 LIVE BUS |
 | B SPACE (return) | SF REVERB, DRY off | | 90 LIVE BUS |
 | Main | SF LIMIT | | Ext. Out 5/6 |
@@ -45,7 +46,10 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
   Max 0 dB; DUB FEEDBACK is mapped 0-70 %.
 - Every MIDI track starts on MIDI From No Input, so nothing plays until section 2 points it at its
   part. Cue Out 3/4. Tempo 120, 4/4, eight empty scenes. Colours: groups white, instruments light
-  grey, the rest grey; red is 92 PA, dark red is 93 REC.
+  grey, the rest grey; red is 92 PA, dark red 93 REC and 94 ROOM.
+- **94 ROOM** is the room mics. Armed, it records them with the set, for the mix. Its SF CAPTURE never
+  passes them (the set never hears the mics); for SF TERROIR it plays the sweep to a speaker on the
+  headphone out and records the place (the operator's manual, chapter 8, CAPTURING THE ROOM).
 
 ## 1. BEFORE OPENING
 
@@ -57,7 +61,7 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 
 ## 2. OPEN IT, THEN FINISH IT
 
-Live names MIDI ports and audio outputs after your devices, so the first two belong to your rig:
+Live names MIDI ports and audio inputs and outputs after your devices, so the first two belong to your rig:
 
 1. **MIDI From** on twelve tracks. Each is No Input until you set it: an instrument plays nothing
    until then, and never All Ins (every instrument would play every part).
@@ -77,10 +81,12 @@ Live names MIDI ports and audio outputs after your devices, so the first two bel
    | 34 VOICE | ONE port B, ch 5 |
    | 41 DECK | ONE port B, ch 7 (hot cues; optional) |
 
-2. **Outputs.** 92 PA to the pair that feeds the PA (the set has 1/2). Cue Out, on the Main track,
-   to the headphones (3/4; Live cues only when it differs from Main's). Main to a pair that goes
-   nowhere (5/6: on an interface without it, Main stays silent). Check all three before any sound
-   reaches a PA: the PA pair must carry 92 PA and nothing else.
+2. **Inputs and outputs.** 92 PA to the pair that feeds the PA (the set has 1/2). Cue Out, on the
+   Main track, to the headphones (3/4; Live cues only when it differs from Main's), and 94 ROOM there
+   too. Main to a pair that goes nowhere (5/6: on an interface without it, Main stays silent). Check
+   all three before any sound reaches a PA: the PA pair must carry 92 PA and nothing else. The room
+   mics on inputs 1 and 2 (1: the mic on your left as you face the speaker); in Settings > Audio >
+   Input Config, 1/2 as a stereo pair, or 94 ROOM has no input.
 3. **Cmd-K**, two computer keys, never E16 presses: **PANIC** (SF CONTROL on 00 CONTROL; press,
    every SF plugin silent; again, back) and **92 PA**'s activator (press, the speakers off and REC
    still recording; again, on).
@@ -98,7 +104,8 @@ For DECK's headphone cue, add an audio track: Audio From 41 DECK, CUE; out to th
    the parameter named in `sf-show-map.csv` moves, and a volume stops at 0 dB.
    `python3 controllers/live/check_set.py "SF SHOW.als"` says the same from the file: 108 of 108.
 3. Play the ONE: each instrument plays only its own part; the LIVE BUS, Main and 92 PA meters move;
-   93 REC, armed, records the set. Cue a track: it reaches the headphones and not the PA.
+   93 REC, armed, records the set. Cue a track: it reaches the headphones and not the PA. 94 ROOM's
+   SF CAPTURE shows the room on IN L and IN R; armed, ROOM records it.
 4. Then the manual's chapter 7, BEFORE THE FIRST SHOW.
 
 ## A SET OF YOUR OWN
@@ -117,7 +124,9 @@ run it again. It finds targets by the template's track names and plugin names, V
 ## SF TERROIR
 
 The set ships with SF REVERB on B SPACE. To use your captured places there instead, swap in SF
-TERROIR (DRY off) and map six controls: `controllers/e16/README.md`, SF TERROIR ON B SPACE.
+TERROIR (DRY off) and map six controls: `controllers/e16/README.md`, SF TERROIR ON B SPACE. With
+TERROIR in the set, 94 ROOM captures the room you play in straight into a PLACE slot: transport
+stopped, a speaker on the headphone out, CAPTURE on TERROIR's display, then the slot (46 s).
 
 ## REBUILDING
 

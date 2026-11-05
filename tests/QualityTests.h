@@ -3856,6 +3856,244 @@ static void testIrImport()
     }
 }
 
+// In-set capture (SF CAPTURE on the room mics' track, SF TERROIR's CAPTURE): the sweep out of SF
+// CAPTURE, through a room heard by two mics (the right 72 samples later, 3 dB down), -70 dB noise and
+// the round trip, back into its input; the take written, then analysed into TERROIR's slot 4 with its
+// shape and the mics' timing. And what must not happen: the mics passed through, a take while the
+// transport plays or with no SF CAPTURE, a stop that clicks, a take that runs on when the transport starts.
+static void testCapture()
+{
+    std::printf ("-- In-set capture: SF CAPTURE plays the sweep and records, SF TERROIR analyses the take\n");
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_capture_test");
+    dir.deleteRecursively();
+    dir.createDirectory();
+    capture::testFolder = dir.getFullPathName().toStdString();
+    resetBus();
+    auto& d = Bus::get().d();
+    // The room, as the two mics hear it.
+    const auto room = roomIr (kSr, 0.6f, 21);
+    std::vector<float> irL (room.begin(), room.begin() + (int) (0.9 * kSr)), irR (irL.size(), 0.0f);
+    for (size_t i = 72; i < irR.size(); ++i) irR[i] = 0.708f * irL[i - 72];
+    Convolver air;
+    air.prepare ((int) irL.size());
+    air.offer (makeIrFilter (irL.data(), irR.data(), (int) irL.size()).release());
+
+    Rig2 terr ("TERROIR"), cap ("CAPTURE");
+    terr.head.playing = cap.head.playing = false;
+    // TERROIR's display as the editor lays it out (896 wide): slot 4 and CAPTURE, as it draws them.
+    const juce::Rectangle<float> disp (0.0f, 0.0f, 896.0f, 150.0f);
+    auto click = [&] (float x) { terr.p->mod().displayMouse ({ x, 25.0f }, disp, true); terr.p->mod().displayMouseUp(); };
+    auto slotX = [] (int i) { return 10.0f + (float) i * 30.0f + 13.0f; };
+    const float captureX = 896.0f - 172.0f + 35.0f;
+    std::mt19937 rng (5);
+    std::normal_distribution<float> g (0.0f, 1.0f);
+    std::vector<float> backL ((size_t) kBlock, 0.0f), backR ((size_t) kBlock, 0.0f), mono ((size_t) kBlock, 0.0f);
+    float outPeak = 0.0f;
+    std::vector<float> lastOut;
+    // One block: the mics hear what the speaker played (the engine's 512 samples and a block late).
+    auto step = [&] (float extra = 0.0f)
+    {
+        cap.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                b.setSample (0, i, backL[(size_t) i] + g (rng) * 3.0e-4f + extra);
+                b.setSample (1, i, backR[(size_t) i] + g (rng) * 3.0e-4f + extra);
+            }
+        });
+        lastOut.assign (cap.buf.getReadPointer (0), cap.buf.getReadPointer (0) + kBlock);
+        for (int i = 0; i < kBlock; ++i) { mono[(size_t) i] = cap.buf.getSample (0, i); outPeak = std::max (outPeak, std::fabs (mono[(size_t) i])); }
+        air.process (mono.data(), backL.data(), backR.data(), kBlock);
+        terr.step (kBlock, nullptr);
+    };
+    auto waitState = [&] (int want, double sec)
+    {
+        for (const double until = juce::Time::getMillisecondCounterHiRes() + sec * 1000.0; juce::Time::getMillisecondCounterHiRes() < until;)
+        {
+            if (d.capState.load() == want) return true;
+            step();
+            juce::Thread::sleep (1);
+        }
+        return d.capState.load() == want;
+    };
+    auto placeIn = [&] (int slot, juce::String& kind, juce::String& name, juce::MemoryBlock& flac, double& srHz)
+    {
+        juce::MemoryBlock st;
+        terr.p->getStateInformation (st);
+        const auto m = juce::ValueTree::readFromData (st.getData(), st.getSize()).getChildWithName ("MODULE");
+        for (int i = 0; i < m.getNumChildren(); ++i)
+            if (m.getChild (i).hasType ("PLACE") && (int) m.getChild (i).getProperty ("slot") == slot)
+            {
+                kind = m.getChild (i).getProperty ("kind").toString();
+                name = m.getChild (i).getProperty ("name").toString();
+                srHz = (double) m.getChild (i).getProperty ("sr");
+                if (auto* mb = m.getChild (i).getProperty ("flac").getBinaryData()) flac = *mb;
+                return true;
+            }
+        return false;
+    };
+    for (int b = 0; b < 40; ++b) step();
+
+    // 1. It never passes the mics: a loud input, nothing out.
+    outPeak = 0.0f;
+    for (int b = 0; b < 20; ++b) step (0.5f);
+    std::printf ("   idle, the mics at -6 dBFS: out %.1f dBFS\n", gainToDb (outPeak));
+    CHECK (outPeak == 0.0f, "SF CAPTURE passes its input (%.1f dBFS)", gainToDb (outPeak));
+
+    // 2. Refused: the transport playing; no SF CAPTURE.
+    const uint32_t seq0 = d.capSeq.load();
+    terr.head.playing = true; step();
+    click (captureX); click (slotX (3));
+    terr.head.playing = false; step();
+    const bool refusedPlaying = d.capSeq.load() == seq0;
+    d.captureSeenMs = 0;
+    click (captureX); click (slotX (3));
+    const bool refusedAbsent = d.capSeq.load() == seq0;
+    step();
+    std::printf ("   asked while the transport plays: %s; with no SF CAPTURE: %s\n", refusedPlaying ? "refused" : "TAKEN", refusedAbsent ? "refused" : "TAKEN");
+    CHECK (refusedPlaying && refusedAbsent, "TERROIR asks for a capture it must not");
+
+    // 3. A take into slot 4: armed, slot clicked; the whole sweep and the tail; written; analysed.
+    outPeak = 0.0f;
+    click (captureX); click (slotX (3));
+    const bool asked = d.capSeq.load() == seq0 + 1;
+    const bool playing = waitState (capture::Playing, 5.0);
+    const int blocks = (int) ((ir::kLeadSec + ir::kRepeats * (ir::kSweepSec + ir::kGapSec) + capture::kTailSec) * kSr / kBlock) + 2;
+    for (int b = 0; b < blocks && d.capState.load() == capture::Playing; ++b) step();
+    const bool done = waitState (capture::Done, 60.0);
+    const auto take = capture::fileFor (d.capStamp.load());
+    int takeCh = 0; double takeSec = 0.0;
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        if (std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (take)); r != nullptr) { takeCh = (int) r->numChannels; takeSec = (double) r->lengthInSamples / r->sampleRate; }
+    }
+    juce::String kind, name;
+    juce::MemoryBlock flac;
+    double placeSr = 0.0;
+    bool stored = false;
+    for (const double until = juce::Time::getMillisecondCounterHiRes() + 180000.0; ! stored && juce::Time::getMillisecondCounterHiRes() < until;)
+    {
+        juce::Thread::sleep (50);
+        step();
+        stored = placeIn (3, kind, name, flac, placeSr);
+    }
+    double corrL = 0.0, corrR = 0.0;
+    int lag = 0, chans = 0;
+    if (stored)
+    {
+        juce::FlacAudioFormat fmt;
+        std::unique_ptr<juce::AudioFormatReader> r (fmt.createReaderFor (new juce::MemoryInputStream (flac, false), true));
+        if (r != nullptr)
+        {
+            chans = (int) r->numChannels;
+            juce::AudioBuffer<float> b ((int) r->numChannels, (int) r->lengthInSamples);
+            r->read (&b, 0, (int) r->lengthInSamples, 0, true, true);
+            if (chans == 2)
+            {
+                const int pl = peakIndex (b.getReadPointer (0), b.getNumSamples()), pr = peakIndex (b.getReadPointer (1), b.getNumSamples());
+                const int ph = peakIndex (irL.data(), (int) irL.size());
+                lag = pr - pl;
+                const int pre = (int) (0.002 * kSr), n = std::min ({ (int) (0.5 * kSr), b.getNumSamples() - pl - 200, (int) irL.size() - ph - 200 });
+                corrL = bandCorrelation (b.getReadPointer (0) + pl - pre, irL.data() + ph - pre, n, kSr);
+                corrR = bandCorrelation (b.getReadPointer (1) + pr - pre, irR.data() + ph + 72 - pre, n, kSr);
+            }
+        }
+    }
+    std::printf ("   CAPTURE armed, slot 4 clicked: asked %s, played %s (peak %.2f dBFS at SWEEP LEVEL -6), written %s (%d channels, %.1f s)\n",
+                 asked ? "yes" : "NO", playing ? "yes" : "NO", gainToDb (outPeak), done ? "yes" : "NO", takeCh, takeSec);
+    std::printf ("   slot 4: %s \"%s\", %.0f Hz, %d channels; against the room: left %.4f, right %.4f; right %d samples later (want 72)\n",
+                 stored ? kind.toRawUTF8() : "NOT STORED", name.toRawUTF8(), placeSr, chans, corrL, corrR, lag);
+    CHECK (asked && playing && done && std::abs (gainToDb (outPeak) + 6.0f) < 0.1f && takeCh == 2 && std::abs (takeSec - 46.0) < 0.01,
+           "SF CAPTURE take wrong");
+    CHECK (stored && kind == "SWEEP x3" && name.startsWith ("ROOM ") && chans == 2 && corrL > 0.99 && corrR > 0.99 && lag == 72,
+           "capture into TERROIR's slot 4 wrong");
+
+    // 4. STOP (CAPTURE again) two seconds in: the sweep fades out over 10 ms, nothing is stored.
+    auto stopTest = [&] (bool byTransport, int slot)
+    {
+        juce::Thread::sleep (100);                       // TERROIR's worker has seen the last take end (a hand is slower)
+        step();
+        click (captureX); click (slotX (slot));
+        if (! waitState (capture::Playing, 5.0)) return std::make_pair (false, 0);
+        for (int b = 0; b < (int) (2.5 * kSr / kBlock); ++b) step();
+        if (byTransport) cap.head.playing = true; else click (captureX);
+        std::vector<float> o;
+        for (int b = 0; b < 8; ++b) { step(); o.insert (o.end(), lastOut.begin(), lastOut.end()); }
+        cap.head.playing = false;
+        int last = 0;
+        for (int i = 0; i < (int) o.size(); ++i) if (o[(size_t) i] != 0.0f) last = i;
+        const bool stopped = d.capState.load() == capture::Failed && d.capError.load() == (byTransport ? capture::TransportStarted : capture::Cancelled);
+        return std::make_pair (stopped, last);
+    };
+    const auto [stopOk, stopLen] = stopTest (false, 4);
+    const auto [transportOk, transportLen] = stopTest (true, 5);
+    juce::Thread::sleep (300);
+    for (int b = 0; b < 4; ++b) step();
+    juce::String k2, n2; juce::MemoryBlock f2; double s2 = 0.0;
+    const bool nothing = ! placeIn (4, k2, n2, f2, s2) && ! placeIn (5, k2, n2, f2, s2);
+    std::printf ("   STOP 2.5 s in: %s, silent after %d samples; the transport starting: %s, silent after %d; neither stored: %s\n",
+                 stopOk ? "stopped" : "NOT STOPPED", stopLen, transportOk ? "stopped" : "NOT STOPPED", transportLen, nothing ? "yes" : "NO");
+    CHECK (stopOk && transportOk && stopLen < 2 * kBlock && transportLen < 2 * kBlock && nothing, "capture stop wrong");
+
+    // 5. Live prepares SF CAPTURE again (a new rate or buffer size) after it claimed a take and
+    //    before the take starts: the take ends (Cancelled) instead of the bus saying Preparing for
+    //    good, which would refuse every later capture; the next take starts.
+    auto failedWith = [&] (int err) { return d.capState.load() == capture::Failed && d.capError.load() == err; };
+    juce::Thread::sleep (100);
+    step();
+    click (captureX); click (slotX (6));
+    bool preparing = false;
+    for (int k = 0; k < 500 && ! preparing; ++k) { juce::Thread::sleep (2); preparing = d.capState.load() == capture::Preparing; }
+    juce::Thread::sleep (500);                           // the take built and waiting for a block (no block runs meanwhile)
+    cap.p->prepareToPlay (kSr, kBlock);
+    const bool preparedEnds = preparing && failedWith (capture::Cancelled);
+    juce::Thread::sleep (100);
+    step();
+    click (captureX); click (slotX (7));
+    const bool restarted = waitState (capture::Playing, 5.0);
+    click (captureX);
+    for (int b = 0; b < 4; ++b) step();
+    const bool restartStops = failedWith (capture::Cancelled);
+
+    // 6. PANIC held on SF CONTROL: a take asked for meanwhile never starts (Cancelled); a take
+    //    playing when PANIC comes stops (Cancelled). Nothing is written or stored.
+    auto panic = [&] (bool on) { d.controlSeenMs = Bus::nowMs(); d.panicHeld = on ? 1 : 0; };
+    juce::Thread::sleep (100);
+    panic (true); step();
+    click (captureX); click (slotX (6));
+    bool panicRefused = false;
+    for (const double until = juce::Time::getMillisecondCounterHiRes() + 3000.0; ! panicRefused && juce::Time::getMillisecondCounterHiRes() < until;)
+    {
+        panic (true); step(); juce::Thread::sleep (2);
+        panicRefused = failedWith (capture::Cancelled) && d.capTaken.load() == d.capSeq.load();
+    }
+    panic (false);
+    for (int b = 0; b < 4; ++b) step();
+    juce::Thread::sleep (100);
+    step();
+    click (captureX); click (slotX (7));
+    const bool panicPlays = waitState (capture::Playing, 5.0);
+    for (int b = 0; b < (int) (1.0 * kSr / kBlock); ++b) step();
+    bool panicStops = false;
+    for (int b = 0; b < 8 && ! panicStops; ++b) { panic (true); step(); panicStops = failedWith (capture::Cancelled); }
+    panic (false);
+    juce::Thread::sleep (300);
+    for (int b = 0; b < 4; ++b) step();
+    const bool none67 = ! placeIn (6, k2, n2, f2, s2) && ! placeIn (7, k2, n2, f2, s2);
+    int files = 0;
+    for (const auto& e : juce::RangedDirectoryIterator (dir, false, "*.wav")) { juce::ignoreUnused (e); ++files; }
+    std::printf ("   prepared again after the claim: %s; the next take %s and stops %s; PANIC held: a take asked %s, a take playing %s; stored %s, takes written %d (want 1)\n",
+                 preparedEnds ? "ended (Cancelled)" : "STUCK", restarted ? "plays" : "DOESN'T PLAY", restartStops ? "yes" : "NO",
+                 panicRefused ? "never starts" : "STARTS", panicPlays && panicStops ? "stops" : "DOESN'T STOP", none67 ? "nothing" : "SOMETHING", files);
+    CHECK (preparedEnds && restarted && restartStops && panicRefused && panicPlays && panicStops && none67 && files == 1, "capture lifecycle wrong");
+
+    for (auto* f : air.releaseAll()) delete f;
+    capture::testFolder.clear();
+    dir.deleteRecursively();
+    resetBus();
+}
+
 // TERROIR's IR follows its knobs through every change of stream (Nov 5 audit, F4 F5): real time to
 // rendering and back with an old answer from the worker waiting or still being built, prepare
 // again, a fresh instance's first note, the state loaded before or after prepare, a change of rate;

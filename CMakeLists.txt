@@ -96,6 +96,7 @@ if(SF_BUILD_PLUGINS)
         "DUCK|SfDu|FALSE|SF DUCK"
         "ENERGY|SfEn|FALSE|SF ENERGY"
         "TERROIR|SfTr|FALSE|SF TERROIR"
+        "CAPTURE|SfCp|FALSE|SF CAPTURE"
         # Master / mix
         "ISOLATOR|SfIs|FALSE|SF ISOLATOR"
         "BUILD|SfBu|FALSE|SF BUILD"

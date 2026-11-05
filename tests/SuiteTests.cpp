@@ -9,6 +9,7 @@
 //  6. CPU: real-time factor per module.
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "core/Bus.h"
+#include "core/Capture.h"
 #include "core/Dsp.h"
 #include "core/Pocket.h"
 #include "core/Processor.h"
@@ -54,6 +55,7 @@ static void resetBus()
     d.dropPpq = -1.0; d.dropDb = 0.0f; d.storeSong = -1;
     d.slowAll = 0; d.slowAllPrev = 0; d.slowAllFromPpq = -1.0;
     for (auto& g : d.glides) { g.owner = 0; g.count = 0; g.seenMs = 0; }
+    d.capState = 0; d.capError = 0; d.capTaken = d.capSeq.load(); d.captureSeenMs = 0; d.capProgress = 0.0f; d.capPeak = 0.0f;
 }
 
 struct Rig
@@ -176,7 +178,9 @@ static void testModule (const std::string& id)
     CHECK (peakDefault <= 1.5f, "%s default output too hot (%.1f dB)", id.c_str(), gainToDb (peakDefault));
     const bool silentOk = id == "CONTROL" || id == "DECK" || id == "RUMBLE" || id == "VOICE";
     if (inst && ! silentOk) CHECK (peakDefault > 0.01f, "%s silent at default settings", id.c_str());
-    if (! inst && id != "ALLOC") CHECK (peakDefault > 0.01f, "%s silent at default settings", id.c_str());
+    if (! inst && id != "ALLOC" && id != "CAPTURE") CHECK (peakDefault > 0.01f, "%s silent at default settings", id.c_str());
+    // SF CAPTURE never passes its input, whatever its parameters: it plays only a sweep TERROIR asked for.
+    if (id == "CAPTURE") CHECK (peakAll == 0.0f, "CAPTURE passed its input (%.1f dB)", gainToDb (peakAll));
 
     // State round trip.
     juce::MemoryBlock mb;
@@ -1137,7 +1141,7 @@ int main (int argc, char** argv)
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); }
+                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testCapture(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }
@@ -1166,9 +1170,10 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--rings") { testGlideRings(); }
     else if (std::string (argv[1]) == "--radio") { testRadio(); }
     else if (std::string (argv[1]) == "--poly") { testPolyrhythm(); }
-    else if (std::string (argv[1]) == "--terroir") { testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); }
+    else if (std::string (argv[1]) == "--terroir") { testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testCapture(); }
     else if (std::string (argv[1]) == "--lifecycle") { testTerroirLifecycle(); }
     else if (std::string (argv[1]) == "--import") { testIrImport(); }
+    else if (std::string (argv[1]) == "--room") { testCapture(); }
     else if (std::string (argv[1]) == "--quality") { testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); }
     std::printf ("%s: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
