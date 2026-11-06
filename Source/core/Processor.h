@@ -124,6 +124,7 @@ private:
     bool movedSinceRecall (size_t i) const;
     bool overrideHolds (size_t i, int advance);
     bool overrideInForce (size_t i) const;      // overrideHolds without dropping anything (any thread)
+    void lockSongs();                           // songLock, not on the audio thread
     void applySong (int s);
     void updateParams (const sf::Ctx&, int n, float motionInput);
     void processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& mainOut, juce::AudioBuffer<float>* sideAll,
@@ -172,15 +173,27 @@ private:
     uint32_t motionSeed = 1;
     float noteVel = 0.0f;
 
-    // Songs. songWrite: per song, odd while its values are being written (STORE on the audio
-    // thread, a state load): the state save reads a song whole, never half stored.
+    // Songs. songLock: the one writer of songVals at a time (a STORE on the audio thread, a state
+    // load) and the state save's read: a song is never half stored, saved or loaded. The audio
+    // thread only tries it (a STORE that finds it taken waits for the next block).
     std::array<std::array<float, kMaxParams>, sf::kSongs> songVals {};
-    std::array<std::atomic<uint32_t>, sf::kSongs> songWrite {};
+    std::atomic<bool> songLock { false };
     std::array<std::atomic<bool>, sf::kSongs> songHas {};
     std::atomic<int> songIndex { -1 }, pendingSong { -1 };
     uint32_t lastSongSeq = 0, lastStoreSeq = 0, lastPanicSeq = 0;
     bool seqInit = false;
     std::atomic<bool> notifyHost { false }, storeRequested { false }, localPanic { false };
+    // A state load (setStateInformation) is newer than everything asked for before it, whatever its
+    // values. stateGen counts loads, odd while one is under way. A recall belongs to the count at
+    // its landing (ovrState): one from before a load is no longer in force, and never reported to
+    // Live. The audio thread, seeing a new count (seenStateGen), ends a song still waiting for its
+    // bar line and a STORE not yet made, and passes over SF CONTROL's requests up to the counts at
+    // the load's end (songSeqAtLoad, storeSeqAtLoad). Requests after it go ahead as ever.
+    std::atomic<uint32_t> stateGen { 0 }, ovrState { 0 }, songSeqAtLoad { 0 }, storeSeqAtLoad { 0 };
+    std::atomic<uint32_t> storeAskGen { 0 };   // the count when this plugin's own STORE was pressed
+    uint32_t seenStateGen = 0;
+    bool storeWanted = false;              // audio thread: a STORE to make (waits while songLock is taken)
+    int storeTo = -1;                      // ... into this song (SF CONTROL's STORE TO), or the bus song
 
     // Safety
     int overSamples = 0;

@@ -59,7 +59,7 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **Presets:** the PRESET button in every header. 191 factory presets; SAVE USER PRESET writes to `~/Music/SF Live Suite/Presets/<MODULE>/`.
 
-**The plugin windows** are narrow strips (296 pixels wide), so several sit side by side. From the top: the header; the plugin's page of the E16 scene as the E16 shows it (its own encoders lit where they sit on the E16, in the scene's ring colours, the others dark; presses under their knobs); PERFORM (the rest of the performance row); the display; DETAIL (MODEL first); and, folded, MOTION, SYSTEM (SLOW, MACRO) and SETUP (ALLOC, KEY FOLLOW, DRY ...), each with its settings on its title line. Click a title line to open or fold a group; the plugin keeps it with the set. A plugin the scene has on several tracks (LEAD, PERC, ENERGY) finds its page by its track's name, so use the VST3 for those.
+**The plugin windows** are narrow strips (296 pixels wide), so several sit side by side. From the top: the header; the plugin's page of the E16 scene as the E16 shows it (its own encoders lit where they sit on the E16, in the scene's ring colours, the others dark; presses under their knobs); PERFORM (the rest of the performance row); the display; DETAIL (MODEL first); and, folded, MOTION, SYSTEM (SLOW, MACRO) and SETUP (ALLOC, KEY FOLLOW, DRY ...), each with its settings on its title line. Click a title line to open or fold a group; the plugin keeps it with the set. The window is never taller than your screen: when the open groups don't fit, the strip scrolls under the header (the thin bar at the right, or the wheel, which then scrolls and turns no knob). A plugin the scene has on several tracks (LEAD, PERC, ENERGY) finds its page by its track's name, so use the VST3 for those.
 
 ## Sound quality (measured offline, every build)
 
@@ -129,6 +129,16 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 6. **KEY and PANIC.** Set KEY on SF CONTROL: BASS, LEAD and PAD transpose (notes already held follow), KICK and RUMBLE retune to the root. Push SF DELAY into feedback and hold PANIC: everything goes quiet within 5 ms and stays quiet until you let go.
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
+
+### Changes in the second Nov 6 update
+
+Fixes from an independent audit of the first Nov 6 build (revision 93d84a4). Nothing in a set changes, and the SF BUS is still v11; as always, install the whole suite from one build.
+
+- **PANIC ends a capture asked for before it**, whatever it had reached. A take still waiting for SF CAPTURE to pick it up could start its sweep the moment PANIC was let go; a quick tap could let a take ready to start play a few ms. Live's audio restarting (a new sample rate or buffer) ends one the same way. Ask again with CAPTURE.
+- **A take being written is not kept** when PANIC, a restart or STOP comes: no file, nothing taken into the slot (it used to be written and taken in). A take already written stays usable, as before.
+- **A preset loaded right after a song recall keeps its own values.** Loaded (Live's browser, undo) before Live had taken the recall in, a preset whose value was the knob's from before the recall lost to the recall: it played 6 dB off, and the set saved it so. A song change still waiting for its bar line, or a STORE not yet made, in that plugin when the preset comes in is dropped there (the preset is newer); a change asked after it lands as ever. The same for a preset from the PRESET menu.
+- **SF TERROIR's LENGTH is right from the first note** at Live's tempo and meter, also with a preset saved at another tempo, a set reopened in another meter, or the tempo changed while the plugin was off (the first notes kept the old length until the new place was built).
+- **The plugin windows fit your screen.** With MOTION, SYSTEM and SETUP open some strips are over 1000 pixels tall (PAD 1070); the window now stops at your screen's height and the strip scrolls under the header. While it scrolls the wheel scrolls and turns no knob; a group you open at the bottom scrolls into view; a set saved with every group open reopens fitted to the screen, at the top.
 
 ### Changes in the Nov 6 update
 

@@ -14,6 +14,9 @@
 //   SETUP    how the plugin sits in the set (ALLOC, KEY FOLLOW, DRY ...)  folded at first
 // A folded group's title line says what is in it; a click on the line opens or folds it. What is
 // folded is saved with the set (SFProcessor::uiFold).
+// The window is never taller than the screen it is on allows (heightLimit): below the header, the
+// strip scrolls (a thin bar at the right; the wheel scrolls it, and turns no knob, while it does).
+// A group opened at the bottom scrolls into view.
 #include "Processor.h"
 #include "Ui.h"
 #include "Sample.h"
@@ -43,11 +46,10 @@ public:
     ~SFEditor() override;
 
     void paint (juce::Graphics&) override;
-    void resized() override {}
+    void paintOverChildren (juce::Graphics&) override;
+    void resized() override;
+    void parentHierarchyChanged() override { relayout(); }   // on screen: that screen's height
     void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-    void mouseMove (const juce::MouseEvent&) override;
 
     bool isInterestedInFileDrag (const juce::StringArray&) override;
     void filesDropped (const juce::StringArray&, int, int) override;
@@ -66,9 +68,29 @@ public:
     std::vector<std::pair<int, juce::String>> places() const;
     bool folded (int foldBit) const;
     void toggleFold (int foldBit);
-    juce::Rectangle<int> displayBounds() const { return display; }
+    juce::Rectangle<int> displayBounds() const { return getLocalArea (&body, display); }
+    // The scrolling: the strip below the header (body), its view, and the tallest the window may be.
+    // testHeightLimit (tests, pictures): that limit in place of the screen's (0: the screen's).
+    static inline int testHeightLimit = 0;
+    int heightLimit() const;
+    juce::Viewport& scroller() { return view; }
+    juce::Component& strip() { return body; }
+    int contentHeight() const { return body.getHeight(); }
+    std::vector<juce::Rectangle<int>> titleRows() const;     // the groups' title lines (the strip's coordinates)
 
 private:
+    // The strip below the header: the E16, the groups and the module's display. It paints and takes
+    // the clicks for them (the editor's own code: SFEditor::paintBody and the body* handlers).
+    struct Body : juce::Component
+    {
+        SFEditor& ed;
+        explicit Body (SFEditor& e) : ed (e) {}
+        void paint (juce::Graphics& g) override { ed.paintBody (g); }
+        void mouseDown (const juce::MouseEvent& e) override { ed.bodyMouse (e, true); }
+        void mouseDrag (const juce::MouseEvent& e) override { ed.bodyMouse (e, false); }
+        void mouseUp (const juce::MouseEvent&) override { ed.proc.mod().displayMouseUp(); }
+        void mouseMove (const juce::MouseEvent& e) override;
+    };
     struct Group
     {
         juce::String title;
@@ -91,6 +113,8 @@ private:
     void relayout();                    // places everything and sizes the window
     int layout();
     void paintHeader (juce::Graphics&);
+    void paintBody (juce::Graphics&);
+    void bodyMouse (const juce::MouseEvent&, bool down);
     void paintE16 (juce::Graphics&);
     void paintTitle (juce::Graphics&, const Group&);
     juce::String summary (const Group&) const;
@@ -113,4 +137,6 @@ private:
     juce::Array<juce::File> userFiles;
     std::unique_ptr<juce::FileChooser> chooser;
     bool dragHover = false;
+    Body body { *this };
+    juce::Viewport view;
 };

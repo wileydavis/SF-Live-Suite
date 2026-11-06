@@ -114,7 +114,6 @@ SFProcessor::SFProcessor (ModulePtr m)
     reportExtGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
     departGen = std::make_unique<std::atomic<uint32_t>[]> (specs.size());
     for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; reportExtGen[i] = 0; departGen[i] = 0; }
-    for (auto& w : songWrite) w = 0;
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
     for (auto& h : songHas) h = false;
@@ -235,14 +234,15 @@ bool SFProcessor::movedSinceRecall (size_t i) const
 }
 
 // Audio thread. Whether parameter i's recalled value is still in force, dropping it if not: Live
-// reported it back, it was moved since, or Live still disagrees 3 s after it was told (the clock
-// starts at the report: Live's message thread can be busy for seconds, saving the set). The one
-// decision for the sound and for STORE, so a store never keeps a recall the sound has let go.
-// advance: samples to add to the 3 s clock (0 for STORE).
+// reported it back, it was moved since, a state was loaded since, or Live still disagrees 3 s after
+// it was told (the clock starts at the report: Live's message thread can be busy for seconds,
+// saving the set). The one decision for the sound and for STORE, so a store never keeps a recall
+// the sound has let go. advance: samples to add to the 3 s clock (0 for STORE).
 bool SFProcessor::overrideHolds (size_t i, int advance)
 {
     const float o = ovr[i].load();
     if (std::isnan (o)) return false;
+    if (ovrState.load() != stateGen.load()) { ovr[i] = NAN; return false; }    // a state loaded since: newer, whatever its value
     const float t = raw[i]->load(), eps = 1e-4f * (1.0f + std::abs (t));
     if (reportedGen[i].load() == recallGen[i].load()) ovrAge[i] += advance;
     if (std::abs (t - o) < eps || movedSinceRecall (i) || ovrAge[i] > (int) (3.0 * sr)) { ovr[i] = NAN; return false; }
@@ -253,7 +253,7 @@ bool SFProcessor::overrideHolds (size_t i, int advance)
 // thread drops a recall that has given way (overrideHolds); this only reads.
 bool SFProcessor::overrideInForce (size_t i) const
 {
-    return ! std::isnan (ovr[i].load()) && ! movedSinceRecall (i);
+    return ! std::isnan (ovr[i].load()) && ovrState.load() == stateGen.load() && ! movedSinceRecall (i);
 }
 
 int SFProcessor::paramIndex (const std::string& id) const
@@ -342,6 +342,7 @@ void SFProcessor::prepareToPlay (double sampleRate, int)
 
 void SFProcessor::storeSong()
 {
+    storeAskGen = stateGen.load();         // first: a state loaded after this press is newer than it
     storeRequested = true;
 }
 
@@ -350,6 +351,7 @@ void SFProcessor::applySong (int s)
     // Audio thread. The recalled values take effect now (ovr); the timer then tells Live, and
     // the override drops once Live's value matches.
     if (s < 0 || s >= kSongs || ! songHas[(size_t) s].load()) { songIndex = s; return; }
+    const uint32_t sg = stateGen.load();      // the state this recall lands in (a load under way, or later: it is newer)
     for (size_t i = 0; i < specs.size(); ++i)
     {
         if (! specs[i].song) continue;
@@ -359,6 +361,7 @@ void SFProcessor::applySong (int s)
         ovr[i] = songVals[(size_t) s][i];     // the message thread reads it first
         recallGen[i].fetch_add (1);           // after it: a report marked with this count carried this value
     }
+    ovrState = sg;                            // before the report is asked for
     songIndex = s;
     notifyHost = true;
 }
@@ -371,6 +374,9 @@ void SFProcessor::flushHostNotifications()
         const uint32_t g = recallGen[i].load();    // before the value: a newer recall is never marked reported
         const float v = ovr[i];
         if (std::isnan (v)) continue;
+        // A state loaded since the recall (or loading): Live has the state's value, which is newer.
+        // (Live loads a state on this thread, so a load never comes between this and the report.)
+        if (ovrState.load() != stateGen.load()) continue;
         // Live's count of changes before the check: one made from here on is newer than the report.
         const uint32_t e0 = extGen[i].load();
         // Moved in Live after the recall (a knob turned before this timer came round): the newer
@@ -449,8 +455,25 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     if (! seqInit)
     {
         lastSongSeq = d.songSeq.load(); lastStoreSeq = d.storeSeq.load(); lastPanicSeq = d.panicSeq.load();
+        seenStateGen = stateGen.load();
         seqInit = true;
         if (songIndex.load() < 0) songIndex = d.song.load();
+    }
+    // A state loaded since the last block (or loading now): newer than everything asked for before
+    // it here. A song waiting for its bar line and a STORE not yet made are over, and SF CONTROL's
+    // requests up to the load's end are passed over (later ones go ahead). Its recall in force has
+    // given way already (overrideHolds), and the knobs start where the state has them: no glide.
+    if (const uint32_t sg = stateGen.load(); sg != seenStateGen)
+    {
+        seenStateGen = sg;
+        pendingSong = -1;
+        pendingKey = -2;
+        pendingAt = -1.0;
+        pendingJumped = false;
+        storeWanted = false;
+        if (const uint32_t ls = songSeqAtLoad.load(); (int32_t) (ls - lastSongSeq) > 0) lastSongSeq = ls;
+        if (const uint32_t lt = storeSeqAtLoad.load(); (int32_t) (lt - lastStoreSeq) > 0) lastStoreSeq = lt;
+        firstBlock = true;
     }
     // A song still waiting when the transport jumps back (an Arrangement loop wrapped, a
     // relocate): SF CONTROL's bar line may never come, so this plugin's next bar line instead.
@@ -481,10 +504,21 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
             else recallNow = true;
         }
     }
-    int storeTo = -1;                       // SF CONTROL's STORE TO song, for its STORE ALL only
-    if (const uint32_t ss = d.storeSeq.load(); ss != lastStoreSeq) { lastStoreSeq = ss; storeTo = d.storeSong.load(); storeRequested = true; }
-    if (storeRequested.exchange (false))
+    // SF CONTROL's STORE ALL (with its STORE TO song), or this plugin's own STORE (pressed in the
+    // state in force: one from before a load is over). Made once the songs are free (songLock: a
+    // state save or load has them for a moment), the next block at worst; never while a state is
+    // being loaded (its values half in: the load ends the STORE, as one asked for before it).
+    if (const uint32_t ss = d.storeSeq.load(); ss != lastStoreSeq) { lastStoreSeq = ss; storeTo = d.storeSong.load(); storeWanted = true; }
+    if (storeRequested.exchange (false) && storeAskGen.load() == seenStateGen && ! storeWanted) { storeTo = -1; storeWanted = true; }
+    bool storeNow = false;
+    if (storeWanted && ! songLock.exchange (true, std::memory_order_acquire))
     {
+        if ((stateGen.load() & 1u) == 0) storeNow = true;              // (a load turns it odd under songLock)
+        else songLock.store (false, std::memory_order_release);
+    }
+    if (storeNow)
+    {
+        storeWanted = false;
         // Store into the selected song (the bus song), even if its recall is still waiting for the
         // bar; or into the song STORE TO names, which isn't recalled. That one is in force from
         // now if SF CONTROL made it the bus song (not while a song change is under way).
@@ -496,10 +530,9 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         // a newer change in Live has superseded it: the same decision the sound makes this block
         // (a recall, a newer knob move, then STORE in one host block used to store the recall
         // while the sound took the move).
-        songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);             // odd: being written
         for (size_t i = 0; i < specs.size(); ++i) songVals[(size_t) s][i] = overrideHolds (i, 0) ? ovr[i].load() : raw[i]->load();
-        songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);
         songHas[(size_t) s] = true;
+        songLock.store (false, std::memory_order_release);
     }
     bool panicNow = localPanic.exchange (false);
     if (const uint32_t ps = d.panicSeq.load(); ps != lastPanicSeq) { lastPanicSeq = ps; panicNow = true; }
@@ -843,6 +876,9 @@ void SFProcessor::applyPreset (const Preset& pr)
         if (! s.preset || s.type == PType::Momentary) continue;
         float v = s.def;
         for (auto& kv : pr.values) if (kv.first == s.id) { v = kv.second; break; }
+        // Chosen now: newer than a recall Live hasn't been told of yet, even at the value Live held
+        // before it (as a knob moved away and back is).
+        departGen[i] = recallGen[i].load();
         auto* p = params[i];
         p->beginChangeGesture();
         p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (s.min, s.max, v)));
@@ -934,23 +970,20 @@ void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
     root.appendChild (params, nullptr);
     juce::ValueTree songs ("SONGS");
     songs.setProperty ("active", songIndex.load(), nullptr);
+    // The songs whole (songLock: a STORE on the audio thread waits a block meanwhile).
+    std::array<std::array<float, kMaxParams>, kSongs> vals;
+    std::array<bool, kSongs> has {};
+    lockSongs();
+    vals = songVals;
+    for (int s = 0; s < kSongs; ++s) has[(size_t) s] = songHas[(size_t) s].load();
+    songLock.store (false, std::memory_order_release);
     for (int s = 0; s < kSongs; ++s)
     {
-        if (! songHas[(size_t) s].load()) continue;
-        // A song whole: a STORE on the audio thread meanwhile means reading it again.
-        std::array<float, kMaxParams> v {};
-        for (int tries = 0; tries < 1000; ++tries)
-        {
-            const uint32_t w0 = songWrite[(size_t) s].load (std::memory_order_acquire);
-            if ((w0 & 1u) != 0) { std::this_thread::yield(); continue; }
-            v = songVals[(size_t) s];
-            std::atomic_thread_fence (std::memory_order_acquire);
-            if (songWrite[(size_t) s].load (std::memory_order_relaxed) == w0) break;
-        }
+        if (! has[(size_t) s]) continue;
         juce::ValueTree t ("SONG");
         t.setProperty ("index", s, nullptr);
         for (size_t i = 0; i < specs.size(); ++i)
-            if (specs[i].song) t.setProperty (juce::Identifier (specs[i].id), v[i], nullptr);
+            if (specs[i].song) t.setProperty (juce::Identifier (specs[i].id), vals[(size_t) s][i], nullptr);
         songs.appendChild (t, nullptr);
     }
     root.appendChild (songs, nullptr);
@@ -965,6 +998,13 @@ void SFProcessor::setStateInformation (const void* data, int size)
 {
     auto root = juce::ValueTree::readFromData (data, (size_t) size);
     if (! root.isValid() || root.getType().toString() != "SFSTATE") return;
+    // Newer than everything asked for before it (stateGen, odd from here to the end): the recall
+    // in force gives way and is never reported, whatever the state's values; a song waiting for
+    // its bar line and a STORE not yet made are over (the audio thread ends them itself). Odd under
+    // songLock: a STORE is made wholly before the load, or not at all.
+    lockSongs();
+    stateGen.fetch_add (1);
+    songLock.store (false, std::memory_order_release);
     auto p = root.getChildWithName ("PARAMS");
     if (p.isValid())
     {
@@ -988,6 +1028,7 @@ void SFProcessor::setStateInformation (const void* data, int size)
     currentPreset = root.getProperty ("preset", "").toString();
     uiFold = (int) root.getProperty ("ui", 0);
     auto songs = root.getChildWithName ("SONGS");
+    lockSongs();
     for (auto& h : songHas) h = false;
     if (songs.isValid())
     {
@@ -996,17 +1037,27 @@ void SFProcessor::setStateInformation (const void* data, int size)
         {
             const int s = (int) t.getProperty ("index", -1);
             if (s < 0 || s >= kSongs) continue;
-            songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);
             for (size_t i = 0; i < specs.size(); ++i)
                 songVals[(size_t) s][i] = t.hasProperty (juce::Identifier (specs[i].id)) ? (float) t.getProperty (juce::Identifier (specs[i].id)) : specs[i].def;
-            songWrite[(size_t) s].fetch_add (1, std::memory_order_acq_rel);
             songHas[(size_t) s] = true;
         }
     }
+    songLock.store (false, std::memory_order_release);
     auto m = root.getChildWithName ("MODULE");
     if (m.isValid()) module->load (m);
     module->restored();
-    firstBlock = true;
+    // In: SF CONTROL's requests so far are older than this state; the audio thread starts the
+    // knobs where it has them (no glide) at its next block.
+    const auto& d = sf::Bus::get().d();
+    songSeqAtLoad = d.songSeq.load();
+    storeSeqAtLoad = d.storeSeq.load();
+    stateGen.fetch_add (1);
+}
+
+// Not the audio thread: the songs to this thread alone (the audio thread holds them a moment at most).
+void SFProcessor::lockSongs()
+{
+    while (songLock.exchange (true, std::memory_order_acquire)) std::this_thread::yield();
 }
 
 juce::AudioProcessorEditor* SFProcessor::createEditor() { return new SFEditor (*this); }

@@ -29,13 +29,14 @@ struct FakeHead : juce::AudioPlayHead
 {
     double bpm = 124.0, ppq = 0.0;
     bool playing = true;
+    int beatsPerBar = 4;                    // the time signature: beatsPerBar / 4
     juce::Optional<PositionInfo> getPosition() const override
     {
         PositionInfo p;
         p.setBpm (bpm);
         p.setPpqPosition (ppq);
         p.setIsPlaying (playing);
-        p.setTimeSignature (TimeSignature { 4, 4 });
+        p.setTimeSignature (TimeSignature { beatsPerBar, 4 });
         return p;
     }
 };
@@ -1007,6 +1008,7 @@ static int renderModule (int argc, char** argv)
 }
 
 #include "QualityTests.h"
+#include "RequestTests.h"
 
 // --capture IN.wav [IN2.wav] OUT.wav: SF TERROIR's import on real recordings, through the plugin's own
 // path (the worker thread, the place as stored in the set). Prints what the status line would and a
@@ -1124,6 +1126,7 @@ static int captureFiles (int argc, char** argv)
 static void testEditor()
 {
     std::printf ("-- EDITOR (the strip)\n");
+    SFEditor::testHeightLimit = 100000;           // the whole strip: no screen holds it here (testStripReach does)
     // The track rule GLIDE RINGS and the grid share.
     CHECK (juce::String (e16::trackFor ("LEAD", "32 STAB")) == "32 STAB", "LEAD on 32 STAB");
     CHECK (juce::String (e16::trackFor ("LEAD", "")) == "", "LEAD unnamed: on two tracks");
@@ -1149,6 +1152,7 @@ static void testEditor()
             auto& e = dynamic_cast<SFEditor&> (*ed);
             CHECK (e.getWidth() == SFEditor::kW, "%s: width %d", id.c_str(), e.getWidth());
             if (e.getHeight() > worst) { worst = e.getHeight(); worstId = id + " on '" + nm + "'"; }
+            CHECK (e.getHeight() == SFEditor::kHeader + e.contentHeight(), "%s: the window is the whole strip when the screen holds it", id.c_str());
             // Every parameter it shows, once; nothing hidden.
             const auto pl = e.places();
             std::map<int, int> seen;
@@ -1223,6 +1227,7 @@ static void testEditor()
         p.getStateInformation (mb2);
         CHECK (! juce::ValueTree::readFromData (mb2.getData(), mb2.getSize()).hasProperty ("ui"), "the defaults save nothing");
     }
+    SFEditor::testHeightLimit = 0;
 }
 
 int main (int argc, char** argv)
@@ -1251,8 +1256,14 @@ int main (int argc, char** argv)
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor(); }
-    else if (std::string (argv[1]) == "--editor") { testEditor(); }
+                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
+                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); }
+    else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); }
+    else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
+    else if (std::string (argv[1]) == "--authority2") { testStateAuthority(); }
+    else if (std::string (argv[1]) == "--tempo") { testTerroirTempo(); }
+    else if (std::string (argv[1]) == "--reach") { testStripReach(); }
+    else if (std::string (argv[1]) == "--nov6") { testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }

@@ -53,6 +53,7 @@ story += bullets(["<b>Header:</b> SONG, the OUT meter (FAULT, PANIC), PRESET, ST
                   "<b>PERFORM:</b> the rest of the performance row, and what else is played (DECK's PLAY and CUE, CONTROL's PANIC).",
                   "<b>The display</b>, then <b>DETAIL</b>: the sound's other controls, MODEL first.",
                   "<b>MOTION</b>, <b>SYSTEM</b> (SLOW, MACRO) and <b>SETUP</b> (how the plugin sits in the set: ALLOC, KEY FOLLOW, DRY ...) come folded, their settings on their title line. Click a group's title line to open or fold it; the plugin keeps it so, with the set.",
+                  "<b>Taller than the screen</b> (some strips pass 1000 pixels with every group open): the window stops at the screen's height and the strip scrolls under the header, by the thin bar at the right or the wheel. While it scrolls, the wheel scrolls and turns no knob; a group you open at the bottom scrolls into view.",
                   "<b>On every knob:</b> green, the sound travelling to where you set it (SLOW), and the ringed LED is where it is going; a green dot outside the ring, where MACRO or MOTION have it now; the value in cyan while you touch it. A knob whose middle is neutral (FILTER, TUNE) fills from the top either way, except in the E16 grid, which fills as the E16 does."])
 story.append(H2("DENSITY, GATE, FILTER"))
 story.append(P("Three controls cover most of what changes in a track, and they appear wherever they make sense. <b>DENSITY</b> is how many events happen (ghost notes fill the gaps). <b>GATE</b> is how long each event lasts. <b>FILTER</b> is what each event sounds like: a bipolar DJ filter, centre open, left low-pass, right high-pass. Play two against each other: density up with gate down is a tight, nervous build; density down with gate open is spacious dub; density up with the filter closed is tension waiting to be released."))
@@ -94,7 +95,8 @@ story += bullets(["Send Program Change on MIDI channel 16 to SF CONTROL (program
                   "Recalled values are reported to Live, so the E16 rings jump to the new song's settings. A recalled knob is yours again the moment you turn it.",
                   "A plugin with nothing stored in that song stays as it is.",
                   "With SLOW ALL (SF CONTROL) or a plugin's own SLOW on, the recall glides instead of jumping: a song change becomes an 8- or 16-bar transition.",
-                  "Arrangement automation wins over recalled values, as on any device."])
+                  "Arrangement automation wins over recalled values, as on any device.",
+                  "A preset loaded right after a recall (Live's browser or undo, or the PRESET menu) wins, whatever its values. A song change still waiting for its bar, or a STORE not yet made, in that plugin when a preset from Live comes in is dropped there: ask again."])
 story.append(H2("VST3 AND PROGRAM CHANGE"))
 story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTROL therefore lists 16 programs (SONG 01-16); Live 12.2 and later turn a Program Change on the track into a program change for the VST3, older versions don't. The AU version reads Program Change directly from MIDI in any version. If song changes don't arrive in the VST3, use the AU."))
 story.append(H2("PRESETS"))

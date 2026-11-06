@@ -31,15 +31,16 @@ inline void cmac (float* accRe, float* accIm, const float* xr, const float* xi, 
 }
 } // namespace
 
-std::unique_ptr<IrFilter> makeIrFilter (const float* irL, const float* irR, int taps)
+std::unique_ptr<IrFilter> makeIrFilter (const float* irL, const float* irR, int taps, int capacity)
 {
     auto f = std::make_unique<IrFilter>();
     taps = std::max (0, taps);
     f->taps = taps;
-    f->p1 = std::min (kP1, (taps + kB1 - 1) / kB1);
-    f->p2 = taps > kT1 ? (taps - kT1 + kB2 - 1) / kB2 : 0;
+    f->p1 = IrFilter::headParts (taps);
+    f->p2 = IrFilter::tailParts (taps);
+    f->cap2 = std::max (f->p2, IrFilter::tailParts (capacity));
     f->h1re.assign ((size_t) 2 * kP1 * kBins1, 0.0f); f->h1im.assign (f->h1re.size(), 0.0f);
-    f->h2re.assign ((size_t) 2 * (size_t) f->p2 * kBins2, 0.0f); f->h2im.assign (f->h2re.size(), 0.0f);
+    f->h2re.assign ((size_t) 2 * (size_t) f->cap2 * kBins2, 0.0f); f->h2im.assign (f->h2re.size(), 0.0f);
     juce::dsp::FFT fft1 (10), fft2 (13);
     std::vector<float> w ((size_t) 2 * kN2);
     for (int ch = 0; ch < 2; ++ch)
@@ -59,11 +60,22 @@ std::unique_ptr<IrFilter> makeIrFilter (const float* irL, const float* irR, int 
             const int start = kT1 + p * kB2, len = std::min (kB2, taps - start);
             std::copy (src + start, src + start + len, w.begin());
             fft2.performRealOnlyForwardTransform (w.data(), true);
-            const size_t at = ((size_t) ch * (size_t) f->p2 + (size_t) p) * kBins2;
+            const size_t at = ((size_t) ch * (size_t) f->cap2 + (size_t) p) * kBins2;
             split (w.data(), f->h2re.data() + at, f->h2im.data() + at, kBins2);
         }
     }
     return f;
+}
+
+void Convolver::transform (IrFilter& f, int ch, bool tail, int p, const float* x)
+{
+    // As makeIrFilter: the partition's samples, zero-padded to twice the block, transformed.
+    const int b = tail ? kB2 : kB1, nfft = tail ? kN2 : kN1;
+    std::fill (work.begin(), work.begin() + 2 * nfft, 0.0f);
+    std::copy (x, x + b, work.begin());
+    (tail ? fft2 : fft1)->performRealOnlyForwardTransform (work.data(), true);
+    if (tail) { const size_t at = ((size_t) ch * (size_t) f.cap2 + (size_t) p) * kBins2; split (work.data(), f.h2re.data() + at, f.h2im.data() + at, kBins2); }
+    else { const size_t at = ((size_t) ch * kP1 + (size_t) p) * kBins1; split (work.data(), f.h1re.data() + at, f.h1im.data() + at, kBins1); }
 }
 
 void Convolver::prepare (int maxTapsWanted)

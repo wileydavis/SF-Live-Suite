@@ -14,15 +14,19 @@ namespace sf
 // track's rate and played at SWEEP LEVEL, then 3 s more, the input recorded all the while on the
 // interface's own clock; written as a 32-bit float WAV, then TERROIR analyses it. Live's transport
 // must be stopped: a take refuses to start while it plays and stops (10 ms fade) if it starts.
-// PANIC, a new sample rate, a fault or TERROIR's STOP end a take at any stage, before it has started
-// too; an ended take is never played on, written or imported. Removing the plugin ends its take.
+// PANIC, a new sample rate (prepare), a fault or TERROIR's STOP end a take at any stage from the ask
+// on: still waiting for a recorder to claim it, being made, made but not started, playing, being
+// written. An ended take is never played on, written or imported; one Done before stays Done.
+// Removing the plugin ends its take.
 class CaptureModule : public Module, private juce::Thread
 {
 public:
     enum { LEVEL };
     CaptureModule() : juce::Thread ("SF CAPTURE")
     {
-        seenSeq = Bus::get().d().capSeq.load();             // a request from before it was here is not its own
+        auto& d = Bus::get().d();
+        bornSeq = seenSeq = d.capSeq.load();                // a request from before it was here is not its own
+        seenPanic = d.panicSeq.load();                      // nor a PANIC
         startThread (juce::Thread::Priority::low);
     }
     ~CaptureModule() override
@@ -49,21 +53,22 @@ public:
     }
     double tailSeconds() const override { return 0.0; }
 
-    // A new stream: a take built before it (or being built) is for another one and never starts.
+    // A new stream: every request made before it is over (invalidate), the take playing too.
     void prepare (double r, int) override
     {
         rate.store (r);
         fadeLen = std::max (64, (int) std::lround (0.01 * r));
-        epoch.fetch_add (1, std::memory_order_acq_rel);
         if (job != nullptr) endJob (capture::Cancelled);
         if (auto* t = pending.exchange (nullptr)) { end (t->seq, capture::Cancelled); delete t; }
+        invalidate();
         meter[0] = meter[1] = 0.0f;
     }
-    // PANIC or a fault (audio thread): silent now (no fade), and a take being made never starts.
+    // PANIC (after its 5 ms fade) or a fault, on the audio thread: silent now, and every request
+    // made before it is over.
     void reset() override
     {
-        epoch.fetch_add (1, std::memory_order_acq_rel);
         if (job != nullptr) endJob (capture::Cancelled);
+        invalidate();
     }
 
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
@@ -91,6 +96,14 @@ public:
             const float m = meter[ch].load() * std::pow (0.5f, (float) n / (float) (0.3 * c.sr));   // falls by half in 0.3 s
             meter[ch] = std::max (m, pk);
         }
+        // SF CONTROL's PANIC, seen here at once (the processor's reset follows its 5 ms fade): every
+        // request made before it is over now, before anything below can start one. The take playing
+        // fades with the rest of the plugin, and the reset ends it.
+        if (const uint32_t ps = d.panicSeq.load(); ps != seenPanic.load (std::memory_order_relaxed))
+        {
+            invalidate();
+            seenPanic.store (ps, std::memory_order_relaxed);
+        }
         // A take of this plugin's in progress: its lease (TERROIR ends a take whose recorder stops answering).
         const auto st = capture::status (d.capStatus);
         if (const uint32_t mine = tookSeq.load(); mine != 0 && st.seq == mine && capture::busy (st.state)) d.capOwnerSeenMs = now;
@@ -99,10 +112,10 @@ public:
         if (job == nullptr)
             if (auto* t = pending.exchange (nullptr, std::memory_order_acq_rel))
             {
-                // Started only if it is still the request in force, not stopped, and made for this stream.
+                // Started only if it is still the request in force, not stopped, and made for this
+                // stream with no PANIC since.
                 const int32_t why = c.playing || c.offline ? capture::TransportStarted
-                                  : panic || t->rate != c.sr || t->epoch != epoch.load (std::memory_order_acquire)
-                                      || d.capCancel.load() == t->seq ? capture::Cancelled : capture::None;
+                                  : panic || t->rate != c.sr || ! current (*t) || d.capCancel.load() == t->seq ? capture::Cancelled : capture::None;
                 if (why != capture::None) { end (t->seq, why); retire (t); }
                 else if (! capture::advance (d.capStatus, t->seq, capture::bit (capture::Preparing), capture::Playing, capture::None)) retire (t);
                 else { job = t; pos = 0; fade = -1; takePeak = 0.0f; }
@@ -199,13 +212,32 @@ private:
         juce::AudioBuffer<float> sweep, rec;       // mono sweep at this rate; the stereo take
         double rate = 0.0;                         // the rate both were made for
         int64_t stamp = 0;
-        uint32_t seq = 0, epoch = 0;               // the request; the stream it was made for (prepare / reset)
+        uint32_t seq = 0, epoch = 0, panic = 0;    // the request; the stream (prepare / reset) and PANIC count when it was claimed
     };
     // Request seq, if still in progress, ends (Failed, why).
     static void end (uint32_t seq, int32_t why)
     {
         capture::advance (Bus::get().d().capStatus, seq, capture::kBusyMask, capture::Failed, why);
     }
+    // A PANIC, a fault or a new stream: every request made before it is over. The one waiting for a
+    // recorder (made since this plugin was added: an older one is never this one's) ends now, and
+    // this plugin's own take while being made or written; the one playing the caller ends. Then a
+    // new epoch. A request is waiting until claimed, and the worker reads the epoch before its claim:
+    // a claim either finds the request ended here, or carries the old epoch, which every later stage
+    // checks (current): handed over, started, written, Done. (Either thread: the audio thread for
+    // PANIC and reset, the host's for prepare.)
+    void invalidate()
+    {
+        auto& d = Bus::get().d();
+        const auto s = capture::status (d.capStatus);
+        if (s.state == capture::Idle && (int32_t) (s.seq - bornSeq) > 0)
+            capture::advance (d.capStatus, s.seq, capture::bit (capture::Idle), capture::Failed, capture::Cancelled);
+        if (const uint32_t mine = tookSeq.load(); mine != 0)
+            capture::advance (d.capStatus, mine, capture::bit (capture::Preparing) | capture::bit (capture::Writing), capture::Failed, capture::Cancelled);
+        epoch.fetch_add (1);
+    }
+    // Made for the stream in force, with no PANIC since its claim.
+    bool current (const Take& t) const { return t.epoch == epoch.load() && t.panic == Bus::get().d().panicSeq.load(); }
     // Audio thread: the take playing ends here, unfinished.
     void endJob (int32_t why)
     {
@@ -247,13 +279,16 @@ private:
             // A request older than 2 s (from before this instance ran) is never taken: no sweep out
             // of the blue. TERROIR waits 3 s for the claim, then ends the request itself.
             if (Bus::nowMs() - lastBlockMs.load() > 500 || std::abs (juce::Time::currentTimeMillis() - d.capStamp.load()) > 2000) continue;
+            // The stream and PANIC count, before the claim (invalidate): a PANIC, a fault or a new
+            // stream from here on ends this take whatever stage it has reached.
+            const uint32_t ep = epoch.load(), ps = d.panicSeq.load();
             // The claim: one plugin moves the request from Idle to Preparing (one STOPped before it
-            // was claimed, or given up on, is no longer Idle). Its lease starts here.
+            // was claimed, ended by a PANIC or a new stream, or given up on, is no longer Idle). Its
+            // lease starts here.
             d.capOwnerSeenMs = Bus::nowMs();
             if (! capture::advance (d.capStatus, seq, capture::bit (capture::Idle), capture::Preparing, capture::None)) continue;
             tookSeq = seq;
             d.capProgress = 0.0f; d.capPeak = 0.0f;
-            const uint32_t ep = epoch.load (std::memory_order_acquire);
             std::unique_ptr<Take> t;
             try
             {
@@ -275,12 +310,13 @@ private:
                 t->stamp = d.capStamp.load();
                 t->seq = seq;
                 t->epoch = ep;
+                t->panic = ps;
             }
             catch (const std::bad_alloc&) { end (seq, capture::NoMemory); continue; }
             hold (capture::kHoldPublish);
             if (threadShouldExit()) return;
-            // STOPped, or the stream changed (prepare, PANIC), while it was being made: never played.
-            if (d.capCancel.load() == seq || ep != epoch.load (std::memory_order_acquire)) { end (seq, capture::Cancelled); continue; }
+            // STOPped, or ended by a PANIC, a fault or a new stream, while it was being made: never played.
+            if (d.capCancel.load() == seq || ! current (*t)) { end (seq, capture::Cancelled); continue; }
             delete pending.exchange (t.release(), std::memory_order_acq_rel);    // (an older one, never started: its request is over)
         }
     }
@@ -288,8 +324,13 @@ private:
     {
         auto& d = Bus::get().d();
         hold (capture::kHoldWrite);
-        // STOPped as it was being finished, or given up on: not written, not taken in.
-        auto stillOn = [&] { const auto s = capture::status (d.capStatus); return s.seq == t.seq && s.state == capture::Writing && d.capCancel.load() != t.seq; };
+        // STOPped as it was being finished, ended by a PANIC, a fault or a new stream, or given up
+        // on: not written (a file half made is deleted), never Done, never taken in.
+        auto stillOn = [&]
+        {
+            const auto s = capture::status (d.capStatus);
+            return s.seq == t.seq && s.state == capture::Writing && d.capCancel.load() != t.seq && current (t);
+        };
         if (! stillOn()) { end (t.seq, capture::Cancelled); return; }
         const auto f = capture::fileFor (t.stamp);
         f.getParentDirectory().createDirectory();
@@ -306,9 +347,12 @@ private:
             }
         }
         if (! ok) { f.deleteFile(); end (t.seq, capture::CantWrite); return; }
+        hold (capture::kHoldDone);
         if (! stillOn()) { f.deleteFile(); end (t.seq, capture::Cancelled); return; }
         { const juce::SpinLock::ScopedLockType sl (nameLock); lastFile = f.getFileNameWithoutExtension().toUpperCase(); }
-        capture::advance (d.capStatus, t.seq, capture::bit (capture::Writing), capture::Done, capture::None);
+        // Done only from Writing: ended in the last instant (a PANIC, a fault, a new stream, STOP),
+        // the file goes too.
+        if (! capture::advance (d.capStatus, t.seq, capture::bit (capture::Writing), capture::Done, capture::None)) f.deleteFile();
     }
 
     std::atomic<double> rate { 48000.0 };
@@ -317,10 +361,12 @@ private:
     Take* job = nullptr;                             // audio thread: the take playing
     int pos = 0, fade = -1, fadeLen = 480;            // the stop's fade: 10 ms (a stop never clicks)
     int32_t stopReason = capture::Cancelled;
-    uint32_t seenSeq = 0;
+    uint32_t seenSeq = 0;                            // worker: the last request it looked at
+    uint32_t bornSeq = 0;                            // the last request before this plugin was added
     float takePeak = 0.0f;
     std::atomic<uint32_t> tookSeq { 0 };             // the last request this instance claimed
-    std::atomic<uint32_t> epoch { 0 };               // prepare and reset: a take made before is for another stream
+    std::atomic<uint32_t> epoch { 0 };               // prepare, reset, PANIC (invalidate): a take claimed before is over
+    std::atomic<uint32_t> seenPanic { 0 };           // audio thread: the last PANIC it ended requests for
     std::atomic<int64_t> lastBlockMs { 0 };
     std::atomic<float> meter[2] { { 0.0f }, { 0.0f } };
     mutable juce::SpinLock nameLock;

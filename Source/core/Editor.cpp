@@ -159,6 +159,8 @@ public:
     int index() const { return idx; }
     int pressIndex() const { return look.press; }
     int span() const { return wide ? 2 : 1; }
+    // The mouse wheel turns the knob, or (off: the strip scrolls) passes to the strip.
+    void setWheel (bool on) { if (slider != nullptr) slider->setScrollWheelEnabled (on); }
     int naturalHeight() const
     {
         switch (kind)
@@ -336,6 +338,12 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
         };
         addAndMakeVisible (loadButton);
     }
+    view.setViewedComponent (&body, false);
+    view.setScrollBarsShown (true, false);              // vertical, when the strip is taller than the window
+    view.setScrollBarThickness (6);
+    view.getVerticalScrollBar().setColour (juce::ScrollBar::thumbColourId, ui::kDim);
+    view.getVerticalScrollBar().setColour (juce::ScrollBar::trackColourId, juce::Colours::transparentBlack);
+    addAndMakeVisible (view);
     build();
     relayout();
     startTimerHz (30);
@@ -399,7 +407,7 @@ void SFEditor::build()
             }
             cells.push_back (std::make_unique<SFCell> (proc, param, lk));
             gc.mine = cells.back().get();
-            addAndMakeVisible (*gc.mine);
+            body.addAndMakeVisible (*gc.mine);
             placed[(size_t) param] = true;
             if (press >= 0) placed[(size_t) press] = true;
             top = top || e < 8;
@@ -433,7 +441,7 @@ void SFEditor::build()
         lk.big = gr == &perform;
         lk.narrow = gr == &motion || gr == &system;
         cells.push_back (std::make_unique<SFCell> (proc, i, lk));
-        addAndMakeVisible (*cells.back());
+        body.addAndMakeVisible (*cells.back());
         gr->cells.push_back (cells.back().get());
     }
     // DETAIL: MODEL first, then the knobs, the menus, the switches (each in the module's order).
@@ -445,13 +453,36 @@ void SFEditor::build()
     std::stable_sort (detail.cells.begin(), detail.cells.end(), [&] (const SFCell* a, const SFCell* b) { return rank (a) < rank (b); });
 }
 
+// The tallest the window may be: the screen it is on (the main one until it shows), less Live's
+// title bar for the plugin window and a margin.
+int SFEditor::heightLimit() const
+{
+    if (testHeightLimit > 0) return testHeightLimit;
+    const auto& ds = juce::Desktop::getInstance().getDisplays();
+    const auto* d = isShowing() ? ds.getDisplayForRect (getScreenBounds()) : ds.getPrimaryDisplay();
+    if (d == nullptr) return 900;
+    return std::max (kHeader + 240, d->userArea.getHeight() - 64);
+}
+
 void SFEditor::relayout()
 {
     uiShown = proc.uiFold.load();
     for (auto* gr : groups) gr->lastSummary = summary (*gr);
-    const int h = layout();
+    const int content = layout();
+    body.setSize (kW, content);
+    const int h = std::min (kHeader + content, heightLimit());
+    // Taller than the window: the wheel scrolls the strip and turns no knob (a knob under the
+    // pointer would take it otherwise). Not: as ever.
+    const bool scrolls = kHeader + content > h;
+    for (auto& c : cells) c->setWheel (! scrolls);
     if (getWidth() != kW || getHeight() != h) setSize (kW, h);
+    else resized();
     repaint();
+}
+
+void SFEditor::resized()
+{
+    view.setBounds (0, kHeader, getWidth(), std::max (0, getHeight() - kHeader));
 }
 
 int SFEditor::layout()
@@ -462,7 +493,7 @@ int SFEditor::layout()
     storeButton.setBounds (presetButton.getRight() + 4, 28, 44, 22);
     loadButton.setBounds (storeButton.getRight() + 4, 28, 38, 22);
 
-    int y = kHeader;
+    int y = 0;                                                         // (the body's: under the header)
     panel = {};
     if (page < 0 && note.isNotEmpty()) y += 16;                       // the E16 line
     if (page >= 0)
@@ -545,6 +576,13 @@ std::vector<std::pair<int, juce::String>> SFEditor::places() const
     return out;
 }
 
+std::vector<juce::Rectangle<int>> SFEditor::titleRows() const
+{
+    std::vector<juce::Rectangle<int>> out;
+    for (auto* g : groups) if (! g->titleRow.isEmpty()) out.push_back (g->titleRow);
+    return out;
+}
+
 bool SFEditor::folded (int bit) const
 {
     for (auto* g : groups) if (g->bit == bit) return g->isFolded (proc.uiFold.load());
@@ -555,6 +593,15 @@ void SFEditor::toggleFold (int bit)
 {
     proc.uiFold.fetch_xor (bit);
     relayout();
+    // Opened: the group into view, its title first if it doesn't all fit.
+    for (auto* g : groups)
+        if (g->bit == bit && ! g->isFolded (uiShown) && ! g->cells.empty())
+        {
+            int bottom = g->titleRow.getBottom();
+            for (auto* c : g->cells) bottom = std::max (bottom, c->getBottom());
+            const int top = g->titleRow.getY(), vh = view.getHeight(), y0 = view.getViewPositionY();
+            if (bottom > y0 + vh || top < y0) view.setViewPosition (0, std::max (0, std::min (top, bottom - vh)));
+        }
 }
 
 // ---------------------------------------------------------------- painting
@@ -562,8 +609,13 @@ void SFEditor::paint (juce::Graphics& g)
 {
     g.fillAll (ui::kBg);
     paintHeader (g);
+}
+
+void SFEditor::paintBody (juce::Graphics& g)
+{
+    g.fillAll (ui::kBg);
     if (page >= 0) paintE16 (g);
-    else if (note.isNotEmpty()) fitted (g, note, { (float) kMargin, (float) kHeader, (float) (kW - 2 * kMargin), 14.0f }, ui::kFaint, 8.5f, juce::Justification::centredLeft);
+    else if (note.isNotEmpty()) fitted (g, note, { (float) kMargin, 0.0f, (float) (kW - 2 * kMargin), 14.0f }, ui::kFaint, 8.5f, juce::Justification::centredLeft);
     for (auto* gr : groups) if (! gr->titleRow.isEmpty()) paintTitle (g, *gr);
     if (! display.isEmpty())
     {
@@ -572,12 +624,14 @@ void SFEditor::paint (juce::Graphics& g)
         proc.mod().paint (g, display.toFloat());
         g.restoreState();
     }
-    if (dragHover)
-    {
-        g.setColour (ui::kText);
-        g.drawRect (getLocalBounds().reduced (2), 2);
-        fitted (g, proc.mod().fileHint(), getLocalBounds().toFloat().removeFromBottom (24), ui::kText, 11.0f);
-    }
+}
+
+void SFEditor::paintOverChildren (juce::Graphics& g)
+{
+    if (! dragHover) return;
+    g.setColour (ui::kText);
+    g.drawRect (getLocalBounds().reduced (2), 2);
+    fitted (g, proc.mod().fileHint(), getLocalBounds().toFloat().removeFromBottom (24), ui::kText, 11.0f);
 }
 
 void SFEditor::paintHeader (juce::Graphics& g)
@@ -694,23 +748,21 @@ SFEditor::Group* SFEditor::groupAt (juce::Point<int> p)
 
 void SFEditor::mouseDown (const juce::MouseEvent& e)
 {
-    if (display.contains (e.getPosition()))
-        proc.mod().displayMouse (e.position, display.toFloat(), true);
-    if (auto* gr = groupAt (e.getPosition())) { toggleFold (gr->bit); return; }
     if (e.y < 26 && e.x > 220) { proc.clipped = false; proc.fault = false; }
 }
 
-void SFEditor::mouseUp (const juce::MouseEvent&) { proc.mod().displayMouseUp(); }
-
-void SFEditor::mouseDrag (const juce::MouseEvent& e)
+// The body's clicks (its own coordinates): the module's display, a group's title line.
+void SFEditor::bodyMouse (const juce::MouseEvent& e, bool down)
 {
     if (display.contains (e.getPosition()))
-        proc.mod().displayMouse (e.position, display.toFloat(), false);
+        proc.mod().displayMouse (e.position, display.toFloat(), down);
+    if (down)
+        if (auto* gr = groupAt (e.getPosition())) toggleFold (gr->bit);
 }
 
-void SFEditor::mouseMove (const juce::MouseEvent& e)
+void SFEditor::Body::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (groupAt (e.getPosition()) != nullptr ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    setMouseCursor (ed.groupAt (e.getPosition()) != nullptr ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
 bool SFEditor::isInterestedInFileDrag (const juce::StringArray& files)
@@ -740,14 +792,15 @@ void SFEditor::timerCallback()
         if (juce::String (t != nullptr ? t : "") != track || (t == nullptr) != (page < 0)) { build(); relayout(); }
     }
     if (proc.uiFold.load() != uiShown) relayout();          // a state load
+    else if (ticks % 30 == 0 && std::min (kHeader + body.getHeight(), heightLimit()) != getHeight()) relayout();   // another screen
     if (presetButton.getButtonText() != presetText()) presetButton.setButtonText (presetText());
     repaint (0, 0, getWidth(), 26);
-    if (! display.isEmpty()) repaint (display);
+    if (! display.isEmpty()) body.repaint (display);
     for (auto& c : cells) if (c->isVisible()) c->poll();
     if (++ticks % 6 == 0)                                   // a folded group's line, 5 times a second
         for (auto* gr : groups)
             if (gr->isFolded (uiShown))
-                if (auto s = summary (*gr); s != gr->lastSummary) { gr->lastSummary = s; repaint (gr->titleRow); }
+                if (auto s = summary (*gr); s != gr->lastSummary) { gr->lastSummary = s; body.repaint (gr->titleRow); }
 }
 
 // ---------------------------------------------------------------- presets

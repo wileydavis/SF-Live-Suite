@@ -296,8 +296,10 @@ public:
     }
     void load (const juce::ValueTree& t) override
     {
+        // The state's tempo stands in for the host's only until this plugin has played: the host's
+        // tempo and meter are newer than any saved with a state.
         const double bpm = t.getProperty ("bpm", 0.0), bar = t.getProperty ("bar", 0.0);
-        if (bpm >= 20.0 && bpm <= 400.0 && bar >= 0.5 && bar <= 32.0) { lastBpm.store (bpm); lastBar.store (bar); }
+        if (! tempoPlayed.load() && bpm >= 20.0 && bpm <= 400.0 && bar >= 0.5 && bar <= 32.0) { lastBpm.store (bpm); lastBar.store (bar); }
         std::array<PlacePtr, kSlots> s {};
         for (int i = 0; i < t.getNumChildren(); ++i)
         {
@@ -325,7 +327,7 @@ public:
         const double rate = preparedRate.load (std::memory_order_acquire);
         if (rate <= 0.0 || ! getParam) return;
         const uint64_t tag = ((uint64_t) liveEpoch.load (std::memory_order_acquire) << 32) | (2u * (syncSerial.fetch_add (1) + 1u) + 1u);
-        if (auto f = build (keyNow (rate), tag)) delete handoff.exchange (f.release(), std::memory_order_acq_rel);
+        if (auto f = build (keyNow (rate), tag, true)) delete handoff.exchange (f.release(), std::memory_order_acq_rel);
     }
 
     // ------------------------------------------------------------------------------------- audio
@@ -353,9 +355,11 @@ public:
         delete handoff.exchange (nullptr, std::memory_order_acq_rel);
         delete restoredIr;
         restoredIr = nullptr;
+        recutF = nullptr;                                    // (released above)
+        cutBuf.assign ((size_t) IrFilter::kB2, 0.0f);
         const Key first = keyNow (rate);
         haveKnown = false;
-        if (auto f = build (first, syncTag()))
+        if (auto f = build (first, syncTag(), true))
         {
             shownTag.store (f->tag, std::memory_order_release);
             conv.offer (f.release());
@@ -387,7 +391,11 @@ public:
         const Key k = keyFrom (c);
         lastBpm.store (c.bpm, std::memory_order_relaxed);
         lastBar.store (c.beatsPerBar, std::memory_order_relaxed);
+        tempoPlayed.store (true, std::memory_order_relaxed);
         lastPlaying.store (c.playing || c.offline);          // CAPTURE needs the transport stopped
+        // An IR cut again for the host's tempo (recut): the rest of its tail, ahead of the engine
+        // (all of it when rendering, where the time is the render's).
+        recutTail (c.offline ? 1 << 20 : 1 + n / 1024);
         if (c.offline != wasOffline) modeChange (c.offline);
         if (c.offline) offlineStep (c, k);
         else realtimeStep (k);
@@ -517,6 +525,7 @@ public:
     }
 
 private:
+    struct Cut { int len = 0, fade = 0; bool rev = false; };   // LENGTH's cut of an IR (cutFor)
     // What an IR build is made from. Floats are kept in steps (0.1 %, 0.1 ms): a knob moving by
     // less asks for nothing.
     struct Key
@@ -564,7 +573,9 @@ private:
     }
     Key keyFrom (const Ctx& c) const { return makeKey ([&c] (int i) { return c.v (i); }, sr, c.bpm, c.beatsPerBar); }
     // Off the audio thread (prepare, restored): what the first block will ask for. Its knobs start
-    // where they stand (the processor's first block glides nothing); the tempo is the last played.
+    // where they stand (the processor's first block glides nothing); the tempo and meter, the host's
+    // as this plugin last played them, else the state's, else 120 in 4: the host says its own only
+    // with the first block, which cuts this IR again if LENGTH's note comes out another length (recut).
     Key keyNow (double rate) const
     {
         if (! getParam) { Key k; k.slot = 0; k.ver = slotVer[0].load (std::memory_order_acquire); k.srHz = (int) std::lround (rate); return k; }
@@ -627,6 +638,54 @@ private:
         for (int i = 0, n = conv.replaceNow (f, out); i < n; ++i) retire (out[i]);
     }
     bool canInstall() const { return holdRetired == nullptr && (! heard || ! conv.busy()); }
+
+    // The first sound at the host's tempo (Nov 6 audit, B04). The first IR after prepare or a state
+    // load is built before the host has said its tempo: LENGTH's note may be another length at the
+    // first block's tempo and meter. Nothing has gone into the engine yet, so the audio thread cuts
+    // that IR again for the knobs as they ask now, from its uncut form (kept with it: build): no
+    // build here (the room is the same: only the cut differs), no waiting for the worker, however
+    // busy. The head now, before the first sample goes in (16 small transforms), and the tail's
+    // first two partitions; the rest one partition a block (recutTail), each long before the engine
+    // reaches it: a tail partition meets the first input 4608 + 4096 p samples after it at the
+    // soonest. f: restored()'s IR (not in the engine yet) or prepare()'s (in it, nothing gone in).
+    bool recut (IrFilter& f, const Key& k)
+    {
+        if (f.uncut[0].empty() || ! sameBase (f.from, k.code()) || (int) cutBuf.size() < IrFilter::kB2) return false;
+        const Cut c = cutFor (f.uncutLen, k);
+        if (IrFilter::tailParts (c.len) > f.cap2) return false;
+        f.taps = c.len;
+        f.p1 = IrFilter::headParts (c.len);
+        f.p2 = IrFilter::tailParts (c.len);
+        f.from = k.code();
+        for (int x = 0; x < 2; ++x)
+            for (int p = 0; p < f.p1; ++p)
+            {
+                cutPart (f, x, p * IrFilter::kB1, IrFilter::kB1, c);
+                conv.transform (f, x, false, p, cutBuf.data());
+            }
+        recutF = &f; recutC = c; recutNext = 0;
+        recutTail (2);
+        return true;
+    }
+    // count samples of the cut IR from start, zero past its end, into cutBuf.
+    void cutPart (const IrFilter& f, int ch, int start, int count, const Cut& c)
+    {
+        const float* x = f.uncut[ch].data();
+        for (int i = 0; i < count; ++i) cutBuf[(size_t) i] = start + i < c.len ? cutAt (x, c, f.uncutGain, start + i) : 0.0f;
+    }
+    // Audio thread: the next parts of the recut IR's tail, in order.
+    void recutTail (int parts)
+    {
+        if (recutF == nullptr) return;
+        auto& f = *recutF;
+        for (int done = 0; done < parts && recutNext < f.p2; ++done, ++recutNext)
+            for (int x = 0; x < 2; ++x)
+            {
+                cutPart (f, x, IrFilter::kT1 + recutNext * IrFilter::kB2, IrFilter::kB2, recutC);
+                conv.transform (f, x, true, recutNext, cutBuf.data());
+            }
+        if (recutNext >= f.p2) recutF = nullptr;
+    }
     void realtimeStep (const Key& k)
     {
         // A restored state's IR (restored): the newest waits here until the knobs ask for its key (it
@@ -638,6 +697,21 @@ private:
                 if (restoredIr != nullptr) retire (restoredIr);
                 restoredIr = h;
             }
+        // Nothing in the engine yet (since prepare or reset): the first IR, cut for the tempo and
+        // meter before the host told them, is cut again here if the knobs at the host's ask for
+        // another LENGTH (or its REVERSE) of the same room: restored()'s, which then goes in below,
+        // or prepare()'s, in the engine. Then asked of the worker too, as any new IR (the display's
+        // shape comes with its answer: the same IR to the bit, so its crossfade changes nothing).
+        bool cutAgain = false;
+        if (! heard)
+        {
+            if (restoredIr != nullptr)
+            {
+                if ((uint32_t) (restoredIr->tag >> 32) == epoch && restoredIr->from != k.code()) cutAgain = recut (*restoredIr, k);
+            }
+            else if (haveKnown && ! (k == have))
+                if (auto* cur = conv.currentForCut(); cur != nullptr && cur->from == have.code() && recut (*cur, k)) { cutAgain = true; have = k; }
+        }
         if (restoredIr != nullptr)
         {
             const bool asked = restoredIr->from == k.code();
@@ -650,6 +724,7 @@ private:
                 posted = k; postedValid = true; postedSeq = haveSeq = reqSeq.load (std::memory_order_relaxed);
             }
         }
+        if (cutAgain) { haveKnown = false; postedValid = false; }    // the worker's copy, for the display
         if (! postedValid || ! (k == posted))
         {
             if (haveKnown && k == have)
@@ -705,8 +780,36 @@ private:
         slotVer[(size_t) i].fetch_add (1, std::memory_order_acq_rel);
     }
 
+    // LENGTH's cut of an IR (whole length n) for the key: its length, its raised-cosine end (15 %
+    // of it, 5-60 ms; none when nothing is cut but the engine's limit allows the whole), REVERSE.
+    Cut cutFor (int n, const Key& k) const
+    {
+        Cut c;
+        c.len = std::min (n, maxTaps.load());
+        if (k.len > 0) c.len = std::min (c.len, k.len);
+        c.fade = c.len < n ? juce::jlimit ((int) (0.005 * k.srHz), (int) (0.06 * k.srHz), (int) (0.15 * c.len)) : 0;
+        c.rev = k.rev;
+        return c;
+    }
+    // Sample i of the cut IR from channel x of the uncut one: the end faded, the level, reversed.
+    // The one rule for the worker's builds and the audio thread's recut: the same IR to the bit.
+    static float cutAt (const float* x, const Cut& c, float level, int i)
+    {
+        const int j = c.rev ? c.len - 1 - i : i;
+        float v = x[j];
+        if (const int e = c.len - 1 - j; e < c.fade) v *= (float) (0.5 - 0.5 * std::cos (3.14159265358979 * e / c.fade));
+        return v * level;
+    }
+    // The base of a key: all but LENGTH's note and REVERSE (what an uncut IR is for).
+    static bool sameBase (const std::array<int64_t, 10>& a, const std::array<int64_t, 10>& b)
+    {
+        for (int i : { 0, 1, 2, 3, 4, 5, 8 }) if (a[(size_t) i] != b[(size_t) i]) return false;
+        return true;
+    }
+
     // The IR the key asks for, ready for the engine. Worker thread (or the audio thread offline).
-    std::unique_ptr<IrFilter> build (const Key& k, uint64_t tag)
+    // keepUncut: with what it was cut from, so the audio thread can cut it again (recut).
+    std::unique_ptr<IrFilter> build (const Key& k, uint64_t tag, bool keepUncut = false)
     {
         const auto src = placeFor (k.slot);
         if (src == nullptr || k.srHz <= 0) return nullptr;
@@ -747,20 +850,25 @@ private:
             for (auto& v : ch) v = ir::stretch (v.data(), (int) v.size(), ratio);
         const float level = (float) ((srcSr / hostSr) * std::sqrt (48000.0 / srcSr) / std::sqrt (std::max (0.1, size)));
         n = (int) ch[0].size();
-        // LENGTH: cut to the note (raised-cosine end, 15 % of it, 5-60 ms); the engine's limit too.
-        int len = std::min (n, maxTaps.load());
-        if (k.len > 0) len = std::min (len, k.len);
-        const int fade = len < n ? juce::jlimit ((int) (0.005 * hostSr), (int) (0.06 * hostSr), (int) (0.15 * len)) : 0;
-        for (auto& v : ch)
+        // LENGTH: cut to the note; the engine's limit too.
+        const Cut cut = cutFor (n, k);
+        const int len = cut.len, room = std::min (n, maxTaps.load());
+        std::vector<float> out[2];
+        for (int x = 0; x < 2; ++x)
         {
-            v.resize ((size_t) len);
-            for (int i = 0; i < std::min (fade, len); ++i) v[(size_t) (len - 1 - i)] *= (float) (0.5 - 0.5 * std::cos (3.14159265358979 * i / fade));
-            for (auto& x : v) x *= level;
-            if (k.rev) std::reverse (v.begin(), v.end());
+            out[x].resize ((size_t) len);
+            for (int i = 0; i < len; ++i) out[x][(size_t) i] = cutAt (ch[x].data(), cut, level, i);
         }
-        auto f = makeIrFilter (ch[0].data(), ch[1].data(), len);
+        auto f = makeIrFilter (out[0].data(), out[1].data(), len, keepUncut ? room : 0);
         f->tag = tag;
         f->from = k.code();
+        if (keepUncut)
+        {
+            for (int x = 0; x < 2; ++x) { ch[x].resize ((size_t) room); f->uncut[x] = std::move (ch[x]); }
+            f->uncutLen = n;
+            f->uncutGain = level;
+        }
+        for (int x = 0; x < 2; ++x) ch[x] = std::move (out[x]);
         // For the display: the level of the IR as it plays, 160 points over its length.
         Disp nd;
         nd.seconds = (float) (len / hostSr);
@@ -914,7 +1022,11 @@ private:
     }
 
     // Retired IRs travel to the worker through a small single-producer ring.
-    void retire (IrFilter* f) { if (! pushRetired (f)) { if (holdRetired == nullptr) holdRetired = f; else delete f; } }
+    void retire (IrFilter* f)
+    {
+        if (f == recutF) recutF = nullptr;                   // out of the engine: no more to cut
+        if (! pushRetired (f)) { if (holdRetired == nullptr) holdRetired = f; else delete f; }
+    }
     bool pushRetired (IrFilter* f)
     {
         const int w = rw.load (std::memory_order_relaxed), next = (w + 1) % (int) ring.size();
@@ -957,11 +1069,12 @@ private:
         if (ph == 2)
         {
             // STOP names the request: it holds at whatever stage the take has reached. Not claimed
-            // yet: over now (no SF CAPTURE will take it); claimed: SF CAPTURE ends it.
+            // yet, or being written: over now (no SF CAPTURE will take it; the take is never Done,
+            // and its file goes); being made or playing: SF CAPTURE ends it (the sweep fades).
             auto& d = Bus::get().d();
             const uint32_t seq = capMine.load();
             d.capCancel = seq;
-            capture::advance (d.capStatus, seq, capture::bit (capture::Idle), capture::Failed, capture::Cancelled);
+            capture::advance (d.capStatus, seq, capture::bit (capture::Idle) | capture::bit (capture::Writing), capture::Failed, capture::Cancelled);
             setStatus ("STOPPING THE CAPTURE", 0);
             return;
         }
@@ -1109,9 +1222,14 @@ private:
     // Requests (audio thread -> worker) and results (worker -> audio thread); the lifecycle (audio
     // thread and prepare): see modeChange.
     std::atomic<double> lastBpm { 0.0 }, lastBar { 4.0 };     // the tempo last played or the state's (keyNow); 0: neither, 120
+    std::atomic<bool> tempoPlayed { false };        // lastBpm is the host's (a block has run): a state's never replaces it
     std::atomic<double> preparedRate { 0.0 };       // 0 until prepare
     std::atomic<IrFilter*> handoff { nullptr };     // a restored state's IR, built off the audio thread (restored)
     IrFilter* restoredIr = nullptr;                 // audio thread: the newest, until its key is asked for
+    IrFilter* recutF = nullptr;                     // audio thread: an IR cut again (recut), its tail still to finish
+    Cut recutC;
+    int recutNext = 0;
+    std::vector<float> cutBuf;                      // one tail partition's samples (prepare)
     Key posted; bool postedValid = false;           // the newest request to the worker, this epoch
     uint32_t postedSeq = 0;
     Key have; bool haveKnown = false;               // the newest IR handed to the engine (unknown: one on the way)

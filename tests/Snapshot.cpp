@@ -21,6 +21,7 @@ struct Head : juce::AudioPlayHead
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    SFEditor::testHeightLimit = 100000;           // pictures of the whole strip, whatever the screen here
     juce::File dir = juce::File::getCurrentWorkingDirectory().getChildFile (argc > 1 ? argv[1] : "docs/snapshots");
     dir.createDirectory();
     // Sources for the ALLOC picture: four taps with different content.

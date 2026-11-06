@@ -28,16 +28,26 @@ struct IrFilter
     static constexpr int kBins1 = kB1 + 1, kBins2 = kB2 + 1;
     static constexpr int kT1 = kB1 * kP1;                        // the first tail tap (4096)
     int taps = 0, p1 = 0, p2 = 0;                               // length; head and tail partitions in use
+    int cap2 = 0;                                                // tail partitions it has room for (p2 at most)
     std::vector<float> h1re, h1im;                               // [ch][p][bin], kP1 partitions
-    std::vector<float> h2re, h2im;                               // [ch][p][bin], p2 partitions
+    std::vector<float> h2re, h2im;                               // [ch][p][bin], cap2 partitions
     uint64_t tag = 0;                                            // the module's order of its IRs (TERROIR: epoch, request)
     std::array<int64_t, 10> from {};                             // what the module built it from (TERROIR: its key)
+    // The module's own, for cutting this IR again on the audio thread (Convolver::transform): what
+    // it was cut from (TERROIR: its first IR, before LENGTH's cut), as much of it as the engine
+    // takes; its whole length, and its gain. Empty unless the module kept it.
+    std::vector<float> uncut[2];
+    int uncutLen = 0;
+    float uncutGain = 1.0f;
     const float* head (int ch, int p, bool im) const { return (im ? h1im : h1re).data() + ((size_t) ch * kP1 + (size_t) p) * kBins1; }
-    const float* tail (int ch, int p, bool im) const { return (im ? h2im : h2re).data() + ((size_t) ch * (size_t) p2 + (size_t) p) * kBins2; }
+    const float* tail (int ch, int p, bool im) const { return (im ? h2im : h2re).data() + ((size_t) ch * (size_t) cap2 + (size_t) p) * kBins2; }
+    static int headParts (int taps) { return std::min (kP1, (std::max (0, taps) + kB1 - 1) / kB1); }
+    static int tailParts (int taps) { return taps > kT1 ? (taps - kT1 + kB2 - 1) / kB2 : 0; }
 };
 
-// Two channels of `taps` samples. Message / background thread.
-std::unique_ptr<IrFilter> makeIrFilter (const float* irL, const float* irR, int taps);
+// Two channels of `taps` samples, with room for capacity taps (a later cut, longer: Convolver::
+// transform). Message / background thread.
+std::unique_ptr<IrFilter> makeIrFilter (const float* irL, const float* irR, int taps, int capacity = 0);
 
 class Convolver
 {
@@ -60,6 +70,11 @@ public:
     int replaceNow (IrFilter* f, IrFilter** out);
     bool busy() const { return state != Idle || waiting != nullptr || retired != nullptr; }
     const IrFilter* current() const { return set[s0]; }
+    IrFilter* currentForCut() { return set[s0]; }
+    // Audio thread, between process() calls: partition p (head: kB1 samples of x; tail: kB2) of
+    // channel ch of f, from the time domain, as makeIrFilter makes it. For cutting an IR again
+    // where its new partitions are used only after the cut (no allocation: the engine's own FFTs).
+    void transform (IrFilter& f, int ch, bool tail, int p, const float* x);
     int maxTaps() const { return maxP2 * IrFilter::kB2 + IrFilter::kT1; }
     // in: mono; outL / outR: the wet signal, kLatency samples late.
     void process (const float* in, float* outL, float* outR, int n);

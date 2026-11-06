@@ -28,9 +28,10 @@ constexpr double kTailSec = 3.0;            // recorded after the sweep file end
 constexpr int64_t kLeaseMs = 2000;          // a take whose recorder's audio hasn't run for this long is over
 inline std::string testFolder;              // tests only: takes go here, not to Music/SF Live Suite/TERROIR/Captures
 // Tests only. testHold: SF CAPTURE's worker waits at these points while the bit is set (a fixed
-// order of events in the lifecycle tests). testShortTake: a 0.5 s 1 kHz tone instead of the sweep
-// file (lifecycle tests that need a take, not a place).
-enum : int { kHoldClaim = 1, kHoldPublish = 2, kHoldWrite = 4 };
+// order of events in the lifecycle tests): before its claim, before handing a take over, before
+// writing one, and with the file written but the take not yet Done. testShortTake: a 0.5 s 1 kHz
+// tone instead of the sweep file (lifecycle tests that need a take, not a place).
+enum : int { kHoldClaim = 1, kHoldPublish = 2, kHoldWrite = 4, kHoldDone = 8 };
 inline std::atomic<int> testHold { 0 };
 inline std::atomic<bool> testShortTake { false };
 
