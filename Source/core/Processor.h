@@ -36,11 +36,13 @@ public:
            SYS_M2_SRC, SYS_M2_RATE, SYS_M2_TARGET, SYS_M2_DEPTH, kNumSys };
     // SLOW: CONTROL (follow SF CONTROL's SLOW ALL; it was OFF before SLOW ALL, and sets saved then
     // keep their old sound while SLOW ALL is OFF), this plugin's own length, or OFF (appended, so
-    // saved sets keep their lengths).
-    enum { SLOW_CONTROL = 0, SLOW_OFF = 8 };
-    static std::vector<std::string> glideNames() { return { "CONTROL", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR", "OFF" }; }
-    // Bars for a SLOW ALL index (0 = OFF) or an own SLOW length (1..7).
-    static double glideBars (int i) { static const double b[] = { 0, 1, 2, 4, 8, 16, 32, 64 }; return b[juce::jlimit (0, 7, i)]; }
+    // saved sets keep their lengths); 128 BAR after OFF [Nov 5], appended for the same reason.
+    enum { SLOW_CONTROL = 0, SLOW_OFF = 8, SLOW_128 = 9 };
+    static std::vector<std::string> glideNames() { return { "CONTROL", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR", "OFF", "128 BAR" }; }
+    // Bars for a SLOW ALL index (0 = OFF, 1..8 = 1..128 BAR).
+    static double glideBars (int i) { static const double b[] = { 0, 1, 2, 4, 8, 16, 32, 64, 128 }; return b[juce::jlimit (0, sf::kSlowAllTop, i)]; }
+    // Bars for this plugin's own SLOW, not CONTROL: 1..7 = 1..64 BAR, OFF, 128 BAR.
+    static double ownBars (int s) { return s == SLOW_OFF ? 0.0 : s == SLOW_128 ? 128.0 : glideBars (s); }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}

@@ -522,7 +522,7 @@ for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND",
 story.append(E16Grid(cells))
 story.append(Spacer(1, 8))
 story += bullets(["<b>1-3, the group ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together).",
-                  "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns green): turn it to set how long your next moves take, OFF (at once) to 64 BAR. Press again: LOW ENERGY. Knobs already travelling keep going.",
+                  "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns green): turn it to set how long your next moves take, OFF (at once) to 128 BAR. Press again: LOW ENERGY. Knobs already travelling keep going.",
                   "<b>4, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page. The drop lands on the next bar line (chapter 7).",
                   "<b>5-8, the volumes:</b> KICK, LOW, DRUMS, MUSIC. Each is mapped with a maximum of 0 dB, so a full turn never runs past the soundcheck balance.",
                   "<b>On an instrument page</b> 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row."])

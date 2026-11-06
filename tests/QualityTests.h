@@ -2414,8 +2414,8 @@ static void testDrop()
 
 // SLOW ALL: SF CONTROL sets how long the next knob moves take in every plugin whose own SLOW is
 // CONTROL. A move keeps the length it was made with: turning SLOW ALL (or SLOW) never touches a
-// knob already travelling; the plugin's own SLOW wins; a length left on the bus by a CONTROL that
-// is gone slows nothing; song recalls follow it. SLOW ALL changed in the same host block as a move
+// knob already travelling; the plugin's own SLOW wins; both go to 128 BAR; a length left on the bus
+// by a CONTROL that is gone slows nothing; song recalls follow it. SLOW ALL changed in the same host block as a move
 // leaves that move on the previous length, whatever order the host runs the tracks in (testControlAuthority);
 // here the gestures are apart, as a hand makes them.
 static void testSlowAll()
@@ -2465,6 +2465,37 @@ static void testSlowAll()
     expect ("... and it arrives on time", 0.0f, 0.001f);
     ctl.set ("slow_all", 3.0f); f.set ("filter", 1.0f); bars (0.15);
     expect ("own SLOW OFF over SLOW ALL 4 BAR: at once", 1.0f, 0.002f);
+
+    // 128 BAR [Nov 5]: SLOW ALL's top (index 8) and SLOW's, after OFF (index 9: appended, so a saved
+    // OFF is still OFF and a saved 64 BAR still 64). At 400 BPM, to keep it short: a quarter of the
+    // way after 32 bars, there after 128; the plugin's own, half way after 64.
+    {
+        auto named = [] (Rig2& r, const char* id) { return r.p->apvts.getParameter (id)->getCurrentValueAsText(); };
+        const juce::String off = named (f, "slow");
+        f.set ("slow", 7.0f);
+        const juce::String l64 = named (f, "slow");
+        f.set ("slow", 8.0f);
+        const double bpm0 = f.head.bpm;
+        ctl.head.bpm = f.head.bpm = 400.0;
+        const double fast = 4.0 / (kBlock * f.bps());
+        auto longBars = [&] (double b) { for (int k = 0, n = (int) std::lround (b * fast); k < n; ++k) cycle(); };
+        ctl.set ("slow_all", 8.0f); f.set ("slow", 0.0f); longBars (0.05);
+        const juce::String all128 = named (ctl, "slow_all");
+        f.set ("filter", 0.0f); longBars (32.0);
+        expect ("SLOW ALL 128 BAR: a quarter of the way after 32 bars", 0.75f, 0.01f);
+        longBars (96.1);
+        expect ("... there after 128", 0.0f, 0.001f);
+        ctl.set ("slow_all", 0.0f); f.set ("slow", 9.0f); longBars (0.05);
+        const juce::String own128 = named (f, "slow");
+        f.set ("filter", 1.0f); longBars (64.0);
+        expect ("own SLOW 128 BAR over SLOW ALL OFF: half way after 64 bars", 0.5f, 0.01f);
+        f.set ("slow", 8.0f); f.set ("filter", 1.0f); longBars (0.05);
+        std::printf ("   SLOW 8 / 7 / 9: %s / %s / %s; SLOW ALL 8: %s\n", off.toRawUTF8(), l64.toRawUTF8(), own128.toRawUTF8(), all128.toRawUTF8());
+        CHECK (off == "OFF" && l64 == "64 BAR" && own128 == "128 BAR" && all128 == "128 BAR", "SLOW's names: %s / %s / %s, SLOW ALL's %s",
+               off.toRawUTF8(), l64.toRawUTF8(), own128.toRawUTF8(), all128.toRawUTF8());
+        ctl.head.bpm = f.head.bpm = bpm0;
+        ctl.set ("slow_all", 3.0f); bars (0.05);
+    }
 
     f.set ("slow", 0.0f); bars (0.05);
     controlRuns = false; d.controlSeenMs = 0;            // CONTROL deleted: 4 BAR stays on the bus

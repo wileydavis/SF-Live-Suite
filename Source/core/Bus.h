@@ -15,6 +15,7 @@ constexpr int kSongs = 16;
 constexpr int kConflictSlots = 3;
 constexpr int kGlideSlots = 48;          // one per SF plugin instance that has a knob on the E16
 constexpr int kGlideEntries = 8;         // knobs of one plugin travelling at once (its performance row)
+constexpr int kSlowAllTop = 8;           // SLOW ALL's last index, 128 BAR (slowAll below)
 
 // Default ALLOC priority, highest first.
 enum Role { ROLE_KICK = 0, ROLE_BASS, ROLE_VOICE, ROLE_LEAD, ROLE_PERC, ROLE_RUMBLE, ROLE_PAD, ROLE_DECK, ROLE_OTHER, kNumRoles };
@@ -107,8 +108,8 @@ struct BusData
     std::atomic<double> songFromPpq;
 
     // SF CONTROL's SLOW ALL (v6): how long a new setting takes to arrive in every plugin whose own
-    // SLOW is CONTROL. 0 = OFF, 1..7 = 1..64 BAR (SFProcessor::glideBars). Honoured only while
-    // CONTROL runs.
+    // SLOW is CONTROL. 0 = OFF, 1..8 = 1..128 BAR (SFProcessor::glideBars; 128 BAR v11, so a plugin
+    // from before it never reads it as 64). Honoured only while CONTROL runs.
     std::atomic<int32_t> slowAll;
 
     // Travelling knobs, for SF CONTROL's E16 RINGS (v7).

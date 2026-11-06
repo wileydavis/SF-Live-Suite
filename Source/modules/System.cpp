@@ -53,7 +53,7 @@ public:
         std::vector<std::string> to { "ACTIVE SONG" }; for (auto& sn : songs) to.push_back (sn);
         auto st = choice ("store_to", "STORE TO", to, 0); st.song = false; st.preset = false; p.push_back (st);
         // A performance setting, like a hand on a knob: songs and presets leave it alone.
-        auto sa = choice ("slow_all", "SLOW ALL", { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR" }, 0);
+        auto sa = choice ("slow_all", "SLOW ALL", { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR", "128 BAR" }, 0);
         sa.song = false; sa.preset = false; p.push_back (sa);
         auto er = choice ("e16_rings", "E16 RINGS", { "OFF", "PORT 1", "PORT 2", "PORT 3" }, 3);
         er.song = false; er.preset = false; p.push_back (er);
@@ -96,7 +96,7 @@ public:
         }
         if (c.lastChunk)
         {
-            const int sa = juce::jlimit (0, 7, c.ci (SLOWALL));
+            const int sa = juce::jlimit (0, kSlowAllTop, c.ci (SLOWALL));
             if (sa != d.slowAll.load())
             {
                 d.slowSeq.fetch_add (1);                                     // odd: being written

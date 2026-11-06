@@ -28,7 +28,7 @@ green is knob 1 on SLOW ALL.
 
 **Knob 1 has two destinations.** A quick press flips it from LOW ENERGY to **SLOW ALL** on SF CONTROL
 (CC 34, channel 16; the ring turns green and the screen shows a bar under the value): turn it to set how
-long your next moves take, OFF (at once) to 64 BAR. Another quick press flips it back. Knobs already
+long your next moves take, OFF (at once) to 128 BAR. Another quick press flips it back. Knobs already
 travelling keep the length they set off with. SF SHOW.als has it mapped; in a set of your own (or one
 saved before SLOW ALL existed), map it once: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 (green)
 and turn it, Cmd-M off, save.

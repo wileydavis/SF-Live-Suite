@@ -51,7 +51,7 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **DECK:** drop tracks on the DECK window (they're analysed in the background: tempo, beat grid, loudness). Click **A** or **B** on a row to load it. Turn **PLAY A** on and it starts on the next QUANT boundary, synced to Live. Hot cues: C1-D#1 (deck A), C2-D#2 (deck B). For headphone cueing, make an audio track with *Audio From* = the DECK track, choose **CUE**, and route it to your headphone outputs.
 
-**Slow mode:** turn **SLOW ALL** on SF CONTROL (1-64 bars) and every performance knob glides to where you set it over that many bars; OFF and your moves land at once. A quarter turn becomes a long, even build. A move keeps the length it was made with, so you can set OFF for a direct move and a length for a glide without stopping a knob that is already travelling. Song recalls follow it too. A plugin's own **SLOW** (CONTROL by default) can fix its own length or OFF instead. On the E16 (the SF SHOW scene), a travelling knob's ring turns green and walks with the sound until it arrives.
+**Slow mode:** turn **SLOW ALL** on SF CONTROL (1-128 bars) and every performance knob glides to where you set it over that many bars; OFF and your moves land at once. A quarter turn becomes a long, even build. A move keeps the length it was made with, so you can set OFF for a direct move and a length for a glide without stopping a knob that is already travelling. Song recalls follow it too. A plugin's own **SLOW** (CONTROL by default) can fix its own length or OFF instead. On the E16 (the SF SHOW scene), a travelling knob's ring turns green and walks with the sound until it arrives.
 
 **Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH in the MOTION row). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. Odd rates (3/16, 5/16, 7/16, dotted, triplet, 3/5/7 BAR) run against the bar for polyrhythm and line up with it again every few bars. They are saved with songs and presets, and random sources replay the same way every time the set is played.
 
@@ -132,7 +132,8 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 
 Fixes from an independent audit of the first Nov 5 build (revision 352df3c).
 
-- **Rebuild and install everything.** The SF BUS moved to v10 (the capture's messages); old and new builds don't talk to each other.
+- **Rebuild and install everything.** The SF BUS moved to v11 (the capture's messages, SLOW ALL's 128 BAR); old and new builds don't talk to each other.
+- **SLOW and SLOW ALL go to 128 BAR**, about four minutes at 132 BPM, for long sets. In a plugin's own SLOW menu it comes after OFF, so the settings saved in your sets stay as they are. Automation recorded on SLOW or SLOW ALL is different: Live keeps it as a position along the menu, so above 4 BAR it now lands on the next entry (SLOW ALL 64 BAR becomes 128; a plugin's own 64 BAR becomes OFF, and OFF 128 BAR). Check any you have.
 - **A set saved right after a song recall** keeps the recalled sound. Saved in the moment before Live had taken the recall in, it kept the values from before it (a set could reopen 6 dB off).
 - **A knob moved off a recalled value and back** before Live had taken the recall in stays where you left it (+3 then 0: it stays at 0; the recalled value used to come back).
 - **SLOW ALL in a loop:** going back over the spot where SLOW ALL was changed (a loop, a jump back) uses SLOW ALL as it is; a move there used to take the setting from before the change.

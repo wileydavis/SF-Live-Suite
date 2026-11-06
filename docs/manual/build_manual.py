@@ -298,7 +298,7 @@ story += bullets(["Live is the clock master. On the ONE: USB device mode, sync f
 
 story.append(H2("THE E16"))
 story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the repository under controllers/e16, with its address map (sf-show-map.csv) and loading steps (README); SF SHOW.als has every address mapped. The E16 is a 4 &times; 4 grid, numbered row by row from the top left. Rows 1 and 2 are the same on every page; rows 3 and 4 are the page."))
-PRESS_DOES = {"SLOW ALL": "a quick press flips the knob to SLOW ALL on SF CONTROL (green ring): how long your next moves take, OFF to 64 BAR; another press flips it back",
+PRESS_DOES = {"SLOW ALL": "a quick press flips the knob to SLOW ALL on SF CONTROL (green ring): how long your next moves take, OFF to 128 BAR; another press flips it back",
               "DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "PANIC": "every SF plugin silent while held",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
               "ROLL": "the drums roll while held"}

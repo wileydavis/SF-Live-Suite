@@ -32,12 +32,12 @@ static int slowAllFor (const BusData& d, bool playing, double ppq0, double block
         const int now = d.slowAll.load(), before = d.slowAllPrev.load();
         const double from = d.slowAllFromPpq.load();
         if (d.slowSeq.load() != s0) continue;
-        if (from < 0.0) return juce::jlimit (0, 7, now);
+        if (from < 0.0) return juce::jlimit (0, kSlowAllTop, now);
         if (! playing || ppq0 >= from - 1e-9) passed = s0;
         const bool sameBlock = passed != s0 && ppq0 < from - 1e-9 && ppq0 > from - 2.0 * blockBeats;
-        return juce::jlimit (0, 7, sameBlock ? before : now);
+        return juce::jlimit (0, kSlowAllTop, sameBlock ? before : now);
     }
-    return juce::jlimit (0, 7, (int) d.slowAll.load());
+    return juce::jlimit (0, kSlowAllTop, (int) d.slowAll.load());
 }
 
 juce::AudioProcessor::BusesProperties SFProcessor::busesFor (const Module& m)
@@ -596,7 +596,7 @@ void SFProcessor::updateParams (const Ctx& c, int n, float motionInput)
     // SLOW: how long a move made now takes. CONTROL: SF CONTROL's SLOW ALL; a length: this
     // plugin's own; OFF: straight there.
     const int slow = (int) raw[(size_t) (numModParams + SYS_GLIDE)]->load();
-    const double gBars = slow == SLOW_CONTROL ? glideBars (slowAllNow) : slow >= SLOW_OFF ? 0.0 : glideBars (slow);
+    const double gBars = slow == SLOW_CONTROL ? glideBars (slowAllNow) : ownBars (slow);
     const int mSrc = (int) raw[(size_t) (numModParams + SYS_MACRO_SRC)]->load();
     const float mAmt = raw[(size_t) (numModParams + SYS_MACRO_AMT)]->load();
     const float macro = mSrc > 0 && mSrc <= kMacros ? d.macro[mSrc - 1].load() : 0.0f;
