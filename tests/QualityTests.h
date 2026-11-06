@@ -4424,11 +4424,11 @@ static void testCapture()
     Rig2* cap = capOwner.get();
     auto cs = [&] { return capture::status (d.capStatus); };
     terr.head.playing = cap->head.playing = false;
-    // TERROIR's display as the editor lays it out (896 wide): slot 4 and CAPTURE, as it draws them.
-    const juce::Rectangle<float> disp (0.0f, 0.0f, 896.0f, 150.0f);
-    auto click = [&] (float x) { terr.p->mod().displayMouse ({ x, 25.0f }, disp, true); terr.p->mod().displayMouseUp(); };
-    auto slotX = [] (int i) { return 10.0f + (float) i * 30.0f + 13.0f; };
-    const float captureX = 896.0f - 172.0f + 35.0f;
+    // TERROIR's display as the editor's strip lays it out (280 wide): the slots, CAPTURE under them.
+    const juce::Rectangle<float> disp (0.0f, 0.0f, 280.0f, 184.0f);
+    auto click = [&] (juce::Point<float> at) { terr.p->mod().displayMouse (at, disp, true); terr.p->mod().displayMouseUp(); };
+    auto slotX = [] (int i) { const float w = (280.0f - 16.0f - 21.0f) / 8.0f; return juce::Point<float> (8.0f + (float) i * (w + 3.0f) + w * 0.5f, 25.0f); };
+    const juce::Point<float> captureX (73.0f, 47.0f);
     std::mt19937 rng (5);
     std::normal_distribution<float> g (0.0f, 1.0f);
     std::vector<float> backL ((size_t) kBlock, 0.0f), backR ((size_t) kBlock, 0.0f), mono ((size_t) kBlock, 0.0f);
@@ -4690,9 +4690,9 @@ static void testCaptureLifecycle()
 {
     std::printf ("-- A take's lifecycle: STOP at every stage, PANIC and prepare while it is made, the recorder removed or standing still\n");
     const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_capture_lifecycle");
-    const juce::Rectangle<float> disp (0.0f, 0.0f, 896.0f, 150.0f);
-    const float captureX = 896.0f - 172.0f + 35.0f;
-    auto slotX = [] (int i) { return 10.0f + (float) i * 30.0f + 13.0f; };
+    const juce::Rectangle<float> disp (0.0f, 0.0f, 280.0f, 184.0f);
+    const juce::Point<float> captureX (73.0f, 47.0f);           // as the strip lays out the display (280 wide)
+    auto slotX = [] (int i) { const float w = (280.0f - 16.0f - 21.0f) / 8.0f; return juce::Point<float> (8.0f + (float) i * (w + 3.0f) + w * 0.5f, 25.0f); };
     auto& d = Bus::get().d();
     auto cs = [&] { return capture::status (d.capStatus); };
     auto files = [&] { int n = 0; for (const auto& e : juce::RangedDirectoryIterator (dir, false, "*.wav")) { juce::ignoreUnused (e); ++n; } return n; };
@@ -4711,10 +4711,10 @@ static void testCaptureLifecycle()
         float peak = 0.0f;
         bool capRuns = true;
         World() : terr (std::make_unique<Rig2> ("TERROIR")), cap (std::make_unique<Rig2> ("CAPTURE")) { terr->head.playing = cap->head.playing = false; }
-        void click (float x)
+        void click (juce::Point<float> at)
         {
-            const juce::Rectangle<float> r (0.0f, 0.0f, 896.0f, 150.0f);
-            terr->p->mod().displayMouse ({ x, 25.0f }, r, true); terr->p->mod().displayMouseUp();
+            const juce::Rectangle<float> r (0.0f, 0.0f, 280.0f, 184.0f);
+            terr->p->mod().displayMouse (at, r, true); terr->p->mod().displayMouseUp();
         }
         void step()
         {

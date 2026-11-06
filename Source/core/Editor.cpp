@@ -3,6 +3,22 @@
 
 using namespace sf;
 
+namespace
+{
+juce::Colour ringColour (int c) { return c == 1 ? ui::kLedBlue : c == 2 ? ui::kGreen : ui::kLedWhite; }
+
+// A label squeezed (to 75 %) rather than cut when it is long.
+void fitted (juce::Graphics& g, const juce::String& s, juce::Rectangle<float> r, juce::Colour c, float h,
+             juce::Justification j = juce::Justification::centred, bool bold = false)
+{
+    g.setColour (c);
+    g.setFont (ui::mono (h, bold));
+    g.drawFittedText (s, r.toNearestInt(), j, 1, 0.75f);
+}
+
+juce::String onOff (bool on) { return on ? "ON" : "OFF"; }
+} // namespace
+
 // ---------------------------------------------------------------- look and feel
 SFLookAndFeel::SFLookAndFeel()
 {
@@ -20,35 +36,6 @@ SFLookAndFeel::SFLookAndFeel()
     setColour (juce::TextButton::textColourOnId, ui::kBg);
 }
 
-void SFLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float start, float end, juce::Slider& s)
-{
-    const auto r = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (4.0f);
-    const float radius = std::min (r.getWidth(), r.getHeight()) * 0.5f;
-    const auto c = r.getCentre();
-    const float thick = std::max (2.0f, radius * 0.12f);
-    const bool touched = s.isMouseButtonDown() || (bool) s.getProperties().getWithDefault ("hot", false);
-    const bool bipolar = (bool) s.getProperties().getWithDefault ("bipolar", false);
-
-    juce::Path track;
-    track.addCentredArc (c.x, c.y, radius - thick, radius - thick, 0.0f, start, end, true);
-    g.setColour (ui::kTrack);
-    g.strokePath (track, juce::PathStrokeType (thick, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
-
-    const float from = bipolar ? (start + end) * 0.5f : start;
-    const float to = start + pos * (end - start);
-    juce::Path val;
-    val.addCentredArc (c.x, c.y, radius - thick, radius - thick, 0.0f, std::min (from, to), std::max (from, to), true);
-    g.setColour (touched ? ui::kAccent : ui::kText);
-    g.strokePath (val, juce::PathStrokeType (thick, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
-
-    // Pointer line.
-    const float inner = radius * 0.25f, outer = radius - thick * 2.2f;
-    const juce::Point<float> a (c.x + inner * std::sin (to), c.y - inner * std::cos (to));
-    const juce::Point<float> b (c.x + outer * std::sin (to), c.y - outer * std::cos (to));
-    g.setColour (touched ? ui::kAccent : ui::kDim);
-    g.drawLine ({ a, b }, 1.5f);
-}
-
 void SFLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced (0.5f);
@@ -63,9 +50,8 @@ void SFLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, co
 void SFLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool down)
 {
     const bool on = b.getToggleState() || down;
-    g.setColour (on ? ui::kBg : ui::kText);
-    g.setFont (ui::mono (11.0f, true));
-    g.drawText (b.getButtonText(), b.getLocalBounds(), juce::Justification::centred, false);
+    const float h = b.getHeight() <= 13 ? 8.0f : b.getHeight() <= 24 ? 9.5f : 11.0f;
+    fitted (g, b.getButtonText(), b.getLocalBounds().toFloat().reduced (2.0f, 0.0f), on ? ui::kBg : ui::kText, h, juce::Justification::centred, true);
 }
 
 void SFLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool, int, int, int, int, juce::ComboBox& box)
@@ -76,108 +62,157 @@ void SFLookAndFeel::drawComboBox (juce::Graphics& g, int w, int h, bool, int, in
     g.setColour (box.hasKeyboardFocus (false) ? ui::kDim : ui::kLine);
     g.drawRect (r, 1.0f);
     juce::Path p;
-    const float ax = (float) w - 12.0f, ay = (float) h * 0.5f;
-    p.addTriangle (ax - 4, ay - 2, ax + 4, ay - 2, ax, ay + 3);
+    const float ax = (float) w - 7.0f, ay = (float) h * 0.5f;
+    p.addTriangle (ax - 3, ay - 1.5f, ax + 3, ay - 1.5f, ax, ay + 2.5f);
     g.setColour (ui::kDim);
     g.fillPath (p);
 }
 
 void SFLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& l)
 {
-    l.setBounds (4, 0, box.getWidth() - 20, box.getHeight());
+    l.setBounds (2, 0, box.getWidth() - 13, box.getHeight());
     l.setFont (getComboBoxFont (box));
+    l.setMinimumHorizontalScale (0.7f);
+    l.setBorderSize ({ 1, 2, 1, 1 });
     l.setColour (juce::Label::textColourId, ui::kText);
 }
 
 // ---------------------------------------------------------------- cells
-class SFCell : public juce::Component, private juce::Timer
+// One control: a knob (an E16 encoder's ring and cap), a menu, or a switch.
+class SFCell : public juce::Component
 {
 public:
+    enum class Kind { Ring, Menu, Switch };
+    struct Look
+    {
+        bool big = false;            // top-row size (the E16 grid, PERFORM)
+        bool e16 = false;            // an E16 encoder: fills from the first LED whatever the parameter
+        juce::Colour led = ui::kText;
+        float top = 1.0f;            // the ring is full here (normalised): the top of Live's mapping
+        int press = -1;              // the encoder's press (E16 grid): a parameter
+        juce::String name;           // empty: the parameter's own
+        bool narrow = false;         // a menu in one column however long its choices
+    };
+    static constexpr float kNameH = 11.0f;
+
+    SFCell (SFProcessor& p, int index, Look lk) : proc (p), idx (index), look (std::move (lk))
+    {
+        const auto& s = p.allSpecs()[(size_t) idx];
+        if (look.name.isEmpty()) look.name = s.name;
+        if (s.id == "m1_src") motionIndex = 0;
+        if (s.id == "m2_src") motionIndex = 1;
+        // A knob whose middle is neutral fills from the top, either way (an E16 encoder always fills
+        // from its first LED, as the E16 does): BIP / SLOT knobs, and ranges either side of 0 (TUNE).
+        if (! look.e16 && s.type == PType::Float)
+        {
+            if (s.unit == "BIP" || s.unit == "SLOT") centrePos = 0.5f;
+            else if (s.min < 0.0f && s.max > 0.0f && std::abs (s.min + s.max) < 1e-3f * (s.max - s.min))
+                centrePos = p.param (idx)->convertTo0to1 (0.0f);
+        }
+        auto& ap = p.apvts;
+        if (s.type == PType::Float || (look.e16 && s.type == PType::Choice))
+        {
+            kind = Kind::Ring;
+            slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox);
+            slider->setMouseDragSensitivity (look.big ? 240 : 200);
+            slider->setVelocityModeParameters (1.0, 1, 0.0, false, juce::ModifierKeys::shiftModifier);
+            sAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (ap, s.id, *slider);
+            slider->setDoubleClickReturnValue (true, s.def);
+            slider->onValueChange = [this] { hotUntil = juce::Time::getMillisecondCounter() + 700; repaint(); };
+            slider->setTitle (look.name);
+            addAndMakeVisible (*slider);
+            if (look.press >= 0) makeButton (look.press, true);
+        }
+        else if (s.type == PType::Choice)
+        {
+            kind = Kind::Menu;
+            box = std::make_unique<juce::ComboBox>();
+            for (size_t i = 0; i < s.choices.size(); ++i) box->addItem (s.choices[i], (int) i + 1);
+            cAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (ap, s.id, *box);
+            box->setTitle (look.name);
+            addAndMakeVisible (*box);
+            // One column shows about 70 pixels of text (squeezed to 70 %); longer choices take two.
+            float w = 0.0f;
+            for (auto& c : s.choices) w = std::max (w, juce::GlyphArrangement::getStringWidth (ui::mono (10.0f), juce::String (c)));
+            wide = ! look.narrow && w > 70.0f;
+        }
+        else
+        {
+            kind = Kind::Switch;
+            makeButton (idx, false);
+        }
+    }
+
     // A momentary button held while its window closes is released (PANIC must never stay held).
     ~SFCell() override
     {
-        if (wasDown)
-            if (auto* prm = proc.param (idx))
+        if (held >= 0)
+            if (auto* prm = proc.param (held))
             {
                 prm->beginChangeGesture();
                 prm->setValueNotifyingHost (0.0f);
                 prm->endChangeGesture();
             }
     }
-    SFCell (SFProcessor& p, int index, bool big) : proc (p), idx (index), large (big)
+
+    Kind getKind() const { return kind; }
+    int index() const { return idx; }
+    int pressIndex() const { return look.press; }
+    int span() const { return wide ? 2 : 1; }
+    int naturalHeight() const
     {
-        const auto& s = p.allSpecs()[(size_t) idx];
-        name = s.name;
-        if (s.id == "m1_src") motionIndex = 0;
-        if (s.id == "m2_src") motionIndex = 1;
-        auto& ap = p.apvts;
-        if (s.type == PType::Float)
+        switch (kind)
         {
-            slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox);
-            slider->setRotaryParameters (juce::degreesToRadians (225.0f), juce::degreesToRadians (495.0f), true);
-            slider->setMouseDragSensitivity (large ? 260 : 200);
-            slider->setVelocityModeParameters (1.0, 1, 0.0, false, juce::ModifierKeys::shiftModifier);
-            slider->getProperties().set ("bipolar", s.unit == "BIP" || s.unit == "SLOT" || (s.min < 0 && s.max > 0));
-            sAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (ap, s.id, *slider);
-            slider->setDoubleClickReturnValue (true, s.def);
-            addAndMakeVisible (*slider);
-            slider->onValueChange = [this] { hotUntil = juce::Time::getMillisecondCounter() + 700; };
+            case Kind::Ring:   return look.big ? (look.press >= 0 ? 83 : 70) : 56;
+            case Kind::Menu:   return 36;
+            case Kind::Switch: break;
         }
-        else if (s.type == PType::Choice)
+        return 34;
+    }
+
+    // "NAME VALUE", for a folded group's title line.
+    juce::String summary() const
+    {
+        const auto& s = proc.allSpecs()[(size_t) idx];
+        if (s.type == PType::Momentary) return {};
+        auto* prm = proc.param (idx);
+        const auto v = s.type == PType::Toggle ? onOff (prm->getValue() > 0.5f) : prm->getCurrentValueAsText();
+        return juce::String (s.name) + " " + v;
+    }
+
+    // The editor's timer: repaint only when what the cell shows has changed.
+    void poll()
+    {
+        if (kind == Kind::Ring)
         {
-            box = std::make_unique<juce::ComboBox>();
-            for (size_t i = 0; i < s.choices.size(); ++i) box->addItem (s.choices[i], (int) i + 1);
-            cAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (ap, s.id, *box);
-            addAndMakeVisible (*box);
-        }
-        else
-        {
-            button = std::make_unique<juce::TextButton> (s.name);
-            button->setClickingTogglesState (s.type == PType::Toggle);
-            if (s.type == PType::Toggle)
-                bAttach = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (ap, s.id, *button);
-            else
+            auto* prm = proc.param (idx);
+            const float t = prm->getValue(), n = prm->convertTo0to1 (proc.baseValue (idx));
+            const float m = proc.isModulated (idx) ? prm->convertTo0to1 (proc.currentValue (idx)) : -1.0f;
+            const bool hot = slider->isMouseButtonDown() || juce::Time::getMillisecondCounter() < hotUntil;
+            if (std::abs (t - shownT) > 1e-5f || std::abs (n - shownN) > 1e-3f || std::abs (m - shownM) > 1e-3f || hot != shownHot)
             {
-                auto* prm = p.param (idx);
-                button->onStateChange = [this, prm]
-                {
-                    const bool down = button->isDown();
-                    if (down != wasDown)
-                    {
-                        wasDown = down;
-                        prm->beginChangeGesture();
-                        prm->setValueNotifyingHost (down ? 1.0f : 0.0f);
-                        prm->endChangeGesture();
-                    }
-                };
+                shownT = t; shownN = n; shownM = m; shownHot = hot;
+                repaint();
             }
-            addAndMakeVisible (*button);
         }
-        startTimerHz (20);
+        else if (motionIndex >= 0)
+        {
+            const float v = proc.currentValue (idx) > 0.5f ? proc.motionValue (motionIndex) : -9.0f;
+            if (std::abs (v - shownM) > 0.01f) { shownM = v; repaint(); }
+        }
     }
 
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        ui::label (g, name, r.removeFromTop (16.0f), ui::kDim, large ? 11.0f : 10.0f, juce::Justification::centred);
-        if (slider != nullptr)
+        if (kind != Kind::Switch)
+            fitted (g, look.name, r.removeFromTop (kNameH), look.e16 ? ui::kText : ui::kDim, 9.0f);
+        if (kind == Kind::Ring) paintRing (g);
+        if (kind == Kind::Menu && motionIndex >= 0 && proc.currentValue (idx) > 0.5f)
         {
-            auto* prm = proc.param (idx);
-            const bool hot = slider->isMouseButtonDown() || juce::Time::getMillisecondCounter() < hotUntil;
-            ui::label (g, prm->getCurrentValueAsText(), r.removeFromBottom (16.0f), hot ? ui::kAccent : ui::kText,
-                       large ? 12.0f : 10.5f, juce::Justification::centred);
-            // Glide target marker: shows where a gliding (SLOW) value is heading.
-            const float target = prm->getValue();
-            const float now = prm->convertTo0to1 (proc.baseValue (idx));
-            if (std::abs (target - now) > 0.01f)
-                ui::label (g, "GLIDE " + juce::String (juce::roundToInt (now * 100)) + ">" + juce::String (juce::roundToInt (target * 100)),
-                           getLocalBounds().toFloat().removeFromBottom (30.0f).removeFromTop (14.0f), ui::kGreen, 9.0f, juce::Justification::centred);
-        }
-        if (motionIndex >= 0 && proc.currentValue (idx) > 0.5f)
-        {
-            // MOTION source: live output of the modulator.
+            // MOTION source: the modulator's output now.
             const float m = proc.motionValue (motionIndex);
-            auto bar = getLocalBounds().toFloat().removeFromBottom (14.0f).reduced (10.0f, 4.0f);
+            const auto bar = juce::Rectangle<float> (4.0f, (float) getHeight() - 3.0f, (float) getWidth() - 8.0f, 2.0f);
             g.setColour (ui::kTrack);
             g.fillRect (bar);
             const float cx = bar.getCentreX(), x = cx + juce::jlimit (-1.0f, 1.0f, m) * bar.getWidth() * 0.5f;
@@ -186,48 +221,84 @@ public:
         }
     }
 
-    void paintOverChildren (juce::Graphics& g) override
-    {
-        // MACRO / MOTION: a dot on the ring where the value really is.
-        if (slider == nullptr || ! proc.isModulated (idx)) return;
-        auto* prm = proc.param (idx);
-        const auto r = slider->getBounds().toFloat().reduced (4.0f);
-        const float radius = std::min (r.getWidth(), r.getHeight()) * 0.5f;
-        const float thick = std::max (2.0f, radius * 0.12f);
-        const float start = juce::degreesToRadians (225.0f), end = juce::degreesToRadians (495.0f);
-        const float a = start + prm->convertTo0to1 (proc.currentValue (idx)) * (end - start);
-        const auto c = r.getCentre();
-        const float rr = radius - thick;
-        g.setColour (ui::kGreen);
-        g.fillEllipse (c.x + rr * std::sin (a) - thick, c.y - rr * std::cos (a) - thick, thick * 2.0f, thick * 2.0f);
-    }
-
     void resized() override
     {
-        auto r = getLocalBounds().withTrimmedTop (16);
-        if (slider != nullptr) { r.removeFromBottom (16); slider->setBounds (r.withSizeKeepingCentre (std::min (r.getWidth(), r.getHeight()), std::min (r.getWidth(), r.getHeight()))); }
-        if (box != nullptr) box->setBounds (r.reduced (4).withSizeKeepingCentre (r.getWidth() - 8, 24));
-        if (button != nullptr) button->setBounds (r.reduced (4).withSizeKeepingCentre (r.getWidth() - 8, 26));
+        const int w = getWidth();
+        if (slider != nullptr)
+        {
+            const auto c = centre();
+            const int half = (int) std::ceil (radius() + led() * 2.0f + 1.0f);
+            slider->setBounds ((int) c.x - half, (int) c.y - half, 2 * half, 2 * half);
+            if (button != nullptr) button->setBounds (7, 71, w - 14, 11);
+        }
+        if (box != nullptr) box->setBounds (3, 13, w - 6, 20);
+        if (button != nullptr && kind == Kind::Switch) button->setBounds (3, 6, w - 6, 22);
     }
 
 private:
-    void timerCallback() override
+    juce::Point<float> centre() const { return { (float) getWidth() * 0.5f, look.big ? 35.0f : 27.0f }; }
+    float radius() const { return look.big ? 19.0f : 12.5f; }
+    float led() const    { return look.big ? 2.15f : 1.5f; }
+
+    void paintRing (juce::Graphics& g)
     {
-        if (slider != nullptr)
+        auto* prm = proc.param (idx);
+        const auto c = centre();
+        const float rr = radius(), ld = led();
+        ui::drawCap (g, c, look.big ? 10.5f : 7.0f);
+        const float target = prm->getValue();
+        const float now = prm->convertTo0to1 (proc.baseValue (idx));
+        const bool gliding = std::abs (target - now) > 0.003f;
+        auto pos = [this] (float v) { return juce::jlimit (0.0f, 1.0f, v / std::max (0.01f, look.top)) * 16.0f; };
+        const float from = centrePos >= 0.0f ? pos (centrePos) : 0.0f, p = pos (gliding ? now : target);
+        // SLOW: the ring walks green with the sound (as on the E16); the ringed LED is where it goes.
+        ui::drawLeds (g, c, rr, ld, std::min (from, p), std::max (from, p), gliding ? ui::kGreen : look.led, ui::kLedOff);
+        if (gliding) ui::drawLedMark (g, c, rr, ld, pos (target), ui::kText);
+        if (proc.isModulated (idx)) ui::drawModDot (g, c, rr, ld, pos (prm->convertTo0to1 (proc.currentValue (idx))), ui::kGreen);
+        const bool hot = slider->isMouseButtonDown() || juce::Time::getMillisecondCounter() < hotUntil;
+        const float vy = look.big ? 59.0f : 44.0f;
+        fitted (g, prm->getCurrentValueAsText(), { 0.0f, vy, (float) getWidth(), 11.0f },
+                hot ? ui::kAccent : gliding ? ui::kGreen : ui::kText, look.big ? 10.0f : 9.5f);
+    }
+
+    // A switch, or an encoder's press: a toggle, or a momentary held while the mouse is down.
+    void makeButton (int param, bool isPress)
+    {
+        const auto& s = proc.allSpecs()[(size_t) param];
+        button = std::make_unique<juce::TextButton> (s.name);
+        if (s.type == PType::Toggle)
         {
-            slider->getProperties().set ("hot", juce::Time::getMillisecondCounter() < hotUntil);
-            repaint();
+            button->setClickingTogglesState (true);
+            bAttach = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, s.id, *button);
         }
-        else if (motionIndex >= 0) repaint();
+        else
+        {
+            auto* prm = proc.param (param);
+            button->onStateChange = [this, prm, param]
+            {
+                const bool down = button->isDown();
+                if (down == (held >= 0)) return;
+                held = down ? param : -1;
+                prm->beginChangeGesture();
+                prm->setValueNotifyingHost (down ? 1.0f : 0.0f);
+                prm->endChangeGesture();
+            };
+        }
+        button->setTitle (isPress ? look.name + " PRESS: " + juce::String (s.name) : juce::String (s.name));
+        addAndMakeVisible (*button);
     }
 
     SFProcessor& proc;
     int idx;
-    bool large;
-    juce::String name;
-    bool wasDown = false;
+    Look look;
+    Kind kind = Kind::Switch;
+    bool wide = false;
+    float centrePos = -1.0f;         // where a neutral-middle knob's fill starts (normalised; -1: the first LED)
+    int held = -1;                   // the momentary parameter this cell's button holds down
     int motionIndex = -1;
     juce::uint32 hotUntil = 0;
+    float shownT = -1.0f, shownN = -1.0f, shownM = -2.0f;
+    bool shownHot = false;
     std::unique_ptr<juce::Slider> slider;
     std::unique_ptr<juce::ComboBox> box;
     std::unique_ptr<juce::TextButton> button;
@@ -240,25 +311,12 @@ private:
 SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
 {
     setLookAndFeel (&lnf);
-    const auto& specs = p.allSpecs();
-    int modelIdx = -1;
-    const int firstSys = p.numModuleParams();
-    for (int i = 0; i < (int) specs.size(); ++i)
-    {
-        if (specs[(size_t) i].id == "model") { modelIdx = i; continue; }
-        if (specs[(size_t) i].hidden) continue;
-        auto cell = std::make_unique<SFCell> (p, i, specs[(size_t) i].primary && i < firstSys);
-        addAndMakeVisible (*cell);
-        if (i >= firstSys + SFProcessor::SYS_M1_SRC) motionCells.push_back (std::move (cell));
-        else if (i >= firstSys) systemCells.push_back (std::move (cell));
-        else (specs[(size_t) i].primary ? primary : secondary).push_back (std::move (cell));
-    }
-    if (modelIdx >= 0)
-    {
-        for (size_t i = 0; i < specs[(size_t) modelIdx].choices.size(); ++i) modelBox.addItem (specs[(size_t) modelIdx].choices[i], (int) i + 1);
-        modelAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (p.apvts, "model", modelBox);
-        addAndMakeVisible (modelBox);
-    }
+    auto name = [] (Group& g, const char* title, int bit, bool foldedAtFirst) { g.title = title; g.bit = bit; g.foldedAtFirst = foldedAtFirst; };
+    name (perform, "PERFORM", 0, false);
+    name (detail, "DETAIL", kFoldDetail, false);
+    name (motion, "MOTION", kFoldMotion, true);
+    name (system, "SYSTEM", kFoldSystem, true);
+    name (setup, "SETUP", kFoldSetup, true);
     storeButton.onClick = [this] { proc.storeSong(); };
     addAndMakeVisible (storeButton);
     presetButton.onClick = [this] { showPresetMenu(); };
@@ -278,98 +336,425 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
         };
         addAndMakeVisible (loadButton);
     }
-    numSecondRows = (int) (secondary.size() + kCols - 1) / kCols;
-    const int dh = p.mod().displayHeight();
-    setSize (kW, kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0) + numSecondRows * kSecondH + kSystemTitle + 2 * kSecondH + kMargin);
+    build();
+    relayout();
     startTimerHz (30);
 }
 
-SFEditor::~SFEditor() { setLookAndFeel (nullptr); }
-
-juce::Rectangle<int> SFEditor::displayArea() const
+SFEditor::~SFEditor()
 {
-    const int dh = proc.mod().displayHeight();
-    if (dh <= 0) return {};
-    return { kMargin, kHeader + kPrimaryH + 4, getWidth() - 2 * kMargin, dh };
+    cells.clear();
+    setLookAndFeel (nullptr);
 }
 
+void SFEditor::build()
+{
+    for (auto* g : groups) g->cells.clear();
+    grid = {};
+    cells.clear();                                  // releases a held momentary
+    const auto& specs = proc.allSpecs();
+    const int firstSys = proc.numModuleParams();
+    std::vector<bool> placed (specs.size(), false);
+
+    // The E16: the plugin's page, its own encoders lit where they sit.
+    trackSeq = proc.liveTrackNameSeq();
+    const std::string mod = proc.mod().id();
+    const juce::String liveName = proc.liveTrackName();
+    const char* t = e16::trackFor (mod.c_str(), liveName.toRawUTF8());
+    page = -1; track = {}; note = {};
+    if (t != nullptr && t[0] == 0)
+    {
+        // On several of the scene's tracks and Live hasn't said which this is (an AU never knows):
+        // no grid (its knobs are in PERFORM), a line saying how to get it.
+        juce::StringArray tracks;
+        for (const auto& k : kE16Knobs) if (mod == k.module) tracks.addIfNotAlreadyThere (k.track);
+        note = (proc.wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "E16: AN AU KNOWS NO TRACK (" : "E16: NAME THE TRACK (")
+             + tracks.joinIntoString (", ") + ")";
+    }
+    else if (t != nullptr)
+    {
+        track = t;
+        page = e16::homePage (mod.c_str(), t);
+        const auto& pg = kE16Pages[page];
+        bool top = false, swap = false;
+        for (int e = 0; e < 16; ++e)
+        {
+            auto& gc = grid[(size_t) e];
+            gc.cell = &pg.cells[e];
+            const auto& c = pg.cells[e];
+            const bool second = ! e16::turnIs (c.turn, mod.c_str(), t) && e16::turnIs (c.second, mod.c_str(), t);
+            const auto* turn = second ? &c.second : e16::turnIs (c.turn, mod.c_str(), t) ? &c.turn : nullptr;
+            const int press = e16::pressIs (c.press, mod.c_str(), t) && c.press.param < firstSys ? c.press.param : -1;
+            if ((turn == nullptr || turn->param >= firstSys) && press < 0) continue;
+            SFCell::Look lk;
+            lk.big = lk.e16 = true;
+            int param = press;
+            if (turn != nullptr && turn->param < firstSys)
+            {
+                param = turn->param;
+                lk.led = ringColour (turn->colour);
+                auto* prm = proc.param (param);
+                lk.top = turn->max > 0.0f ? juce::jmax (0.01f, prm->convertTo0to1 (turn->max)) : 1.0f;
+                lk.press = press;
+            }
+            cells.push_back (std::make_unique<SFCell> (proc, param, lk));
+            gc.mine = cells.back().get();
+            addAndMakeVisible (*gc.mine);
+            placed[(size_t) param] = true;
+            if (press >= 0) placed[(size_t) press] = true;
+            top = top || e < 8;
+            swap = swap || second;
+        }
+        // Where else it is: another page's encoders 9-16 (1-8 are on every page).
+        juce::StringArray also;
+        for (int pg2 = 0; pg2 < e16::kNumPages; ++pg2)
+            if (pg2 != page)
+                for (int e = 8; e < 16; ++e)
+                {
+                    const auto& c = kE16Pages[pg2].cells[e];
+                    if (e16::turnIs (c.turn, mod.c_str(), t) || e16::pressIs (c.press, mod.c_str(), t))
+                        also.add (juce::String (kE16Pages[pg2].name) + " " + juce::String (e + 1));
+                }
+        if (swap) note = "ENCODER 1: PRESS FOR SLOW ALL, ON EVERY PAGE";
+        else if (! also.isEmpty()) note = "ALSO ON " + also.joinIntoString (", ");
+        else if (top) note = "ENCODERS 1-8: ON EVERY PAGE";
+    }
+
+    // The groups, in the order of the strip.
+    for (int i = 0; i < (int) specs.size(); ++i)
+    {
+        const auto& s = specs[(size_t) i];
+        if (s.hidden || placed[(size_t) i]) continue;
+        Group* gr = i >= firstSys + SFProcessor::SYS_M1_SRC ? &motion
+                  : i >= firstSys ? &system
+                  : s.primary || s.perform ? &perform
+                  : s.setup ? &setup : &detail;
+        SFCell::Look lk;
+        lk.big = gr == &perform;
+        lk.narrow = gr == &motion || gr == &system;
+        cells.push_back (std::make_unique<SFCell> (proc, i, lk));
+        addAndMakeVisible (*cells.back());
+        gr->cells.push_back (cells.back().get());
+    }
+    // DETAIL: MODEL first, then the knobs, the menus, the switches (each in the module's order).
+    auto rank = [&] (const SFCell* c)
+    {
+        const auto& s = specs[(size_t) c->index()];
+        return s.id == "model" ? 0 : c->getKind() == SFCell::Kind::Ring ? 1 : c->getKind() == SFCell::Kind::Menu ? 2 : 3;
+    };
+    std::stable_sort (detail.cells.begin(), detail.cells.end(), [&] (const SFCell* a, const SFCell* b) { return rank (a) < rank (b); });
+}
+
+void SFEditor::relayout()
+{
+    uiShown = proc.uiFold.load();
+    for (auto* gr : groups) gr->lastSummary = summary (*gr);
+    const int h = layout();
+    if (getWidth() != kW || getHeight() != h) setSize (kW, h);
+    repaint();
+}
+
+int SFEditor::layout()
+{
+    const int w = kW - 2 * kMargin;
+    const bool load = loadButton.isVisible();
+    presetButton.setBounds (kMargin, 28, w - 48 - (load ? 42 : 0), 22);
+    storeButton.setBounds (presetButton.getRight() + 4, 28, 44, 22);
+    loadButton.setBounds (storeButton.getRight() + 4, 28, 38, 22);
+
+    int y = kHeader;
+    panel = {};
+    if (page < 0 && note.isNotEmpty()) y += 16;                       // the E16 line
+    if (page >= 0)
+    {
+        // A row with a press (THROW, FREEZE, DROP, ROLL) is a little taller: its name sits under the knob.
+        int rowY = y + 30;
+        for (int row = 0; row < 4; ++row)
+        {
+            int h = 70;
+            for (int e = row * 4; e < row * 4 + 4; ++e)
+                if (auto* m = grid[(size_t) e].mine) h = std::max (h, m->naturalHeight());
+            for (int e = row * 4; e < row * 4 + 4; ++e)
+            {
+                auto& gc = grid[(size_t) e];
+                gc.r = { kMargin + (e % 4) * kColW, rowY, kColW, h };
+                if (gc.mine != nullptr) gc.mine->setBounds (gc.r);
+            }
+            rowY += h;
+        }
+        const int bottom = rowY + (note.isNotEmpty() ? 14 : 2);
+        panel = { 4, y + 4, kW - 8, bottom - (y + 4) + 4 };
+        y = panel.getBottom() + 6;
+    }
+
+    auto place = [&] (Group& gr)
+    {
+        gr.titleRow = {};
+        if (gr.cells.empty()) return;
+        gr.titleRow = { 0, y, kW, kTitleH };
+        y += kTitleH;
+        const bool f = gr.isFolded (uiShown);
+        for (auto* c : gr.cells) c->setVisible (! f);
+        if (f) { y += 2; return; }
+        // Rows of 4 columns in the group's order; a two-column menu that doesn't fit a row's last
+        // column leaves it to the next cell that does.
+        std::vector<SFCell*> todo (gr.cells.begin(), gr.cells.end());
+        int col = 0, rowH = 0;
+        while (! todo.empty())
+        {
+            auto it = todo.begin();
+            if (col + std::min (kCols, (*it)->span()) > kCols)
+                it = std::find_if (todo.begin(), todo.end(), [&] (SFCell* c) { return col + std::min (kCols, c->span()) <= kCols; });
+            if (it == todo.end()) { y += rowH; col = 0; rowH = 0; continue; }
+            auto* c = *it;
+            todo.erase (it);
+            const int sp = std::min (kCols, c->span());
+            c->setBounds (kMargin + col * kColW, y, sp * kColW, c->naturalHeight());
+            rowH = std::max (rowH, c->naturalHeight());
+            col += sp;
+            if (col == kCols) { y += rowH; col = 0; rowH = 0; }
+        }
+        y += rowH + 6;
+    };
+    place (perform);
+    display = {};
+    if (const int dh = proc.mod().displayHeight(); dh > 0)
+    {
+        display = { kMargin, y + 2, w, dh };
+        y = display.getBottom() + 8;
+    }
+    place (detail);
+    place (motion);
+    place (system);
+    place (setup);
+    return y + 4;
+}
+
+std::vector<std::pair<int, juce::String>> SFEditor::places() const
+{
+    std::vector<std::pair<int, juce::String>> out;
+    for (int e = 0; e < 16; ++e)
+        if (auto* c = grid[(size_t) e].mine)
+        {
+            const bool pressOnly = c->getKind() == SFCell::Kind::Switch;
+            out.push_back ({ c->index(), "E16 " + juce::String (e + 1) + (pressOnly ? " PRESS" : "") });
+            if (c->pressIndex() >= 0) out.push_back ({ c->pressIndex(), "E16 " + juce::String (e + 1) + " PRESS" });
+        }
+    for (auto* g : groups)
+        for (auto* c : g->cells) out.push_back ({ c->index(), g->title });
+    return out;
+}
+
+bool SFEditor::folded (int bit) const
+{
+    for (auto* g : groups) if (g->bit == bit) return g->isFolded (proc.uiFold.load());
+    return false;
+}
+
+void SFEditor::toggleFold (int bit)
+{
+    proc.uiFold.fetch_xor (bit);
+    relayout();
+}
+
+// ---------------------------------------------------------------- painting
 void SFEditor::paint (juce::Graphics& g)
 {
     g.fillAll (ui::kBg);
-    auto hdr = getLocalBounds().removeFromTop (kHeader).toFloat();
-    g.setColour (ui::kLine);
-    g.drawHorizontalLine (kHeader - 1, 0.0f, (float) getWidth());
-    ui::label (g, "SF " + juce::String (proc.mod().id()), hdr.withTrimmedLeft ((float) kMargin).withWidth (140), ui::kText, 15.0f);
-
-    // Song indicator.
-    const int s = proc.activeSong();
-    const juce::String song = s < 0 ? "SONG --" : "SONG " + juce::String (s + 1).paddedLeft ('0', 2) + (proc.songStored (s) ? "" : " EMPTY");
-    ui::label (g, song + (proc.recallWaiting() ? " WAIT" : ""), { 556.0f, 0.0f, 118.0f, (float) kHeader },
-               proc.recallWaiting() ? ui::kGreen : ui::kDim, 10.0f);
-
-    // Output meter. FAULT (red): the safety stage had to reset the module (NaN or runaway).
-    juce::Rectangle<float> m ((float) getWidth() - 132.0f, 15.0f, 80.0f, 8.0f);
-    ui::levelBar (g, m, proc.outMeter.peak);
-    const bool flt = proc.fault.load();
-    const bool held = sf::Bus::get().d().panicHeld.load() != 0 && sf::Bus::get().controlAlive();
-    ui::label (g, held ? "PANIC" : flt ? "FAULT" : "OUT", m.withX (m.getRight() + 5).withWidth (44).withHeight (8),
-               held || flt || proc.clipped.load() ? ui::kRed : ui::kFaint, 9.0f);
-
-    // Primary row frame.
-    g.setColour (ui::kLine);
-    g.drawHorizontalLine (kHeader + kPrimaryH, 0.0f, (float) getWidth());
-
-    // SYSTEM section title.
-    {
-        const int y = systemTop();
-        g.setColour (ui::kLine);
-        g.drawHorizontalLine (y, 0.0f, (float) getWidth());
-        ui::label (g, "MOTION", { (float) kMargin, (float) y + 2.0f, 200.0f, 14.0f }, ui::kFaint, 10.0f);
-        ui::label (g, "SYSTEM", { (float) kMargin, (float) (y + kSystemTitle + kSecondH) - 2.0f, 200.0f, 14.0f }, ui::kFaint, 10.0f);
-    }
-
-    if (auto d = displayArea(); ! d.isEmpty())
+    paintHeader (g);
+    if (page >= 0) paintE16 (g);
+    else if (note.isNotEmpty()) fitted (g, note, { (float) kMargin, (float) kHeader, (float) (kW - 2 * kMargin), 14.0f }, ui::kFaint, 8.5f, juce::Justification::centredLeft);
+    for (auto* gr : groups) if (! gr->titleRow.isEmpty()) paintTitle (g, *gr);
+    if (! display.isEmpty())
     {
         g.saveState();
-        g.reduceClipRegion (d);
-        proc.mod().paint (g, d.toFloat());
+        g.reduceClipRegion (display);
+        proc.mod().paint (g, display.toFloat());
         g.restoreState();
-        g.setColour (ui::kLine);
-        g.drawHorizontalLine (d.getBottom() + 6, 0.0f, (float) getWidth());
     }
     if (dragHover)
     {
         g.setColour (ui::kText);
         g.drawRect (getLocalBounds().reduced (2), 2);
-        ui::label (g, proc.mod().fileHint(), getLocalBounds().toFloat().removeFromBottom (24), ui::kText, 12.0f, juce::Justification::centred);
+        fitted (g, proc.mod().fileHint(), getLocalBounds().toFloat().removeFromBottom (24), ui::kText, 11.0f);
     }
 }
 
-void SFEditor::resized()
+void SFEditor::paintHeader (juce::Graphics& g)
 {
-    int x = kMargin + 134;
-    if (modelBox.isVisible()) { modelBox.setBounds (x, 8, 180, 24); x += 188; }
-    presetButton.setBounds (x, 8, 548 - x, 24);
-    storeButton.setBounds (676, 8, 56, 24);
-    loadButton.setBounds (736, 8, 48, 24);
-    const int cw = (getWidth() - 2 * kMargin) / kCols;
-    for (size_t i = 0; i < primary.size(); ++i)
-        primary[i]->setBounds (kMargin + (int) i * cw, kHeader + 6, cw, kPrimaryH - 10);
-    const int dh = proc.mod().displayHeight();
-    const int y0 = kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0);
-    for (size_t i = 0; i < secondary.size(); ++i)
-        secondary[i]->setBounds (kMargin + (int) (i % kCols) * cw, y0 + (int) (i / kCols) * kSecondH + 4, cw, kSecondH - 6);
-    const int ys = systemTop() + kSystemTitle;
-    for (size_t i = 0; i < motionCells.size(); ++i)
-        motionCells[i]->setBounds (kMargin + (int) (i % kCols) * cw, ys + (int) (i / kCols) * kSecondH, cw, kSecondH - 6);
-    for (size_t i = 0; i < systemCells.size(); ++i)
-        systemCells[i]->setBounds (kMargin + (int) (i % kCols) * cw, ys + kSecondH + 6, cw, kSecondH - 6);
+    ui::label (g, "SF " + juce::String (proc.mod().id()), { (float) kMargin, 4.0f, 120.0f, 20.0f }, ui::kText, 13.0f);
+    // Song indicator.
+    const int s = proc.activeSong();
+    const juce::String song = s < 0 ? "SONG --" : "SONG " + juce::String (s + 1).paddedLeft ('0', 2) + (proc.songStored (s) ? "" : " EMPTY");
+    fitted (g, song + (proc.recallWaiting() ? " WAIT" : ""), { 124.0f, 4.0f, 96.0f, 20.0f },
+            proc.recallWaiting() ? ui::kGreen : ui::kDim, 9.0f, juce::Justification::centredLeft);
+    // Output meter. FAULT (red): the safety stage had to reset the module (NaN or runaway).
+    const juce::Rectangle<float> m (224.0f, 11.0f, 34.0f, 6.0f);
+    ui::levelBar (g, m, proc.outMeter.peak);
+    const bool flt = proc.fault.load();
+    const bool heldPanic = sf::Bus::get().d().panicHeld.load() != 0 && sf::Bus::get().controlAlive();
+    fitted (g, heldPanic ? "PANIC" : flt ? "FAULT" : "OUT", { 261.0f, 7.0f, 32.0f, 14.0f },
+            heldPanic || flt || proc.clipped.load() ? ui::kRed : ui::kFaint, 8.5f, juce::Justification::centredLeft);
+    g.setColour (ui::kLine);
+    g.drawHorizontalLine (kHeader - 2, 0.0f, (float) getWidth());
 }
 
-int SFEditor::systemTop() const
+void SFEditor::paintE16 (juce::Graphics& g)
 {
-    const int dh = proc.mod().displayHeight();
-    return kHeader + kPrimaryH + (dh > 0 ? dh + 12 : 0) + numSecondRows * kSecondH + 4;
+    // The unit: a dark panel, its screen showing the page, 16 encoders. This plugin's are lit (its
+    // cells draw them); the others are dark, their names faint, so it is clear where the hands are.
+    const auto pr = panel.toFloat();
+    g.setColour (juce::Colour (0xff0c0c0c));
+    g.fillRoundedRectangle (pr, 6.0f);
+    g.setColour (juce::Colour (0xff1e1e1e));
+    g.drawRoundedRectangle (pr.reduced (0.5f), 6.0f, 1.0f);
+    const juce::Rectangle<float> oled (pr.getCentreX() - 62.0f, pr.getY() + 5.0f, 124.0f, 17.0f);
+    g.setColour (ui::kBg);
+    g.fillRoundedRectangle (oled, 2.0f);
+    g.setColour (juce::Colour (0xff262626));
+    g.drawRoundedRectangle (oled, 2.0f, 1.0f);
+    fitted (g, kE16Pages[page].name, oled, ui::kText, 10.0f, juce::Justification::centred, true);
+    fitted (g, "E16", { pr.getX() + 8.0f, oled.getY(), 40.0f, oled.getHeight() }, ui::kFaint, 8.5f, juce::Justification::centredLeft, true);
+    fitted (g, track, { oled.getRight() + 4.0f, oled.getY(), pr.getRight() - oled.getRight() - 12.0f, oled.getHeight() },
+            ui::kDim, 8.5f, juce::Justification::centredRight);
+    for (const auto& gc : grid)
+    {
+        if (gc.mine != nullptr || gc.cell == nullptr) continue;
+        const auto r = gc.r.toFloat();
+        const auto& t = gc.cell->turn;
+        const juce::Point<float> c (r.getCentreX(), r.getY() + 35.0f);
+        ui::drawCap (g, c, 10.5f);
+        ui::drawLeds (g, c, 19.0f, 2.15f, 0.0f, 0.0f, ui::kLedWhite, ui::kLedDark);
+        fitted (g, t.abbr != nullptr ? juce::String (t.abbr) : juce::String(), r.withHeight (SFCell::kNameH), juce::Colour (0xff3a3a3a), 9.0f);
+    }
+    if (note.isNotEmpty())
+        fitted (g, note, { pr.getX() + 6.0f, (float) grid[12].r.getBottom(), pr.getWidth() - 12.0f, 13.0f }, ui::kFaint, 8.5f);
+}
+
+void SFEditor::paintTitle (juce::Graphics& g, const Group& gr)
+{
+    const auto r = gr.titleRow.toFloat();
+    const auto font = ui::mono (9.0f, true).withExtraKerningFactor (0.12f);
+    const float tw = juce::GlyphArrangement::getStringWidth (font, gr.title);
+    g.setColour (ui::kDim);
+    g.setFont (font);
+    g.drawText (gr.title, juce::Rectangle<float> ((float) kMargin, r.getY(), tw + 4.0f, r.getHeight()), juce::Justification::centredLeft, false);
+    const float x0 = (float) kMargin + tw + 8.0f, x1 = r.getRight() - (gr.bit != 0 ? 20.0f : (float) kMargin);
+    const bool f = gr.isFolded (uiShown);
+    if (f)
+        fitted (g, gr.lastSummary, { x0, r.getY(), x1 - x0, r.getHeight() }, ui::kFaint, 8.5f, juce::Justification::centredLeft);
+    else
+    {
+        g.setColour (ui::kLine);
+        g.drawHorizontalLine ((int) r.getCentreY(), x0, x1);
+    }
+    if (gr.bit != 0)
+    {
+        // + opens, - folds.
+        const float cx = r.getRight() - 12.0f, cy = r.getCentreY();
+        g.setColour (ui::kDim);
+        g.drawLine (cx - 3.5f, cy, cx + 3.5f, cy, 1.2f);
+        if (f) g.drawLine (cx, cy - 3.5f, cx, cy + 3.5f, 1.2f);
+    }
+}
+
+juce::String SFEditor::summary (const Group& gr) const
+{
+    const int firstSys = proc.numModuleParams();
+    auto text = [this] (int i) { return proc.param (i)->getCurrentValueAsText(); };
+    if (&gr == &motion)
+    {
+        juce::StringArray parts;
+        for (int k = 0; k < SFProcessor::kMotions; ++k)
+        {
+            const int src = firstSys + SFProcessor::SYS_M1_SRC + 4 * k;
+            const juce::String m = "M" + juce::String (k + 1) + " ";
+            parts.add (proc.param (src)->getValue() < 0.001f ? m + "OFF" : m + text (src) + ">" + text (src + 2) + " " + text (src + 1));
+        }
+        return parts.joinIntoString ("  ");
+    }
+    if (&gr == &system)
+    {
+        const int src = firstSys + SFProcessor::SYS_MACRO_SRC;
+        return "SLOW " + text (firstSys + SFProcessor::SYS_GLIDE) + "  "
+             + (proc.param (src)->getValue() < 0.001f ? juce::String ("MACRO OFF") : text (src) + " " + text (src + 1));
+    }
+    juce::StringArray parts;
+    for (auto* c : gr.cells)
+        if (auto s = c->summary(); s.isNotEmpty()) parts.add (s);
+    return parts.joinIntoString ("  ");
+}
+
+// ---------------------------------------------------------------- mouse, files, timer
+SFEditor::Group* SFEditor::groupAt (juce::Point<int> p)
+{
+    for (auto* g : groups) if (g->bit != 0 && g->titleRow.contains (p)) return g;
+    return nullptr;
+}
+
+void SFEditor::mouseDown (const juce::MouseEvent& e)
+{
+    if (display.contains (e.getPosition()))
+        proc.mod().displayMouse (e.position, display.toFloat(), true);
+    if (auto* gr = groupAt (e.getPosition())) { toggleFold (gr->bit); return; }
+    if (e.y < 26 && e.x > 220) { proc.clipped = false; proc.fault = false; }
+}
+
+void SFEditor::mouseUp (const juce::MouseEvent&) { proc.mod().displayMouseUp(); }
+
+void SFEditor::mouseDrag (const juce::MouseEvent& e)
+{
+    if (display.contains (e.getPosition()))
+        proc.mod().displayMouse (e.position, display.toFloat(), false);
+}
+
+void SFEditor::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (groupAt (e.getPosition()) != nullptr ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+bool SFEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    if (! proc.mod().acceptsFiles()) return false;
+    for (auto& f : files) if (isAudioFile (f)) return true;
+    return false;
+}
+
+void SFEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    dragHover = false;
+    juce::StringArray audio;
+    for (auto& f : files) if (isAudioFile (f)) audio.add (f);
+    proc.mod().loadFiles (audio);
+    repaint();
+}
+
+void SFEditor::timerCallback()
+{
+    // Live renamed the track (or named it after the window opened): the grid follows.
+    if (proc.liveTrackNameSeq() != trackSeq)
+    {
+        const auto mod = proc.mod().id();
+        const char* t = e16::trackFor (mod.c_str(), proc.liveTrackName().toRawUTF8());
+        trackSeq = proc.liveTrackNameSeq();
+        if (juce::String (t != nullptr ? t : "") != track || (t == nullptr) != (page < 0)) { build(); relayout(); }
+    }
+    if (proc.uiFold.load() != uiShown) relayout();          // a state load
+    if (presetButton.getButtonText() != presetText()) presetButton.setButtonText (presetText());
+    repaint (0, 0, getWidth(), 26);
+    if (! display.isEmpty()) repaint (display);
+    for (auto& c : cells) if (c->isVisible()) c->poll();
+    if (++ticks % 6 == 0)                                   // a folded group's line, 5 times a second
+        for (auto* gr : groups)
+            if (gr->isFolded (uiShown))
+                if (auto s = summary (*gr); s != gr->lastSummary) { gr->lastSummary = s; repaint (gr->titleRow); }
+}
+
+// ---------------------------------------------------------------- presets
+juce::String SFEditor::presetText() const
+{
+    const auto nm = proc.presetName();
+    return nm.isEmpty() ? juce::String ("PRESET") : "PRESET  " + nm.fromLastOccurrenceOf ("/", false, false);
 }
 
 void SFEditor::showPresetMenu()
@@ -377,7 +762,7 @@ void SFEditor::showPresetMenu()
     juce::PopupMenu menu;
     const auto& fac = proc.factoryPresets();
     // "GROUP/NAME" puts a preset in a sub-menu (groups in first-seen order).
-    std::map<juce::String, juce::PopupMenu> groups;
+    std::map<juce::String, juce::PopupMenu> sub;
     std::vector<juce::String> order;
     juce::PopupMenu loose;
     for (size_t i = 0; i < fac.size(); ++i)
@@ -388,15 +773,15 @@ void SFEditor::showPresetMenu()
         if (slash > 0)
         {
             const auto grp = nm.substring (0, slash);
-            if (groups.find (grp) == groups.end()) order.push_back (grp);
-            groups[grp].addItem (1 + (int) i, nm.substring (slash + 1), true, current);
+            if (sub.find (grp) == sub.end()) order.push_back (grp);
+            sub[grp].addItem (1 + (int) i, nm.substring (slash + 1), true, current);
         }
         else loose.addItem (1 + (int) i, nm, true, current);
     }
     if (! fac.empty())
     {
         menu.addSectionHeader ("FACTORY");
-        for (auto& grp : order) menu.addSubMenu (grp, groups[grp]);
+        for (auto& grp : order) menu.addSubMenu (grp, sub[grp]);
         for (juce::PopupMenu::MenuItemIterator it (loose); it.next();) menu.addItem (it.getItem());
     }
     userFiles = proc.userPresets();
@@ -419,73 +804,26 @@ void SFEditor::showPresetMenu()
 
 void SFEditor::presetChosen (int r)
 {
+    const auto& f = proc.factoryPresets();
+    if (r >= 1 && r <= (int) f.size()) proc.applyPreset (f[(size_t) r - 1]);
+    else if (r >= 1000 && r < 1000 + userFiles.size()) proc.loadUserPreset (userFiles[r - 1000]);
+    else if (r == 2000)
     {
-        const auto& f = proc.factoryPresets();
-        if (r >= 1 && r <= (int) f.size()) proc.applyPreset (f[(size_t) r - 1]);
-        else if (r >= 1000 && r < 1000 + userFiles.size()) proc.loadUserPreset (userFiles[r - 1000]);
-        else if (r == 2000)
+        auto* w = new juce::AlertWindow ("SAVE USER PRESET", "NAME", juce::MessageBoxIconType::NoIcon);
+        w->addTextEditor ("name", proc.presetName().isEmpty() ? juce::String ("USER 01") : proc.presetName());
+        w->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::Component::SafePointer<SFEditor> safe (this);
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int res)
         {
-            auto* w = new juce::AlertWindow ("SAVE USER PRESET", "NAME", juce::MessageBoxIconType::NoIcon);
-            w->addTextEditor ("name", proc.presetName().isEmpty() ? juce::String ("USER 01") : proc.presetName());
-            w->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
-            w->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-            juce::Component::SafePointer<SFEditor> safe (this);
-            w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int res)
-            {
-                if (res == 1 && safe != nullptr) safe->proc.saveUserPreset (w->getTextEditorContents ("name"));
-            }), true);
-        }
-        else if (r == 2001)
-        {
-            auto folder = proc.userPresetFolder();
-            folder.createDirectory();
-            folder.revealToUser();
-        }
-        updatePresetLabel();
+            if (res == 1 && safe != nullptr) safe->proc.saveUserPreset (w->getTextEditorContents ("name"));
+        }), true);
     }
-}
-
-void SFEditor::updatePresetLabel()
-{
-    const auto nm = proc.presetName();
-    presetButton.setButtonText (nm.isEmpty() ? juce::String ("PRESET") : "PRESET  " + nm.fromLastOccurrenceOf ("/", false, false));
-}
-
-void SFEditor::mouseDown (const juce::MouseEvent& e)
-{
-    if (auto d = displayArea(); d.contains (e.getPosition()))
-        proc.mod().displayMouse (e.position, d.toFloat(), true);
-    if (e.y < kHeader && e.x > getWidth() - 140) { proc.clipped = false; proc.fault = false; }
-}
-
-void SFEditor::mouseUp (const juce::MouseEvent&) { proc.mod().displayMouseUp(); }
-
-void SFEditor::mouseDrag (const juce::MouseEvent& e)
-{
-    if (auto d = displayArea(); d.contains (e.getPosition()))
-        proc.mod().displayMouse (e.position, d.toFloat(), false);
-}
-
-bool SFEditor::isInterestedInFileDrag (const juce::StringArray& files)
-{
-    if (! proc.mod().acceptsFiles()) return false;
-    for (auto& f : files) if (isAudioFile (f)) return true;
-    return false;
-}
-
-void SFEditor::filesDropped (const juce::StringArray& files, int, int)
-{
-    dragHover = false;
-    juce::StringArray audio;
-    for (auto& f : files) if (isAudioFile (f)) audio.add (f);
-    proc.mod().loadFiles (audio);
-    repaint();
-}
-
-void SFEditor::timerCallback()
-{
-    if (presetButton.getButtonText() != (proc.presetName().isEmpty() ? juce::String ("PRESET") : "PRESET  " + proc.presetName().fromLastOccurrenceOf ("/", false, false)))
-        updatePresetLabel();
-    repaint (0, 0, getWidth(), kHeader);
-    if (auto d = displayArea(); ! d.isEmpty()) repaint (d);
+    else if (r == 2001)
+    {
+        auto folder = proc.userPresetFolder();
+        folder.createDirectory();
+        folder.revealToUser();
+    }
+    presetButton.setButtonText (presetText());
 }

@@ -1,24 +1,33 @@
 #pragma once
-// SFEditor: one generic editor for every module.
-//   HEADER   SF <MODULE> | MODEL | PRESET | SONG | STORE | LOAD | OUT meter (FAULT)
-//   PRIMARY  8 large controls (the E16 row / Live's device view)
-//   DISPLAY  module-drawn panel
-//   SECOND   remaining controls, 8 per row
-//   MOTION   M1 / M2 SOURCE, RATE, TARGET, DEPTH
-//   SYSTEM   SLOW, MACRO SRC, MACRO AMT
+// SFEditor: one generic editor for every module, a narrow strip so several sit side by side in Live.
+// Top to bottom, from the hands to the set and forget:
+//   HEADER   SF <MODULE>, SONG, OUT meter (FAULT / PANIC); PRESET, STORE, LOAD
+//   E16      the plugin's page of the scene SF SHOW as the E16 shows it: the plugin's own encoders
+//            lit in their ring colours where they sit, the other encoders dark (E16View.h). A plugin
+//            the scene doesn't have: no grid; one on several tracks Live hasn't named: a line.
+//   PERFORM  the rest of the top row (the first 8 parameters: Live's device view), and what else
+//            is played (DECK's PLAY and CUE, CONTROL's PANIC)
+//   DISPLAY  the module's own panel
+//   DETAIL   the sound's other controls, MODEL first
+//   MOTION   M1 / M2 SOURCE, RATE, TARGET, DEPTH                         folded at first
+//   SYSTEM   SLOW, MACRO SRC, MACRO AMT                                  folded at first
+//   SETUP    how the plugin sits in the set (ALLOC, KEY FOLLOW, DRY ...)  folded at first
+// A folded group's title line says what is in it; a click on the line opens or folds it. What is
+// folded is saved with the set (SFProcessor::uiFold).
 #include "Processor.h"
 #include "Ui.h"
 #include "Sample.h"
+#include "E16View.h"
 
 class SFLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     SFLookAndFeel();
-    void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos, float start, float end, juce::Slider&) override;
+    void drawRotarySlider (juce::Graphics&, int, int, int, int, float, float, float, juce::Slider&) override {}   // SFCell draws the ring
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool over, bool down) override;
     void drawButtonText (juce::Graphics&, juce::TextButton&, bool over, bool down) override;
     void drawComboBox (juce::Graphics&, int w, int h, bool down, int bx, int by, int bw, int bh, juce::ComboBox&) override;
-    juce::Font getComboBoxFont (juce::ComboBox&) override { return sf::ui::mono (12.0f); }
+    juce::Font getComboBoxFont (juce::ComboBox&) override { return sf::ui::mono (10.0f); }
     juce::Font getPopupMenuFont() override { return sf::ui::mono (12.0f); }
     void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
 };
@@ -34,34 +43,74 @@ public:
     ~SFEditor() override;
 
     void paint (juce::Graphics&) override;
-    void resized() override;
+    void resized() override {}
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
 
     bool isInterestedInFileDrag (const juce::StringArray&) override;
     void filesDropped (const juce::StringArray&, int, int) override;
     void fileDragEnter (const juce::StringArray&, int, int) override { dragHover = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { dragHover = false; repaint(); }
 
-    static constexpr int kW = 928, kHeader = 40, kPrimaryH = 128, kSecondH = 92, kCols = 8, kMargin = 16, kSystemTitle = 16;
+    // The strip: 4 columns of 70 (the E16's 4 x 4), an 8 pixel margin.
+    static constexpr int kW = 296, kMargin = 8, kCols = 4, kColW = 70, kHeader = 56, kTitleH = 16;
+    enum Fold { kFoldDetail = 1, kFoldMotion = 2, kFoldSystem = 4, kFoldSetup = 8 };
+
+    // What the strip shows, for tests: the E16 page (-1: no grid), the track the grid is for, every
+    // shown parameter's place ("E16 <encoder 1-16>", "E16 <encoder> PRESS", or the group's title), and
+    // whether a group is folded.
+    int e16Page() const { return page; }
+    juce::String e16Track() const { return track; }
+    std::vector<std::pair<int, juce::String>> places() const;
+    bool folded (int foldBit) const;
+    void toggleFold (int foldBit);
+    juce::Rectangle<int> displayBounds() const { return display; }
 
 private:
+    struct Group
+    {
+        juce::String title;
+        int bit = 0;                    // its fold bit (0: never folds)
+        bool foldedAtFirst = false;
+        std::vector<SFCell*> cells;
+        juce::Rectangle<int> titleRow;
+        juce::String lastSummary;
+        bool isFolded (int ui) const { return bit != 0 && (foldedAtFirst != ((ui & bit) != 0)); }
+    };
+    struct GridCell
+    {
+        const sf::E16Cell* cell = nullptr;
+        SFCell* mine = nullptr;         // this plugin's encoder, lit
+        juce::Rectangle<int> r;
+    };
+
     void timerCallback() override;
-    juce::Rectangle<int> displayArea() const;
-    int systemTop() const;
+    void build();                       // the cells for the track Live names (again when it renames it)
+    void relayout();                    // places everything and sizes the window
+    int layout();
+    void paintHeader (juce::Graphics&);
+    void paintE16 (juce::Graphics&);
+    void paintTitle (juce::Graphics&, const Group&);
+    juce::String summary (const Group&) const;
+    Group* groupAt (juce::Point<int>);
     void showPresetMenu();
     void presetChosen (int result);
-    void updatePresetLabel();
+    juce::String presetText() const;
 
     SFProcessor& proc;
     SFLookAndFeel lnf;
-    std::vector<std::unique_ptr<SFCell>> primary, secondary, motionCells, systemCells;
-    juce::ComboBox modelBox;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modelAttach;
+    std::vector<std::unique_ptr<SFCell>> cells;
+    Group perform, detail, motion, system, setup;
+    std::array<Group*, 5> groups { &perform, &detail, &motion, &system, &setup };
+    std::array<GridCell, 16> grid {};
+    int page = -1, uiShown = 0, ticks = 0;
+    juce::String track, note;
+    juce::Rectangle<int> panel, display;
+    uint32_t trackSeq = 0;
     juce::TextButton storeButton { "STORE" }, loadButton { "LOAD" }, presetButton { "PRESET" };
     juce::Array<juce::File> userFiles;
     std::unique_ptr<juce::FileChooser> chooser;
     bool dragHover = false;
-    int numSecondRows = 0;
 };

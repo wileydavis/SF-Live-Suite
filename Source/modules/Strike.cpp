@@ -67,8 +67,8 @@ public:
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 0),
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  pct ("vel_sens", "VEL SENS", 0.5f),
-                 toggle ("alloc", "ALLOC", true).noPreset(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
     }
     void prepare (double rate, int mb) override
     {

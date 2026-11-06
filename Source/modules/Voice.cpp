@@ -37,8 +37,8 @@ public:
                  pct ("pocket_depth", "POCKET DEPTH", 0.2f),
                  pct ("pocket_shape", "POCKET SHAPE", 0.3f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
-                 toggle ("alloc", "ALLOC", true).noPreset(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP PHRASE (C3 = SLICE 1)"; }

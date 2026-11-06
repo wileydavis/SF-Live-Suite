@@ -132,13 +132,18 @@ public:
         if (keepAmt == 0.0f) { for (auto& x : xo) x.reset(); for (auto& x : xoDry) x.reset(); }   // off: start clean next time
         dispCh = ch;
     }
-    int displayHeight() const override { return 60; }
+    int displayHeight() const override { return 64; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         ui::frame (g, r, "CHARACTER");
-        drawPosition (g, r.reduced (12, 20), dispCh.load(), "TAPE", "INDUSTRIAL", ui::kText);
-        ui::label (g, "TUBE", r.reduced (12, 20).withTrimmedLeft (r.getWidth() * 0.30f).withHeight (14), ui::kFaint, 10.0f);
-        ui::label (g, "FUZZ", r.reduced (12, 20).withTrimmedLeft (r.getWidth() * 0.62f).withHeight (14), ui::kFaint, 10.0f);
+        auto track = r.reduced (12, 18).removeFromTop (18);
+        drawPosition (g, track, dispCh.load(), {}, {}, ui::kText);
+        // The four characters under the line, where they sit on CHARACTER.
+        auto names = r.reduced (12, 0).withTop (track.getBottom() + 2).withHeight (12);
+        ui::label (g, "TAPE", names, ui::kFaint, 9.0f);
+        ui::label (g, "TUBE", names.withTrimmedLeft (names.getWidth() * 0.30f), ui::kFaint, 9.0f);
+        ui::label (g, "FUZZ", names.withTrimmedLeft (names.getWidth() * 0.60f), ui::kFaint, 9.0f);
+        ui::label (g, "INDUSTRIAL", names, ui::kFaint, 9.0f, juce::Justification::centredRight);
     }
 private:
     double sr = 48000.0;

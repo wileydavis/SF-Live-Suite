@@ -531,7 +531,8 @@ story += bullets(["<b>Rings:</b> light blue is a volume, white is everything els
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>Changing pages sends nothing.</b> A knob on two pages (LOW ENERGY is on all twelve) sends the same address from both: two ways to one mapping.",
                   "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off.",
-                  "Every press is one the set plays through if it happens by accident (a throw, a roll, a freeze, a drop). What would stop the set is on a computer key."])
+                  "Every press is one the set plays through if it happens by accident (a throw, a roll, a freeze, a drop). What would stop the set is on a computer key.",
+                  "<b>On screen, the same grid.</b> Every SF plugin's window starts with its page of this scene: its own encoders lit where they sit on the E16, in these colours, the rest dark, its presses under their knobs. Several windows side by side read like the E16 itself. LEAD, PERC and ENERGY are on several tracks: their windows find their encoders by the track's name (VST3)."])
 story.append(CondPageBreak(1.7 * inch))
 def press_row(where, i, p):
     kind = {"HOLD": "hold", "TOGGLE": "toggle", "SWAP": "swap"}[p.mode]

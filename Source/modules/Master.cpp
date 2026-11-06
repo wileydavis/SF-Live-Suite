@@ -651,17 +651,20 @@ public:
         dGr = grMax; dTp = gainToDb (tpMax); dIn = c.b (AUTO) ? autoGainDb : 0.0f;
         dMom = outMeter.momentary; dShort = outMeter.shortTerm; dInt = outMeter.integrated;
     }
-    int displayHeight() const override { return 90; }
+    int displayHeight() const override { return 100; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         ui::frame (g, r, "LOUDNESS (OUTPUT, BS.1770)");
-        auto in = r.reduced (12, 18);
-        const float cw = in.getWidth() / 6.0f;
+        auto in = r.reduced (10, 18).withTrimmedTop (2);
+        // Two rows of three: the strip is narrow.
+        const float cw = in.getWidth() / 3.0f, rh = in.getHeight() / 2.0f;
+        int n = 0;
         auto cell = [&] (const char* name, const juce::String& v, juce::Colour col)
         {
-            auto c2 = in.removeFromLeft (cw);
-            ui::label (g, name, c2.removeFromTop (14), ui::kFaint, 10.0f);
-            ui::label (g, v, c2, col, 20.0f);
+            juce::Rectangle<float> c2 (in.getX() + cw * (float) (n % 3), in.getY() + rh * (float) (n / 3), cw, rh);
+            ++n;
+            ui::label (g, name, c2.removeFromTop (12), ui::kFaint, 9.0f);
+            ui::label (g, v, c2.withTrimmedBottom (4), col, 17.0f);
         };
         auto fmt = [] (float v) { return v < -69.0f ? juce::String ("--") : juce::String (v, 1); };
         cell ("MOMENTARY", fmt (dMom.load()), ui::kText);
@@ -722,10 +725,10 @@ public:
         for (int b = 0; b < kB; ++b)
         {
             auto s = knob (("freq" + std::to_string (b + 1)).c_str(), ("FREQ " + std::to_string (b + 1)).c_str(), 30.0f, 16000.0f, f[b], "Hz", 800.0f);
-            s.glide = false; s.song = false;
+            s.glide = false; s.song = false; s.setup = true;
             p.push_back (s);
         }
-        p.push_back (momentary ("store_venue", "STORE VENUE"));
+        p.push_back (momentary ("store_venue", "STORE VENUE").forget());
         return p;
     }
     void prepare (double rate, int) override { sr = rate; reset(); }

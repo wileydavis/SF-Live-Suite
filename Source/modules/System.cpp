@@ -43,20 +43,20 @@ public:
         auto sg = choice ("song", "SONG", songs, 0); sg.primary = true; sg.song = false; p.push_back (sg);
         p.push_back (momentary ("store_all", "STORE ALL").prim());
         std::vector<std::string> ch; for (int i = 1; i <= 16; ++i) ch.push_back ("CH " + std::to_string (i));
-        auto pc = choice ("pc_channel", "PC CHANNEL", ch, 15); pc.song = false; p.push_back (pc);
-        auto on = toggle ("pc_enable", "PC ENABLE", true); on.song = false; p.push_back (on);
+        auto pc = choice ("pc_channel", "PC CHANNEL", ch, 15); pc.song = false; pc.setup = true; p.push_back (pc);
+        auto on = toggle ("pc_enable", "PC ENABLE", true); on.song = false; on.setup = true; p.push_back (on);
         // Calibration for Pocket timing in Live (+ = every pocket later). Set once, by ear.
-        auto off = knob ("pocket_offset", "POCKET OFFSET", -20.0f, 20.0f, 0.0f, "ms"); off.song = false; off.glide = false; p.push_back (off);
+        auto off = knob ("pocket_offset", "POCKET OFFSET", -20.0f, 20.0f, 0.0f, "ms"); off.song = false; off.glide = false; off.setup = true; p.push_back (off);
         // KEY: parts written in C play in this key (each song can store its own).
         p.push_back (choice ("key", "KEY", { "OFF", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
-        p.push_back (momentary ("panic", "PANIC"));
+        p.push_back (momentary ("panic", "PANIC").performs());
         std::vector<std::string> to { "ACTIVE SONG" }; for (auto& sn : songs) to.push_back (sn);
-        auto st = choice ("store_to", "STORE TO", to, 0); st.song = false; st.preset = false; p.push_back (st);
+        auto st = choice ("store_to", "STORE TO", to, 0); st.song = false; st.preset = false; st.setup = true; p.push_back (st);
         // A performance setting, like a hand on a knob: songs and presets leave it alone.
         auto sa = choice ("slow_all", "SLOW ALL", { "OFF", "1 BAR", "2 BAR", "4 BAR", "8 BAR", "16 BAR", "32 BAR", "64 BAR", "128 BAR" }, 0);
         sa.song = false; sa.preset = false; p.push_back (sa);
         auto er = choice ("e16_rings", "E16 RINGS", { "OFF", "PORT 1", "PORT 2", "PORT 3" }, 3);
-        er.song = false; er.preset = false; p.push_back (er);
+        er.song = false; er.preset = false; er.setup = true; p.push_back (er);
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
@@ -189,30 +189,22 @@ public:
             }
         }
     }
-    int displayHeight() const override { return 166; }
+    // The suite at a glance, two columns (the macros are on the E16 grid above it).
+    int displayHeight() const override { return 116; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         auto& bus = Bus::get();
         auto& d = bus.d();
-        auto left = r.removeFromLeft (r.getWidth() * 0.45f);
-        ui::frame (g, left, "MACROS");
-        auto in = left.reduced (10, 18);
-        for (int i = 0; i < kMacros; ++i)
-        {
-            auto row = in.removeFromTop (in.getHeight() / (float) (kMacros - i));
-            ui::label (g, "M" + juce::String (i + 1), row.removeFromLeft (28), ui::kDim, 10.0f);
-            const float v = d.macro[i].load();
-            g.setColour (ui::kTrack); g.fillRect (row.withSizeKeepingCentre (row.getWidth(), 6));
-            g.setColour (ui::kText); g.fillRect (row.withSizeKeepingCentre (row.getWidth(), 6).withWidth (row.getWidth() * v));
-        }
-        r.removeFromLeft (8);
         ui::frame (g, r, "SUITE");
-        auto s = r.reduced (10, 18);
+        auto s = r.reduced (10, 18).withTrimmedTop (2);
+        int n = 0;
+        const float colW = s.getWidth() * 0.5f;
         auto line = [&] (const juce::String& k, const juce::String& v, juce::Colour col)
         {
-            auto row = s.removeFromTop (16);
-            ui::label (g, k, row.removeFromLeft (110), ui::kFaint, 10.0f);
-            ui::label (g, v, row, col, 11.0f);
+            juce::Rectangle<float> row (s.getX() + colW * (float) (n % 2), s.getY() + 15.0f * (float) (n / 2), colW - 6.0f, 15.0f);
+            ++n;
+            ui::label (g, k, row.removeFromLeft (52), ui::kFaint, 9.0f);
+            ui::label (g, v, row, col, 10.0f);
         };
         const int song = d.song.load();
         line ("SONG", song < 0 ? "--" : juce::String (song + 1).paddedLeft ('0', 2), ui::kText);
@@ -231,10 +223,10 @@ public:
             {
                 ++alive;
                 char nm[24]; Bus::unpackName (d.src[i].name, nm);
-                if (names.length() < 60) names << nm << " ";
+                if (names.length() < 90) names << nm << "  ";
             }
         line ("SOURCES", juce::String (alive), ui::kText);
-        ui::label (g, names, s.removeFromTop (16), ui::kDim, 10.0f);
+        ui::lines (g, names.trim(), s.withTrimmedTop (15.0f * 4.0f + 2.0f), ui::kDim, 9.0f, 2);
     }
 private:
     void timerCallback() override
@@ -431,28 +423,30 @@ public:
         updateRanks();
     }
 
-    // ---- display
+    // ---- display (the editor's strip, top to bottom): the order (drag to change it), ALL BANDS /
+    // LINK, the ten bands side by side (each lists its sources in its own order: their level, amber,
+    // what is left after the cut, grey, and the priority curve), then every band's PRI, DEPTH, Q.
     int displayHeight() const override { return 470; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         const std::lock_guard<std::mutex> lk (orderLock);
         area = r;
-        const float rh = rowH();
         // List: global order, or the selected band's order.
         const auto rows = visibleRows (selBand);
+        const float rh = rowH ((int) rows.size());
         auto list = listArea();
         const juce::String title = selBand < 0 ? "ORDER: ALL BANDS" : "ORDER: " + juce::String (bandName (selBand)) + " HZ" + (linked[selBand] ? " (ALL)" : " (OWN)");
-        ui::frame (g, r.withWidth (list.getWidth() + 8), title);
+        ui::frame (g, r, title);
         for (size_t i = 0; i < rows.size(); ++i)
         {
             auto row = juce::Rectangle<float> (list.getX(), list.getY() + rh * (float) i, list.getWidth(), rh);
             const bool dragging = dragRow == (int) i;
             g.setColour (dragging ? ui::kText : ui::kLine);
-            g.drawRect (row.reduced (1.0f), 1.0f);
+            g.drawRect (row.reduced (0.0f, 1.0f), 1.0f);
             ui::label (g, juce::String (i + 1), row.removeFromLeft (18).withTrimmedLeft (4), ui::kFaint, 9.0f);
-            ui::label (g, juce::String (rows[i].label), row, dragging ? ui::kAccent : ui::kText, 10.5f);
+            ui::label (g, juce::String (rows[i].label), row, dragging ? ui::kAccent : ui::kText, 10.0f);
         }
-        if (rows.empty()) ui::label (g, "NO SOURCES", list.withHeight (20), ui::kFaint, 10.0f);
+        if (rows.empty()) ui::label (g, "NO SOURCES: SF TAP, SF STRIP OR AN SF INSTRUMENT", list.withHeight (20), ui::kFaint, 9.0f);
         // Buttons under the list.
         auto allB = allButton(), linkB = linkButton();
         g.setColour (selBand < 0 ? ui::kText : ui::kLine); g.drawRect (allB, 1.0f);
@@ -462,33 +456,34 @@ public:
             g.setColour (ui::kLine); g.drawRect (linkB, 1.0f);
             ui::label (g, linked[selBand] ? "LINKED" : "LINK TO ALL", linkB, linked[selBand] ? ui::kFaint : ui::kText, 9.5f, juce::Justification::centred);
         }
-        ui::label (g, selBand < 0 ? "CLICK A BAND: OWN ORDER" : "DRAG: OWN ORDER",
-                   juce::Rectangle<float> (list.getX(), allB.getBottom() + 4.0f, list.getWidth(), 24.0f), ui::kFaint, 8.0f);
+        else ui::label (g, "CLICK A BAND: ITS OWN ORDER", linkB, ui::kFaint, 8.5f, juce::Justification::centred);
 
         for (int b = 0; b < kBands; ++b)
         {
             auto col = bandArea (b);
             const auto bandRows = visibleRows (b);
             const int n = (int) bandRows.size();
-            // Header: click to select. White frame = selected; "OWN" = own order.
+            // Header: click to select. White frame = selected; a dot = its own order.
             g.setColour (b == selBand ? ui::kText : ui::kLine);
             g.drawRect (col, b == selBand ? 1.5f : 1.0f);
-            ui::label (g, bandName (b), col.reduced (5.0f, 2.0f).removeFromTop (14.0f), b == selBand ? ui::kText : ui::kFaint, 10.0f);
-            if (! linked[b]) ui::label (g, "OWN", col.reduced (5.0f, 2.0f).removeFromTop (14.0f), ui::kText, 8.5f, juce::Justification::centredRight);
-            auto lanes = col.reduced (4.0f, 0.0f).withTop (list.getY()).withHeight (rh * (float) std::max (1, n));
+            auto head = col.withHeight (14.0f);
+            ui::label (g, bandName (b), head, b == selBand ? ui::kText : ui::kFaint, 8.5f, juce::Justification::centred);
+            if (! linked[b]) { g.setColour (ui::kText); g.fillEllipse (col.getRight() - 5.0f, col.getY() + 2.0f, 3.0f, 3.0f); }
+            const float lh = laneH (n);
+            auto lanes = col.reduced (2.0f, 0.0f).withTrimmedTop (16.0f).withHeight (lh * (float) std::max (1, n));
             float peak, sigma;
             curve (getParam ? getParam (PRI0 + b) : 0.0f, getParam ? getParam (Q0 + b) : 0.5f, n, peak, sigma);
             const float depth = getParam ? getParam (DEPTH0 + b) : 0.0f;
             for (int i = 0; i < n; ++i)
             {
                 const int s = bandRows[(size_t) i].slot;
-                auto lane = juce::Rectangle<float> (lanes.getX(), lanes.getY() + rh * (float) i, lanes.getWidth(), rh).reduced (0.0f, 3.0f);
+                auto lane = juce::Rectangle<float> (lanes.getX(), lanes.getY() + lh * (float) i, lanes.getWidth(), lh).reduced (0.0f, 1.5f);
                 g.setColour (ui::kGrid); g.fillRect (lane);
                 const float pre = clamp01 ((dispE[s][b].load() - dispFloor.load()) / 50.0f);
                 const float post = clamp01 ((dispE[s][b].load() - dispCut[s][b].load() - dispFloor.load()) / 50.0f);
                 g.setColour (ui::kAmber); g.fillRect (lane.withWidth (lane.getWidth() * pre));
                 g.setColour (ui::kTrack.brighter (0.9f)); g.fillRect (lane.withWidth (lane.getWidth() * post));
-                ui::label (g, shortName (bandRows[(size_t) i].label), lane.withTrimmedLeft (3.0f), post > 0.35f ? ui::kBg : ui::kDim, 8.0f);
+                ui::label (g, shortName (bandRows[(size_t) i].label).substring (0, 5), lane.withTrimmedLeft (1.0f), post > 0.35f ? ui::kBg : ui::kDim, 7.0f);
             }
             if (n > 0)
             {
@@ -500,25 +495,22 @@ public:
                     const float dd = (rowPos - peak) / sigma;
                     const float wgt = 1.0f - depth * (1.0f - std::exp (-0.5f * dd * dd));
                     const float x = lanes.getX() + lanes.getWidth() * (0.15f + 0.85f * wgt);
-                    const float y = lanes.getY() + rh * (rowPos + 0.5f);
+                    const float y = lanes.getY() + lh * (rowPos + 0.5f);
                     if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
                 }
                 const bool touched = dragParam == PRI0 + b || dragParam == DEPTH0 + b || dragParam == Q0 + b;
                 g.setColour (touched ? ui::kAccent : depth > 0.001f ? ui::kText : ui::kFaint);
-                g.strokePath (p, juce::PathStrokeType (touched ? 2.0f : 1.4f));
-                if (depth > 0.001f)
-                {
-                    const int owner = juce::jlimit (0, n - 1, (int) std::lround (peak));
-                    ui::label (g, shortName (bandRows[(size_t) owner].label), juce::Rectangle<float> (col.getX() + 4.0f, col.getBottom() - 134.0f, col.getWidth() - 8.0f, 14.0f), ui::kText, 9.0f);
-                }
+                g.strokePath (p, juce::PathStrokeType (touched ? 2.0f : 1.2f));
             }
             for (int k = 0; k < 3; ++k)
             {
                 const int idx = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b;
-                const float v = getParam ? getParam (idx) : 0.0f;
-                drawKnob (g, knobRect (b, k), v, k == 0 ? "PRI" : k == 1 ? "DEPTH" : "Q", dragParam == idx);
+                drawKnob (g, knobRect (b, k), getParam ? getParam (idx) : 0.0f, dragParam == idx);
             }
         }
+        for (int k = 0; k < 3; ++k)
+            ui::label (g, k == 0 ? "PRIORITY (TOP OF THE ORDER .. BOTTOM)" : k == 1 ? "DEPTH (HOW HARD THE OTHERS ARE CUT)" : "Q (WIDE: NEIGHBOURS SHARE)",
+                       knobRect (0, k).withWidth (r.getWidth() - 16.0f).withHeight (10.0f).translated (0.0f, -11.0f), ui::kFaint, 8.0f);
     }
     void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
     {
@@ -531,15 +523,14 @@ public:
             {
                 for (int k = 0; k < 3; ++k)
                     if (knobRect (b, k).contains (p)) { dragParam = (k == 0 ? PRI0 : k == 1 ? DEPTH0 : Q0) + b; startVal = getParam ? getParam (dragParam) : 0.0f; startY = p.y; return; }
-                if (bandArea (b).withHeight (18.0f).contains (p) || (bandArea (b).contains (p) && p.y < knobRect (b, 0).getY() - 20.0f))
-                { selBand = selBand == b ? -1 : b; return; }
+                if (bandArea (b).contains (p)) { selBand = selBand == b ? -1 : b; return; }
             }
             if (allButton().contains (p)) { selBand = -1; return; }
             if (selBand >= 0 && linkButton().contains (p)) { linked[selBand] = true; bandOrder[selBand].clear(); updateRanks(); return; }
             const auto rows = visibleRows (selBand);
             if (listArea().contains (p))
             {
-                const int i = (int) ((p.y - listArea().getY()) / rowH());
+                const int i = (int) ((p.y - listArea().getY()) / rowH ((int) rows.size()));
                 if (i >= 0 && i < (int) rows.size()) dragRow = i;
             }
             return;
@@ -548,7 +539,7 @@ public:
         if (dragRow >= 0)
         {
             const auto rows = visibleRows (selBand);
-            const int target = juce::jlimit (0, std::max (0, (int) rows.size() - 1), (int) ((p.y - listArea().getY()) / rowH()));
+            const int target = juce::jlimit (0, std::max (0, (int) rows.size() - 1), (int) ((p.y - listArea().getY()) / rowH ((int) rows.size())));
             if (target != dragRow)
             {
                 auto& ord = orderFor (selBand, true);
@@ -585,30 +576,33 @@ private:
     }
     const std::vector<std::string>& orderView (int band) const { return band < 0 || linked[band] ? globalOrder : bandOrder[band]; }
 
-    juce::Rectangle<float> listArea() const { return { area.getX() + 6.0f, area.getY() + 20.0f, 150.0f, area.getHeight() - 200.0f }; }
-    juce::Rectangle<float> allButton() const { auto l = listArea(); return { l.getX(), l.getBottom() + 8.0f, l.getWidth() * 0.48f, 22.0f }; }
-    juce::Rectangle<float> linkButton() const { auto l = listArea(); return { l.getX() + l.getWidth() * 0.52f, l.getBottom() + 8.0f, l.getWidth() * 0.48f, 22.0f }; }
-    float rowH() const { return 22.0f; }
+    // Geometry (the editor's strip, about 280 wide): the list keeps room for 8 sources (more: the
+    // rows get shorter), the bands keep room for 8 lanes.
+    juce::Rectangle<float> listArea() const { return { area.getX() + 6.0f, area.getY() + 18.0f, area.getWidth() - 12.0f, 8.0f * 17.0f }; }
+    juce::Rectangle<float> allButton() const { auto l = listArea(); return { l.getX(), l.getBottom() + 6.0f, l.getWidth() * 0.4f, 18.0f }; }
+    juce::Rectangle<float> linkButton() const { auto l = listArea(); return { l.getX() + l.getWidth() * 0.44f, l.getBottom() + 6.0f, l.getWidth() * 0.56f, 18.0f }; }
+    float rowH (int n) const { return std::min (17.0f, listArea().getHeight() / (float) std::max (1, n)); }
+    static float laneH (int n) { return std::min (14.0f, 8.0f * 14.0f / (float) std::max (1, n)); }
     juce::Rectangle<float> bandArea (int b) const
     {
-        const float x0 = area.getX() + 164.0f, w = (area.getRight() - x0) / (float) kBands;
-        return { x0 + w * (float) b, area.getY(), w - 3.0f, area.getHeight() };
+        const float x0 = area.getX() + 6.0f, w = (area.getWidth() - 12.0f) / (float) kBands;
+        return { x0 + w * (float) b, allButton().getBottom() + 8.0f, w - 2.0f, 16.0f + 8.0f * 14.0f + 2.0f };
     }
     juce::Rectangle<float> knobRect (int b, int k) const
     {
         auto col = bandArea (b);
-        return { col.getX() + 4.0f, col.getBottom() - 116.0f + (float) k * 38.0f, col.getWidth() - 8.0f, 36.0f };
+        return { col.getX(), col.getBottom() + 18.0f + (float) k * 44.0f, col.getWidth(), 32.0f };
     }
-    static void drawKnob (juce::Graphics& g, juce::Rectangle<float> r, float v, const char* name, bool hot)
+    // A small knob: its arc, its value (0..100) under it.
+    static void drawKnob (juce::Graphics& g, juce::Rectangle<float> r, float v, bool hot)
     {
-        auto knob = r.removeFromLeft (r.getHeight()).reduced (4.0f);
+        auto knob = r.removeFromTop (20.0f).withSizeKeepingCentre (18.0f, 18.0f);
         const float a0 = juce::degreesToRadians (225.0f), a1 = juce::degreesToRadians (495.0f);
-        juce::Path track; track.addCentredArc (knob.getCentreX(), knob.getCentreY(), knob.getWidth() * 0.45f, knob.getHeight() * 0.45f, 0.0f, a0, a1, true);
-        g.setColour (ui::kTrack); g.strokePath (track, juce::PathStrokeType (2.5f));
-        juce::Path val; val.addCentredArc (knob.getCentreX(), knob.getCentreY(), knob.getWidth() * 0.45f, knob.getHeight() * 0.45f, 0.0f, a0, a0 + v * (a1 - a0), true);
-        g.setColour (hot ? ui::kAccent : ui::kText); g.strokePath (val, juce::PathStrokeType (2.5f));
-        ui::label (g, name, r.removeFromTop (r.getHeight() * 0.5f), ui::kFaint, 8.5f);
-        ui::label (g, juce::String (juce::roundToInt (v * 100.0f)), r, hot ? ui::kAccent : ui::kText, 9.5f);
+        juce::Path track; track.addCentredArc (knob.getCentreX(), knob.getCentreY(), 8.0f, 8.0f, 0.0f, a0, a1, true);
+        g.setColour (ui::kTrack); g.strokePath (track, juce::PathStrokeType (2.0f));
+        juce::Path val; val.addCentredArc (knob.getCentreX(), knob.getCentreY(), 8.0f, 8.0f, 0.0f, a0, a0 + v * (a1 - a0), true);
+        g.setColour (hot ? ui::kAccent : ui::kText); g.strokePath (val, juce::PathStrokeType (2.0f));
+        ui::label (g, juce::String (juce::roundToInt (v * 100.0f)), r, hot ? ui::kAccent : ui::kDim, 8.0f, juce::Justification::centredTop);
     }
 
     // Alive sources with unique labels (duplicates get " 2", " 3"), by role.

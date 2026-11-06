@@ -151,7 +151,7 @@ public:
     }
 
     // ------------------------------------------------------------------------------------- display
-    int displayHeight() const override { return 110; }
+    int displayHeight() const override { return 124; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
         ui::frame (g, r, "ROOM MICS");
@@ -178,8 +178,8 @@ public:
                  : e == capture::NoMemory ? "STOPPED: NOT ENOUGH MEMORY" : e == capture::Lost ? "STOPPED: THIS TRACK'S AUDIO STOOD STILL. CAPTURE AGAIN" : "STOPPED";
             col = ui::kRed;
         }
-        ui::label (g, text, in.removeFromTop (16), col, 11.0f);
-        in.removeFromTop (6);
+        ui::lines (g, text, in.removeFromTop (26), col, 10.0f, 2);
+        in.removeFromTop (4);
         for (int ch = 0; ch < 2; ++ch)
         {
             auto row = in.removeFromTop (12);
@@ -190,7 +190,7 @@ public:
         const float pk = mine && state != capture::Idle ? d.capPeak.load() : 0.0f;
         const juce::String foot = pk >= 0.99f ? "THE MICS CLIPPED IN THIS TAKE: SPEAKER OR GAIN DOWN, AND AGAIN"
                                 : "OUT: THE SWEEP ONLY, NEVER THE MICS. TAKES GO TO MUSIC/SF LIVE SUITE/TERROIR/CAPTURES";
-        ui::label (g, foot, in.removeFromBottom (14), pk >= 0.99f ? ui::kAmber : ui::kFaint, 10.0f);
+        ui::lines (g, foot, in.removeFromBottom (24), pk >= 0.99f ? ui::kAmber : ui::kFaint, 9.0f, 2);
     }
 
 private:

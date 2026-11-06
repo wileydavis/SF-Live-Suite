@@ -11,6 +11,7 @@
 #include "core/Bus.h"
 #include "core/Capture.h"
 #include "core/Dsp.h"
+#include "core/Editor.h"
 #include "core/Pocket.h"
 #include "core/Processor.h"
 #include "core/Registry.h"
@@ -627,8 +628,9 @@ static void dumpSpecs()
             const juce::String maxText = s.type == PType::Float ? prm->getText (1.0f, 64) : juce::String();
             const char* type = s.type == PType::Float ? "knob" : s.type == PType::Choice ? "menu" : s.type == PType::Toggle ? "toggle" : "momentary";
             const bool slows = s.glidesWithSlow() && (int) k < p.numModuleParams();
-            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
-                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", slows ? "true" : "false", minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
+            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"perform\": %s, \"setup\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
+                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", s.perform ? "true" : "false", s.setup ? "true" : "false", slows ? "true" : "false",
+                         minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
         }
         std::printf ("]}%s\n", m + 1 < ids.size() ? "," : "");
     }
@@ -1117,6 +1119,112 @@ static int captureFiles (int argc, char** argv)
 }
 
 
+// The editor's strip (Editor.h): every parameter it shows sits in one place; the E16 grid lights the
+// scene's knobs for the plugin's track, at their encoders; folds are saved with the set.
+static void testEditor()
+{
+    std::printf ("-- EDITOR (the strip)\n");
+    // The track rule GLIDE RINGS and the grid share.
+    CHECK (juce::String (e16::trackFor ("LEAD", "32 STAB")) == "32 STAB", "LEAD on 32 STAB");
+    CHECK (juce::String (e16::trackFor ("LEAD", "")) == "", "LEAD unnamed: on two tracks");
+    CHECK (juce::String (e16::trackFor ("KICK", "ANY NAME")) == "01 KICK", "KICK: one track, no name needed");
+    CHECK (juce::String (e16::trackFor ("TERROIR", "")) == "B SPACE", "TERROIR stands in on B SPACE");
+    CHECK (e16::trackFor ("GLUE", "") == nullptr, "GLUE isn't on the E16");
+    CHECK (e16::listHas ("REVERB|TERROIR", "TERROIR") && e16::listHas ("REVERB|TERROIR", "REVERB") && ! e16::listHas ("REVERB|TERROIR", "REV")
+           && ! e16::listHas ("", "KICK"), "listHas");
+
+    int worst = 0, grids = 0;
+    std::string worstId;
+    for (auto& id : allModuleIds())
+    {
+        // No name, a name the scene doesn't know, and each track the scene has it on.
+        std::vector<std::string> names { "", "SOME TRACK" };
+        for (const auto& k : kE16Knobs)
+            if (id == k.module && std::find (names.begin(), names.end(), std::string (k.track)) == names.end()) names.push_back (k.track);
+        for (auto& nm : names)
+        {
+            SFProcessor p (makeModule (id));
+            if (! nm.empty()) { juce::AudioProcessor::TrackProperties tp; tp.name = nm; p.updateTrackProperties (tp); }
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            auto& e = dynamic_cast<SFEditor&> (*ed);
+            CHECK (e.getWidth() == SFEditor::kW, "%s: width %d", id.c_str(), e.getWidth());
+            if (e.getHeight() > worst) { worst = e.getHeight(); worstId = id + " on '" + nm + "'"; }
+            // Every parameter it shows, once; nothing hidden.
+            const auto pl = e.places();
+            std::map<int, int> seen;
+            std::map<int, juce::String> where;
+            for (auto& x : pl) { ++seen[x.first]; where[x.first] = x.second; }
+            const auto& sp = p.allSpecs();
+            for (int i = 0; i < (int) sp.size(); ++i)
+                CHECK (seen[i] == (sp[(size_t) i].hidden ? 0 : 1), "%s on '%s': %s shown %d times", id.c_str(), nm.c_str(), sp[(size_t) i].id.c_str(), seen[i]);
+            // The grid: the scene's knobs for this track, on its page, at their encoders.
+            const char* t = e16::trackFor (id.c_str(), nm.c_str());
+            if (t == nullptr || t[0] == 0)
+            {
+                CHECK (e.e16Page() < 0, "%s on '%s': no grid", id.c_str(), nm.c_str());
+                for (auto& x : pl) CHECK (! x.second.startsWith ("E16"), "%s on '%s': nothing on the E16", id.c_str(), nm.c_str());
+                continue;
+            }
+            ++grids;
+            CHECK (e.e16Page() == e16::homePage (id.c_str(), t) && e.e16Track() == t, "%s on '%s': page and track", id.c_str(), nm.c_str());
+            const auto& pg = kE16Pages[e.e16Page()];
+            int lit = 0;
+            for (int enc = 0; enc < 16; ++enc)
+            {
+                const auto& c = pg.cells[enc];
+                const juce::String at = "E16 " + juce::String (enc + 1);
+                for (const auto* turn : { &c.turn, &c.second })
+                    if (e16::turnIs (*turn, id.c_str(), t))
+                    {
+                        ++lit;
+                        CHECK (where[turn->param] == at, "%s on %s: %s at %s, not %s", id.c_str(), t, sp[(size_t) turn->param].id.c_str(), at.toRawUTF8(), where[turn->param].toRawUTF8());
+                    }
+                if (e16::pressIs (c.press, id.c_str(), t))
+                    CHECK (where[c.press.param] == at + " PRESS", "%s on %s: press %s", id.c_str(), t, sp[(size_t) c.press.param].id.c_str());
+            }
+            CHECK (lit > 0, "%s on %s: lit", id.c_str(), t);
+        }
+    }
+    std::printf ("   %d grids; tallest strip at first: %s, %d px\n", grids, worstId.c_str(), worst);
+    CHECK (grids >= 24, "grids: %d", grids);
+    CHECK (worst <= 900, "every strip fits a laptop's screen at first: %d", worst);
+
+    // DELAY on A DUB: TIME, FEEDBACK... on SPACE 9-12, THROW and FREEZE their presses.
+    {
+        SFProcessor p (makeModule ("DELAY"));
+        juce::AudioProcessor::TrackProperties tp; tp.name = "A DUB"; p.updateTrackProperties (tp);
+        std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+        std::map<std::string, juce::String> at;
+        for (auto& x : dynamic_cast<SFEditor&> (*ed).places()) at[p.allSpecs()[(size_t) x.first].id] = x.second;
+        CHECK (at["time"] == "E16 9" && at["feedback"] == "E16 10" && at["throw"] == "E16 9 PRESS" && at["freeze"] == "E16 10 PRESS" && at["mix"] == "PERFORM"
+               && at["dry"] == "SETUP" && at["m1_src"] == "MOTION" && at["slow"] == "SYSTEM" && at["slew"] == "DETAIL",
+               "DELAY's places: %s %s %s %s", at["time"].toRawUTF8(), at["throw"].toRawUTF8(), at["mix"].toRawUTF8(), at["dry"].toRawUTF8());
+    }
+
+    // Folds: MOTION opens; saved with the set; a new window opens as it was left.
+    {
+        SFProcessor p (makeModule ("LEAD"));
+        std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+        auto& e = dynamic_cast<SFEditor&> (*ed);
+        const int h0 = e.getHeight();
+        CHECK (e.folded (SFEditor::kFoldMotion) && e.folded (SFEditor::kFoldSystem) && e.folded (SFEditor::kFoldSetup) && ! e.folded (SFEditor::kFoldDetail), "the folds at first");
+        e.toggleFold (SFEditor::kFoldMotion);
+        CHECK (! e.folded (SFEditor::kFoldMotion) && e.getHeight() > h0, "MOTION opens: %d -> %d", h0, e.getHeight());
+        juce::MemoryBlock mb;
+        p.getStateInformation (mb);
+        SFProcessor q (makeModule ("LEAD"));
+        q.setStateInformation (mb.getData(), (int) mb.getSize());
+        std::unique_ptr<juce::AudioProcessorEditor> ed2 (q.createEditor());
+        auto& e2 = dynamic_cast<SFEditor&> (*ed2);
+        CHECK (! e2.folded (SFEditor::kFoldMotion) && e2.getHeight() == e.getHeight(), "the fold comes back with the set");
+        e.toggleFold (SFEditor::kFoldMotion);
+        CHECK (e.getHeight() == h0, "and folds again");
+        juce::MemoryBlock mb2;
+        p.getStateInformation (mb2);
+        CHECK (! juce::ValueTree::readFromData (mb2.getData(), mb2.getSize()).hasProperty ("ui"), "the defaults save nothing");
+    }
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -1143,7 +1251,8 @@ int main (int argc, char** argv)
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); }
+                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor(); }
+    else if (std::string (argv[1]) == "--editor") { testEditor(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }
     else if (std::string (argv[1]) == "--deck") { testDeck(); }

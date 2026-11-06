@@ -19,7 +19,7 @@ inline void applyGain (juce::AudioBuffer<float>& b, float g0, float g1)
 inline float levelDb (const Ctx& c, int i, float& g0) { g0 = dbToGain (c.v0 (i)); return dbToGain (c.v (i)); }
 inline ParamSpec levelParam (float def = 0.0f) { return knob ("level", "LEVEL", -36.0f, 6.0f, def, "dB", -9.0f); }
 // DRY: off on a return track (wet only), on as an insert. Routing, so songs and presets leave it alone.
-inline ParamSpec dryParam() { auto p = toggle ("dry", "DRY", true).noPreset(); p.song = false; return p; }
+inline ParamSpec dryParam() { auto p = toggle ("dry", "DRY", true).noPreset().forget(); p.song = false; return p; }
 // DRY on / off: a 5 ms ramp counted in samples, so it is the same however the chunks fall.
 struct DryRamp
 {

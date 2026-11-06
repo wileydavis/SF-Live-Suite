@@ -9,7 +9,7 @@ mapped: `controllers/live`), save it as your template: nothing is remapped after
 | `sf-show-map.csv` | Every address once: channel, CC or note, the Live target, the mapping range, where it sits on the E16. Map Live from this. |
 | `layout.py` | The layout. One source for the scene, the map, the show set's mappings and the manual's E16 tables. |
 | `glide_rings.lua` | The scene's script: travelling knobs show green, walking with the sound (GLIDE RINGS below). |
-| `make_scene.py` | Rebuilds the scene, the map and the plugins' copy of it (`Source/core/E16Map.h`): `python3 make_scene.py`. |
+| `make_scene.py` | Rebuilds the scene, the map and the plugins' copy of it (`Source/core/E16Map.h`: the knobs GLIDE RINGS reports, and every page as each plugin's window draws it at its top): `python3 make_scene.py`. |
 
 ## THE GRID
 

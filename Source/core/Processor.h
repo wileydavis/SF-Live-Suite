@@ -12,6 +12,7 @@
 #include "Motion.h"
 #include <array>
 #include <atomic>
+#include <cstring>
 
 class SFProcessor : public juce::AudioProcessor, private juce::Timer, private juce::AudioProcessorParameter::Listener
 {
@@ -95,6 +96,14 @@ public:
     bool saveUserPreset (const juce::String& name);
     bool loadUserPreset (const juce::File&);
     juce::String presetName() const { return currentPreset; }
+
+    // The Live track's name as Live last told it (VST3; an AU never knows it) and a count of its
+    // changes: the editor's E16 grid follows it. Message thread.
+    juce::String liveTrackName() const { return juce::String::fromUTF8 (trackName, (int) ::strnlen (trackName, sizeof (trackName) - 1)); }
+    uint32_t liveTrackNameSeq() const { return trackNameSeq.load(); }
+    // The editor's groups folded or opened against their defaults (a bit per group); saved with the
+    // set, so a window opens as it was left.
+    std::atomic<int> uiFold { 0 };
 
     // Panic: silence this plugin now (voices, tails, delay lines). SF CONTROL PANIC does it to all.
     void panic() { localPanic = true; }

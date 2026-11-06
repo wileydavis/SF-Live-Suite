@@ -26,7 +26,8 @@ INK = colors.HexColor("#000000")
 GREY = colors.HexColor("#6b6b6b")
 LIGHT = colors.HexColor("#d9d9d9")
 FAINT = colors.HexColor("#f2f2f2")
-RED, AMBER, GREEN, CYAN = colors.HexColor("#ff3b30"), colors.HexColor("#ffb000"), colors.HexColor("#30d158"), colors.HexColor("#00c8ff")
+RED, AMBER, GREEN, CYAN = colors.HexColor("#ff3b30"), colors.HexColor("#ffb000"), colors.HexColor("#4cf59b"), colors.HexColor("#00c8ff")   # GREEN: the E16's (Ui.h)
+LIGHT_BLUE = colors.HexColor("#8cc4ff")   # the E16 ring colour for a volume (Source/core/Ui.h kLedBlue)
 
 S = {
     "body": ParagraphStyle("body", fontName="Sans", fontSize=9.2, leading=13.2, textColor=INK, spaceAfter=6),
@@ -255,3 +256,4 @@ def table(rows, widths, header=True, mono_first=True, pad=3.5):
 def esc(s): return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 W = letter[0] - 1.6 * inch      # the text column
+STRIP_W = 2.05 * inch           # a plugin window (the editor's strip, 296 px) on a module page

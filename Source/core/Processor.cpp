@@ -1,6 +1,6 @@
 #include "Processor.h"
 #include "BandLimited.h"
-#include "E16Map.h"
+#include "E16View.h"
 #include "Editor.h"
 #include "Registry.h"
 #include <chrono>
@@ -167,14 +167,7 @@ void SFProcessor::findE16Knobs()
     char name[24];
     std::memcpy (name, trackName, sizeof (name));
     name[23] = 0;
-    const char* track = nullptr;
-    for (const auto& k : sf::kE16Knobs)
-        if (mod == k.module)
-        {
-            if (std::strcmp (name, k.track) == 0) { track = k.track; break; }
-            if (track == nullptr) track = k.track;
-            else if (std::strcmp (track, k.track) != 0) track = "";     // on several tracks: needs the name
-        }
+    const char* track = sf::e16::trackFor (mod.c_str(), name);     // "": on several tracks, needs the name
     if (track == nullptr || track[0] == 0) return;
     for (const auto& k : sf::kE16Knobs)
         if (mod == k.module && std::strcmp (track, k.track) == 0 && k.param >= 0 && k.param < numModParams
@@ -928,6 +921,7 @@ void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
     root.setProperty ("motionSeed", (int) motionSeed, nullptr);
     root.setProperty ("uid", juce::String::toHexString ((juce::int64) instanceUid.load()), nullptr);
     root.setProperty ("preset", currentPreset, nullptr);
+    if (const int f = uiFold.load(); f != 0) root.setProperty ("ui", f, nullptr);   // only when not the default
     // The settings in force, as the sound and STORE have them: a value just recalled that Live
     // hasn't been told yet is the setting (Live still holds the one from before the recall), unless
     // a newer change in Live superseded it. Targets, not where a glide, MACRO or MOTION has them.
@@ -992,6 +986,7 @@ void SFProcessor::setStateInformation (const void* data, int size)
     if (root.hasProperty ("uid"))
         if (const auto u = (uint64_t) root.getProperty ("uid").toString().getHexValue64(); u != 0) instanceUid = u;
     currentPreset = root.getProperty ("preset", "").toString();
+    uiFold = (int) root.getProperty ("ui", 0);
     auto songs = root.getChildWithName ("SONGS");
     for (auto& h : songHas) h = false;
     if (songs.isValid())

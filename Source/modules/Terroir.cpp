@@ -232,7 +232,7 @@ public:
     static ParamSpec importParam()
     {
         auto p = choice ("import", "IMPORT", { "AUTO", "IR FILE", "CLAP", "SWEEP" }, 0);
-        p.song = false; p.preset = false;
+        p.song = false; p.preset = false; p.setup = true;
         return p;
     }
     ir::Source importSource() const
@@ -436,7 +436,7 @@ public:
     }
 
     // ------------------------------------------------------------------------------------- display
-    int displayHeight() const override { return 150; }
+    int displayHeight() const override { return 184; }
     juce::String statusLine() const override { const juce::SpinLock::ScopedLockType sl (dispLock); return disp.status; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
@@ -454,8 +454,7 @@ public:
         std::array<bool, kSlots> filled {};
         { const std::lock_guard<std::mutex> lk (slotLock); for (int i = 0; i < kSlots; ++i) filled[(size_t) i] = slots[(size_t) i] != nullptr; }
         const int sel = getParam ? juce::jlimit (0, kSlots - 1, (int) std::lround (getParam (PLACE))) : 0;
-        auto in = r.reduced (10, 16);
-        auto row = in.removeFromTop (18);
+        auto in = r.reduced (8, 16);
         for (int i = 0; i < kSlots; ++i)
         {
             const auto b = slotBox (r, i);
@@ -472,17 +471,18 @@ public:
         const juce::Colour cc = ph == 1 ? ui::kAmber : ph == 2 ? ui::kRed : ui::kDim;
         g.setColour (cc); g.drawRect (cb, 1.0f);
         ui::label (g, ph == 2 ? "STOP" : "CAPTURE", cb, ph == 0 ? ui::kText : cc, 10.0f, juce::Justification::centred);
-        if (dispFreeze.load() > 0.01f) ui::label (g, "FROZEN", row.withTrimmedRight (r.getRight() - cb.getX() + 10), ui::kGreen, 11.0f, juce::Justification::centredRight);
-        in.removeFromTop (6);
-        auto nameRow = in.removeFromTop (18);
+        in.removeFromTop (sb.getBottom() - in.getY() + 6.0f);
+        auto nameRow = in.removeFromTop (16);
         const bool empty = ! filled[(size_t) sel];
-        ui::label (g, empty ? "SLOT " + juce::String (sel + 1) + " EMPTY: BUILT-IN ROOM" : d.name, nameRow, empty ? ui::kDim : ui::kText, 14.0f);
-        ui::label (g, d.info, nameRow, ui::kDim, 10.0f, juce::Justification::centredRight);
-        auto statusRow = in.removeFromBottom (14);
+        if (dispFreeze.load() > 0.01f) ui::label (g, "FROZEN", nameRow, ui::kGreen, 10.0f, juce::Justification::centredRight);
+        ui::lines (g, empty ? "SLOT " + juce::String (sel + 1) + " EMPTY: BUILT-IN ROOM" : d.name, nameRow.withTrimmedRight (dispFreeze.load() > 0.01f ? 50.0f : 0.0f),
+                   empty ? ui::kDim : ui::kText, 12.0f, 1, juce::Justification::centredLeft);
+        ui::lines (g, d.info, in.removeFromTop (12), ui::kDim, 9.0f, 1, juce::Justification::centredLeft);
+        auto statusRow = in.removeFromBottom (24);
         if (d.status.isEmpty())   // nothing loaded yet: how (a drag from Finder loses the window, which Live hides)
-            ui::label (g, "LOAD (TOP RIGHT) A RECORDING OF THE SWEEP, A CLAP OR AN IR INTO SLOT " + juce::String (sel + 1) + ", OR DROP IT HERE; OR CAPTURE THE ROOM", statusRow, ui::kFaint, 10.0f);
+            ui::lines (g, "LOAD (TOP RIGHT) A RECORDING OF THE SWEEP, A CLAP OR AN IR INTO SLOT " + juce::String (sel + 1) + ", OR DROP IT HERE; OR CAPTURE THE ROOM", statusRow, ui::kFaint, 9.0f, 2);
         else
-            ui::label (g, d.status, statusRow, d.statusLevel == 2 ? ui::kRed : d.statusLevel == 1 ? ui::kAmber : ui::kFaint, 10.0f);
+            ui::lines (g, d.status, statusRow, d.statusLevel == 2 ? ui::kRed : d.statusLevel == 1 ? ui::kAmber : ui::kFaint, 9.0f, 2);
         // The IR as it plays now (SIZE, DECAY, DARK, LENGTH, REVERSE applied): level in dB, 0 to -60.
         auto plot = in.reduced (0, 4);
         g.setColour (ui::kGrid);
@@ -933,12 +933,18 @@ private:
     }
 
     // ------------------------------------------------------------------------------------- helpers
+    // The strip: the 8 places in a row, CAPTURE and SWEEP FILE under them.
     static juce::Rectangle<float> slotBox (juce::Rectangle<float> r, int i)
     {
-        return { r.getX() + 10.0f + (float) i * 30.0f, r.getY() + 16.0f, 26.0f, 18.0f };
+        const float w = (r.getWidth() - 16.0f - 7.0f * 3.0f) / (float) kSlots;
+        return { r.getX() + 8.0f + (float) i * (w + 3.0f), r.getY() + 16.0f, w, 18.0f };
     }
-    static juce::Rectangle<float> sweepBox (juce::Rectangle<float> r) { return { r.getRight() - 96.0f, r.getY() + 16.0f, 86.0f, 18.0f }; }
-    static juce::Rectangle<float> captureBox (juce::Rectangle<float> r) { return { r.getRight() - 172.0f, r.getY() + 16.0f, 70.0f, 18.0f }; }
+    static juce::Rectangle<float> captureBox (juce::Rectangle<float> r) { return { r.getX() + 8.0f, r.getY() + 38.0f, (r.getWidth() - 16.0f) * 0.5f - 2.0f, 18.0f }; }
+    static juce::Rectangle<float> sweepBox (juce::Rectangle<float> r)
+    {
+        const auto c = captureBox (r);
+        return { c.getRight() + 4.0f, c.getY(), c.getWidth(), 18.0f };
+    }
 
     // ------------------------------------------------------------------------------------- capture
     // In the set (Source/core/Capture.h): CAPTURE arms; a slot clicked then asks SF CAPTURE, on the

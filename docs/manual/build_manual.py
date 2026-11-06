@@ -45,14 +45,22 @@ story.append(P("The suite is built for one kind of performance: very simple note
 story.append(H2("THE RIG"))
 story.append(P("One Live set that never changes. The track layout is fixed: one track per role (kick, percussion, rumble, bass, lead, voice, pad, deck). The OXI One MkII sequences everything; the OXI E16 plays the knobs. Songs are not projects: a song is a stored set of values in every plugin, recalled on the bar. You switch songs without loading anything."))
 story.append(H2("THE PERFORMANCE ROW"))
-story.append(P("The first eight controls of every plugin are its performance row: the large knobs at the top of its window, and the first eight parameters Live shows for the device, so one E16 row maps one plugin. Everything below the display is set-and-forget: models, ranges, routing, behaviour."))
+story.append(P("The first eight controls of every plugin are its performance row: the first eight parameters Live shows for the device, so one page of the E16 plays one plugin."))
+story.append(H2("THE PLUGIN WINDOW"))
+story.append(P("Every plugin's window is a narrow strip, so several sit side by side. Top to bottom it goes from what you play to what you set once:"))
+story += bullets(["<b>Header:</b> SONG, the OUT meter (FAULT, PANIC), PRESET, STORE, LOAD.",
+                  "<b>E16:</b> the plugin's page of the SF SHOW scene, as the E16 shows it: its own encoders lit where they sit, the others dark. The rings fill as the E16's do (16 LEDs, from just left of the bottom, clockwise) in the scene's colours: white, light blue for a volume, green for SLOW ALL. A press sits under its knob (THROW, FREEZE, DROP, ROLL); click it. A plugin the scene has on several tracks (LEAD, PERC, ENERGY) finds its encoders by the track's name, which only the VST3 knows; without it, a line says so and its knobs go to PERFORM. A plugin the scene doesn't use has no grid.",
+                  "<b>PERFORM:</b> the rest of the performance row, and what else is played (DECK's PLAY and CUE, CONTROL's PANIC).",
+                  "<b>The display</b>, then <b>DETAIL</b>: the sound's other controls, MODEL first.",
+                  "<b>MOTION</b>, <b>SYSTEM</b> (SLOW, MACRO) and <b>SETUP</b> (how the plugin sits in the set: ALLOC, KEY FOLLOW, DRY ...) come folded, their settings on their title line. Click a group's title line to open or fold it; the plugin keeps it so, with the set.",
+                  "<b>On every knob:</b> green, the sound travelling to where you set it (SLOW), and the ringed LED is where it is going; a green dot outside the ring, where MACRO or MOTION have it now; the value in cyan while you touch it. A knob whose middle is neutral (FILTER, TUNE) fills from the top either way, except in the E16 grid, which fills as the E16 does."])
 story.append(H2("DENSITY, GATE, FILTER"))
 story.append(P("Three controls cover most of what changes in a track, and they appear wherever they make sense. <b>DENSITY</b> is how many events happen (ghost notes fill the gaps). <b>GATE</b> is how long each event lasts. <b>FILTER</b> is what each event sounds like: a bipolar DJ filter, centre open, left low-pass, right high-pass. Play two against each other: density up with gate down is a tight, nervous build; density down with gate open is spacious dub; density up with the filter closed is tension waiting to be released."))
 story.append(H2("SYSTEM CONTROLS ON EVERY PLUGIN"))
-story.append(P("Below every plugin's controls: the MOTION row (two modulators) and the SYSTEM row (SLOW, MACRO). They are the same on every plugin and are not repeated in the module tables."))
+story.append(P("At the bottom of every plugin's window, folded: MOTION (two modulators) and SYSTEM (SLOW, MACRO). They are the same on every plugin and are not repeated in the module tables."))
 story.append(table([["CONTROL", "RANGE", "WHAT IT DOES"]] + [[a, b, c] for a, b, c in C.SYSTEM], [1.1 * inch, 1.75 * inch, W - 2.85 * inch]))
 story.append(H2("MOTION"))
-story.append(P("Two modulators in every plugin, M1 and M2. Pick a SOURCE, a RATE, the TARGET knob and a DEPTH. Everything is locked to Live's song position: every plugin's modulators move together, a 64-bar ramp lands on the 64th bar, and a set replays the same way every time, RANDOM and DRIFT included (their seeds are saved). Modulation adds to the knob, the macro and SLOW; a bar on the knob shows where it is. Steps (SQUARE, RANDOM, a ramp restart) are smoothed over 3 ms. MOTION is part of songs and presets."))
+story.append(P("Two modulators in every plugin, M1 and M2. Pick a SOURCE, a RATE, the TARGET knob and a DEPTH. Everything is locked to Live's song position: every plugin's modulators move together, a 64-bar ramp lands on the 64th bar, and a set replays the same way every time, RANDOM and DRIFT included (their seeds are saved). Modulation adds to the knob, the macro and SLOW; a green dot outside the knob's ring shows where it is. Steps (SQUARE, RANDOM, a ramp restart) are smoothed over 3 ms. MOTION is part of songs and presets."))
 story += bullets(["<b>Hypnotic movement:</b> DRIFT on a filter at 8 or 16 BAR, DEPTH 10-20 %: it never repeats, so neither does the loop.",
                   "<b>Long builds:</b> RAMP UP at 32 or 64 BAR on ENERGY or a filter; turn DEPTH to set how far it goes.",
                   "<b>Polyrhythm:</b> the odd RATEs (3/16, 5/16, 7/16, 1/4D, 1/2D, 1/4T, 1/2T, 3, 5, 7 BAR) turn against the 4/4: a 5/16 SINE on a filter meets the bar again every 5 bars.",
@@ -66,7 +74,8 @@ story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Reson
 _cc_head = [H2("THE COLOUR CODE"), P("The plugins are black, white and grey. Colour only carries information:")]
 cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, FAULT (the plugin reset itself), missing file, true peak at the ceiling."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
       [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall or a drop waiting for the bar, a value gliding (SLOW)."],
-      [Swatch(CYAN), "CYAN", "The value of the control you are touching."]]
+      [Swatch(CYAN), "CYAN", "The value of the control you are touching."],
+      [Swatch(LIGHT_BLUE), "LIGHT BLUE", "In the E16 grid: a volume (LEVEL), the ring colour the E16 shows. The grid's other rings are white, as on the E16, and SLOW ALL's green."]]
 story.append(KeepTogether(_cc_head + [table(cc, [0.3 * inch, 0.8 * inch, W - 1.1 * inch])]))
 story.append(PageBreak())
 
@@ -420,21 +429,31 @@ for group, mods in order:
             story.append(H1(f"{chapter}  {group}", 0)); story.append(Rule()); first = False; chapter += 1
             story.append(Spacer(1, 4))
         h = Paragraph(title, ParagraphStyle("mt", fontName="MonoB", fontSize=17, leading=21, spaceBefore=4, spaceAfter=2)); h.toc_level = 1
-        story.append(CondPageBreak(4.5 * inch))
-        story.append(h)
-        story.append(Paragraph(("INSTRUMENT, MIDI TRACK" if specs[mid]["instrument"] else "AUDIO EFFECT") + (f"   LATENCY {specs[mid]['latency']} SAMPLES AT 48 KHZ" if specs[mid]["latency"] else ""), S["label"]))
-        story.append(Rule(thick=0.5, color=LIGHT, space=2))
-        story.append(P(esc(m["summary"]), "summary"))
         img = os.path.join(ROOT, "docs", "snapshots", f"{mid}.png")
         if os.path.exists(img):
             from PIL import Image as PI
             iw, ih = PI.open(img).size
-            w = W; hgt = w * ih / iw
-            if hgt > 4.2 * inch: hgt = 4.2 * inch; w = hgt * iw / ih
+            story.append(CondPageBreak(STRIP_W * ih / iw + 1.6 * inch))      # the title, the summary and the whole strip together
+        else:
+            story.append(CondPageBreak(4.5 * inch))
+        story.append(h)
+        story.append(Paragraph(("INSTRUMENT, MIDI TRACK" if specs[mid]["instrument"] else "AUDIO EFFECT") + (f"   LATENCY {specs[mid]['latency']} SAMPLES AT 48 KHZ" if specs[mid]["latency"] else ""), S["label"]))
+        story.append(Rule(thick=0.5, color=LIGHT, space=2))
+        story.append(P(esc(m["summary"]), "summary"))
+        # The plugin's window (a strip) beside USING IT.
+        img = os.path.join(ROOT, "docs", "snapshots", f"{mid}.png")
+        using = [H2("USING IT")] + bullets([esc(u) for u in m["use"]])
+        if os.path.exists(img):
+            from PIL import Image as PI
+            iw, ih = PI.open(img).size
+            w = STRIP_W; hgt = w * ih / iw
             im = Image(img, width=w, height=hgt); im.hAlign = "LEFT"
-            story.append(im); story.append(Spacer(1, 8))
-        story.append(H2("USING IT"))
-        story += bullets([esc(u) for u in m["use"]])
+            side = Table([[im, using]], colWidths=[STRIP_W + 0.22 * inch, W - STRIP_W - 0.22 * inch])
+            side.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                      ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+            story.append(side); story.append(Spacer(1, 8))
+        else:
+            story += using
         if m["models"]:
             story.append(H2("OBJECTS" if mid == "STRIKE" else "CAPTURING A PLACE" if mid == "TERROIR" else "MODELS" if mid not in ("GATE", "ENERGY") else "REFERENCE"))
             story.append(table([["SOURCE", "HOW"] if mid == "TERROIR" else ["NAME", "SOUND"]] + [[esc(a), esc(b)] for a, b in m["models"]], [1.55 * inch, W - 1.55 * inch]))
@@ -450,7 +469,10 @@ for group, mods in order:
                 return f"{esc(listing)}<br/>default {esc(p['def'])}"
             if p["type"] == "toggle": return f"ON / OFF<br/>default {esc(p['def'])}"
             return "HOLD"
-        for label, rows in (("PERFORMANCE ROW", [p for p in sp if p["primary"]]), ("SETUP", [p for p in sp if not p["primary"] and p["id"] != "model"])):
+        played = lambda p: p["primary"] or p.get("perform")
+        for label, rows in (("PERFORM", [p for p in sp if played(p)]),
+                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and p["id"] != "model"]),
+                            ("SETUP", [p for p in sp if not played(p) and p.get("setup")])):
             if not rows: continue
             story.append(H2(label))
             data = [["CONTROL", "RANGE / DEFAULT", "WHAT IT DOES"]]
@@ -494,7 +516,7 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],
                     ["A knob shows GLIDE", "SLOW ALL or the plugin's SLOW is on: the knob is travelling to where you set it."],
-                    ["A knob moves on its own", "MOTION: check M1 / M2 TARGET in the plugin's MOTION row."],
+                    ["A knob moves on its own", "MOTION: check M1 / M2 TARGET (the plugin's MOTION group; its title line says where they go)."],
                     ["Header shows FAULT (red)", "The plugin caught an invalid value or a runaway and reset itself to silence. It carries on working. If it happens again, note what was playing: it is a bug."],
                     ["SF TERROIR won't capture", "Its status line says why. The transport must be stopped; NO SF CAPTURE: put it on the room mics' track (94 ROOM in SF SHOW), its device on; one take at a time."],
                     ["A capture says THE SWEEP DIDN'T COME BACK, or under 30 dB", "The speaker didn't play the sweep, or the mics didn't hear it: the speaker on 94 ROOM's output (3/4), the track on and up; the mics on 94 ROOM's input (Input Config: 1/2 a stereo pair), Monitor In. Then louder or closer. The slot stays as it was."],

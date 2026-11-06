@@ -214,8 +214,8 @@ public:
                  pct ("pocket_shape", "POCKET SHAPE", 0.25f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
                  pct ("echo_swing", "ECHO SWING", 0.0f),
-                 toggle ("alloc", "ALLOC", true).noPreset(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP SAMPLE (MODELS: SAMPLE, GRANULAR)"; }

@@ -183,7 +183,7 @@ public:
     std::vector<std::string> extraOutputs() const override { return { "CUE" }; }
     std::vector<ParamSpec> params() const override
     {
-        auto play = [] (const char* id, const char* nm) { auto p = toggle (id, nm); p.song = false; return p; };
+        auto play = [] (const char* id, const char* nm) { auto p = toggle (id, nm).performs(); p.song = false; return p; };
         return { knob ("xfade", "XFADE", 0.0f, 1.0f, 0.0f, "%").prim().noGlide(),
                  bip ("filter_a", "FILTER A").prim(), bip ("filter_b", "FILTER B").prim(),
                  pct ("low_a", "LOW A", 0.75f).prim(), pct ("low_b", "LOW B", 0.75f).prim(),
@@ -193,10 +193,10 @@ public:
                  play ("play_a", "PLAY A"), play ("play_b", "PLAY B"),
                  pct ("mid_a", "MID A", 0.75f), pct ("high_a", "HIGH A", 0.75f),
                  pct ("mid_b", "MID B", 0.75f), pct ("high_b", "HIGH B", 0.75f),
-                 choice ("quant", "QUANT", { "1 BEAT", "1 BAR", "4 BAR", "8 BAR", "16 BAR" }, 2),
-                 toggle ("key_lock", "KEY LOCK", true),
-                 toggle ("cue_a", "CUE A"), toggle ("cue_b", "CUE B"),
-                 knob ("target", "TRIM TARGET", -16.0f, -6.0f, -10.0f, "LUFS"),
+                 choice ("quant", "QUANT", { "1 BEAT", "1 BAR", "4 BAR", "8 BAR", "16 BAR" }, 2).forget(),
+                 toggle ("key_lock", "KEY LOCK", true).forget(),
+                 toggle ("cue_a", "CUE A").performs(), toggle ("cue_b", "CUE B").performs(),
+                 knob ("target", "TRIM TARGET", -16.0f, -6.0f, -10.0f, "LUFS").forget(),
                  pct ("res", "FILTER RES", 0.2f) };
     }
     bool acceptsFiles() const override { return true; }
@@ -465,23 +465,24 @@ public:
     int displayHeight() const override { return 260; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
-        auto top = r.removeFromTop (70);
+        auto top = r.removeFromTop (62);
         for (int k = 0; k < 2; ++k)
         {
-            auto p = top.removeFromLeft (k == 0 ? top.getWidth() * 0.5f - 4 : top.getWidth()).withTrimmedLeft (k == 1 ? 4.0f : 0.0f);
+            auto p = top.removeFromLeft (k == 0 ? top.getWidth() * 0.5f - 3 : top.getWidth()).withTrimmedLeft (k == 1 ? 3.0f : 0.0f);
             ui::frame (g, p, k == 0 ? "DECK A" : "DECK B");
-            auto in = p.reduced (8, 16);
+            auto in = p.reduced (7, 16);
             const auto& dd = disp[k];
             const juce::String state = dd.playing.load() ? "PLAY" : dd.armed.load() ? "ARMED" : "STOP";
-            ui::label (g, state, in.removeFromRight (60).removeFromTop (16), dd.playing.load() ? ui::kGreen : dd.armed.load() ? ui::kAmber : ui::kDim, 12.0f, juce::Justification::centredRight);
-            ui::label (g, deckName[k].isEmpty() ? "EMPTY" : deckName[k].toUpperCase(), in.removeFromTop (16), ui::kText, 12.0f);
+            ui::label (g, state, p.reduced (6, 2).removeFromTop (14), dd.playing.load() ? ui::kGreen : dd.armed.load() ? ui::kAmber : ui::kDim, 9.5f, juce::Justification::centredRight);
+            ui::lines (g, deckName[k].isEmpty() ? "EMPTY" : deckName[k].toUpperCase(), in.removeFromTop (14), ui::kText, 10.5f, 1);
             const double b = dd.beat.load();
-            const juce::String pos = dd.playing.load() ? "BAR " + juce::String ((int) std::floor (b / 4.0) + 1) + "." + juce::String ((int) std::floor (std::fmod (b, 4.0)) + 1) : "--";
-            ui::label (g, juce::String (dd.bpm.load(), 1) + " BPM   " + pos, in.removeFromTop (16), ui::kDim, 11.0f);
+            ui::label (g, juce::String (dd.bpm.load(), 1) + " BPM", in.removeFromTop (13), ui::kDim, 9.5f);
+            ui::label (g, dd.playing.load() ? "BAR " + juce::String ((int) std::floor (b / 4.0) + 1) + "." + juce::String ((int) std::floor (std::fmod (b, 4.0)) + 1) : juce::String ("--"),
+                       in.removeFromTop (13), ui::kDim, 9.5f);
         }
         r.removeFromTop (6);
-        ui::frame (g, r, "TRACKS   CLICK A / B TO LOAD   X TO REMOVE   DROP FILES TO ADD");
-        auto in = r.reduced (8, 18);
+        ui::frame (g, r, "TRACKS   A B: LOAD   X: REMOVE");
+        auto in = r.reduced (6, 18);
         rowsArea = in;
         const float rh = 18.0f;
         const int maxRows = (int) (in.getHeight() / rh);
@@ -489,17 +490,19 @@ public:
         {
             const auto& e = list[(size_t) (i + scroll)];
             auto row = in.removeFromTop (rh);
-            auto zoneA = row.removeFromLeft (24), zoneB = row.removeFromLeft (24), zoneX = row.removeFromRight (20);
+            auto zoneA = row.removeFromLeft (22), zoneB = row.removeFromLeft (22), zoneX = row.removeFromRight (16);
             const bool inA = e.path == deckPath[0], inB = e.path == deckPath[1];
             g.setColour (inA ? ui::kText : ui::kLine); g.drawRect (zoneA.reduced (2), 1.0f);
-            ui::label (g, "A", zoneA, inA ? ui::kText : ui::kDim, 10.0f, juce::Justification::centred);
+            ui::label (g, "A", zoneA, inA ? ui::kText : ui::kDim, 9.5f, juce::Justification::centred);
             g.setColour (inB ? ui::kText : ui::kLine); g.drawRect (zoneB.reduced (2), 1.0f);
-            ui::label (g, "B", zoneB, inB ? ui::kText : ui::kDim, 10.0f, juce::Justification::centred);
-            ui::label (g, "X", zoneX, ui::kFaint, 10.0f, juce::Justification::centred);
-            const juce::String info = e.missing ? "MISSING" : e.analysing ? "ANALYSING" : juce::String (e.bpm, 1) + " BPM  " + juce::String (e.lufs, 1) + " LUFS";
-            ui::label (g, info, row.removeFromRight (190), e.missing ? ui::kRed : e.analysing ? ui::kAmber : ui::kDim, 10.0f, juce::Justification::centredRight);
-            ui::label (g, "  " + e.name.toUpperCase(), row, ui::kText, 11.0f);
+            ui::label (g, "B", zoneB, inB ? ui::kText : ui::kDim, 9.5f, juce::Justification::centred);
+            ui::label (g, "X", zoneX, ui::kFaint, 9.5f, juce::Justification::centred);
+            // BPM and LUFS, short: the strip is narrow.
+            const juce::String info = e.missing ? "MISSING" : e.analysing ? "ANALYSING" : juce::String (e.bpm, 1) + " " + juce::String (e.lufs, 1);
+            ui::label (g, info, row.removeFromRight (70), e.missing ? ui::kRed : e.analysing ? ui::kAmber : ui::kDim, 9.0f, juce::Justification::centredRight);
+            ui::lines (g, e.name.toUpperCase(), row.withTrimmedLeft (4).reduced (0, 3), ui::kText, 10.0f, 1);
         }
+        if (list.empty()) ui::lines (g, "DROP AUDIO FILES HERE, OR LOAD (TOP RIGHT). BPM AND LUFS ARE MEASURED ON LOADING.", in.withHeight (30), ui::kFaint, 9.0f, 2);
         if ((int) list.size() > maxRows) ui::label (g, "MORE: CLICK BOTTOM EDGE", r.reduced (8, 2).removeFromBottom (12), ui::kFaint, 9.0f, juce::Justification::centredRight);
     }
     void displayMouse (juce::Point<float> p, juce::Rectangle<float>, bool down) override
@@ -508,9 +511,9 @@ public:
         const int row = (int) ((p.y - rowsArea.getY()) / 18.0f) + scroll;
         if (row < 0 || row >= (int) list.size()) return;
         const float x = p.x - rowsArea.getX();
-        if (x < 24) loadIntoDeck (0, list[(size_t) row].path);
-        else if (x < 48) loadIntoDeck (1, list[(size_t) row].path);
-        else if (p.x > rowsArea.getRight() - 20) list.erase (list.begin() + row);
+        if (x < 22) loadIntoDeck (0, list[(size_t) row].path);
+        else if (x < 44) loadIntoDeck (1, list[(size_t) row].path);
+        else if (p.x > rowsArea.getRight() - 16) list.erase (list.begin() + row);
     }
 
 private:

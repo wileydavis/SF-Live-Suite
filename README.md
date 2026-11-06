@@ -39,7 +39,7 @@ Manual: `SFTests --dump > docs/manual/specs.json`, then `python3 docs/manual/bui
 The manual's chapter 7, **The show template**, is a complete show set built on this: every track and its routing, the OXI ONE's sequencers and channels, clock and latency settings, the E16's permanent top half and its pages, a macro plan, recording and a build order. The E16 scene for it is ready to load: **`controllers/e16/SF SHOW.oxie16`**, with an address map and the loading and mapping steps (`controllers/e16/README.md`). The set itself is built too: **`controllers/live/SF SHOW.als`** holds every track, group, return and SF plugin of chapter 7, the routing and every E16 mapping; its README lists the steps left to you (MIDI From, outputs, two computer keys, two options).
 
 1. **SF CONTROL** on its own MIDI track, input from the OXI One. Program Change on channel 16 selects the song (01-16); as VST3 this needs Live 12.2 or later (the AU reads it in any version). Set each song's **KEY** here; map **PANIC** to a computer key (Key Map) or a dedicated button you can find in the dark, never to a knob's press. Everything stays silent while PANIC is on.
-2. **Instruments**, one per MIDI track: SF KICK, SF PERC (2-3), SF RUMBLE, SF BASS, SF LEAD, SF VOICE, SF PAD, SF STRIKE, SF DECK. Pick models in the header menu, or a starting point from **PRESET**.
+2. **Instruments**, one per MIDI track: SF KICK, SF PERC (2-3), SF RUMBLE, SF BASS, SF LEAD, SF VOICE, SF PAD, SF STRIKE, SF DECK. Pick a **MODEL** (at the top of DETAIL in the plugin's window), or a starting point from **PRESET**.
 3. **Groups** get SF ENERGY (instead of the DJ filter). PROFILE: DRUMS / BASS / MUSIC / VOICE.
 4. **Returns:** SF DELAY, SF REVERB, SF DENSITY (for the send-delay hat fills). Turn **DRY** off on a return, so it gives only the effect.
 5. **Master:** SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT, plus SF ALLOC anywhere on the master. **SF ROOM EQ goes after the recording point, not on the master** (below).
@@ -53,11 +53,13 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **Slow mode:** turn **SLOW ALL** on SF CONTROL (1-128 bars) and every performance knob glides to where you set it over that many bars; OFF and your moves land at once. A quarter turn becomes a long, even build. A move keeps the length it was made with, so you can set OFF for a direct move and a length for a glide without stopping a knob that is already travelling. Song recalls follow it too. A plugin's own **SLOW** (CONTROL by default) can fix its own length or OFF instead. On the E16 (the SF SHOW scene), a travelling knob's ring turns green and walks with the sound until it arrives.
 
-**Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH in the MOTION row). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. Odd rates (3/16, 5/16, 7/16, dotted, triplet, 3/5/7 BAR) run against the bar for polyrhythm and line up with it again every few bars. They are saved with songs and presets, and random sources replay the same way every time the set is played.
+**Motion:** every plugin has two modulators (M1, M2: SOURCE, RATE, TARGET, DEPTH, in the MOTION group at the bottom of the window). Waves, random and drift locked to the song position, ramps over up to 64 bars, or the kick, notes or input level. Odd rates (3/16, 5/16, 7/16, dotted, triplet, 3/5/7 BAR) run against the bar for polyrhythm and line up with it again every few bars. They are saved with songs and presets, and random sources replay the same way every time the set is played.
 
 **Places (SF TERROIR):** a convolution reverb for spaces you capture yourself. Clap in a room (or play the plugin's sweep file from any speaker) and record it with one mic or a stereo pair (a recorder's poly file as it comes: its mix tracks are skipped), drop the recording on the plugin, and the place is in one of eight PLACE slots, stored inside the Live set and recalled with songs. A finished IR file comes in as it is; IMPORT says what a file is when AUTO can't tell. SIZE, DECAY, DARK, LENGTH (gated to a note), REVERSE and START reshape it; FREEZE holds its sound. Its first eight controls are SF REVERB's, so it swaps in on B SPACE with the E16 as it is (map six controls once). **In the set (SF CAPTURE):** with the room mics on their own track (94 ROOM in SF SHOW) holding SF CAPTURE, TERROIR's CAPTURE button and a slot click play the sweep to a speaker on the headphone out and record the mics, 46 s with the transport stopped; the take lands in the slot as if dropped. SF CAPTURE never passes the mics.
 
 **Presets:** the PRESET button in every header. 191 factory presets; SAVE USER PRESET writes to `~/Music/SF Live Suite/Presets/<MODULE>/`.
+
+**The plugin windows** are narrow strips (296 pixels wide), so several sit side by side. From the top: the header; the plugin's page of the E16 scene as the E16 shows it (its own encoders lit where they sit on the E16, in the scene's ring colours, the others dark; presses under their knobs); PERFORM (the rest of the performance row); the display; DETAIL (MODEL first); and, folded, MOTION, SYSTEM (SLOW, MACRO) and SETUP (ALLOC, KEY FOLLOW, DRY ...), each with its settings on its title line. Click a title line to open or fold a group; the plugin keeps it with the set. A plugin the scene has on several tracks (LEAD, PERC, ENERGY) finds its page by its track's name, so use the VST3 for those.
 
 ## Sound quality (measured offline, every build)
 
@@ -127,6 +129,14 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 6. **KEY and PANIC.** Set KEY on SF CONTROL: BASS, LEAD and PAD transpose (notes already held follow), KICK and RUMBLE retune to the root. Push SF DELAY into feedback and hold PANIC: everything goes quiet within 5 ms and stays quiet until you let go.
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
+
+### Changes in the Nov 6 update
+
+- **New plugin windows: a narrow strip** (296 pixels wide instead of 928), ordered from what you play to what you set once. At the top, the plugin's E16 page as a 4 x 4 grid of encoders drawn like the E16's (knurled caps, 16-LED rings, the scene's colours): this plugin's encoders lit where they sit on the E16, the rest dark; THROW, FREEZE, DROP and ROLL under their knobs. Then PERFORM, the display, DETAIL (MODEL moved here from the header), and MOTION, SYSTEM and SETUP folded with their settings on their title lines. Every display was redrawn for the width (ALLOC: the order on top, the bands side by side, then the band knobs in three rows).
+- **A gliding knob looks like its E16 ring:** green LEDs walking with the sound, the target LED ringed in white. The suite's GREEN is now the E16's own mint everywhere (it was a darker green).
+- **Nothing in a set changes:** the same parameters, songs and presets. A window you open or fold is saved with the set; a set saved with this build opens in an older one as before.
+- **SF CONTROL's display** shows the suite's state on its own (the macros are in the E16 grid above it).
+- **SF TERROIR's CAPTURE** sits under the place slots, left of SWEEP FILE.
 
 ### Changes in the second Nov 5 update that affect existing sets
 

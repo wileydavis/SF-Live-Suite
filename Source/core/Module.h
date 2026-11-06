@@ -29,6 +29,10 @@ struct ParamSpec
     int macroDir = 0;               // response to the plugin's MACRO: +1 / -1 / 0
     bool hidden = false;            // not in the generic grid (the module draws its own control)
     bool preset = true;             // set by presets (false: setup values a preset must not touch)
+    bool setup = false;             // set and forget (how the plugin sits in the set, not a sound):
+                                    // the editor's SETUP group, below everything else
+    bool perform = false;           // played, though not in the top row (DECK's PLAY, CONTROL's
+                                    // PANIC): the editor shows it with the top row
 
     ParamSpec& prim()           { primary = true; return *this; }
     ParamSpec& dir (int d)      { macroDir = d; return *this; }
@@ -39,6 +43,8 @@ struct ParamSpec
     ParamSpec& u (const char* s){ unit = s; return *this; }
     ParamSpec& hide()           { hidden = true; return *this; }
     ParamSpec& noPreset()       { preset = false; return *this; }
+    ParamSpec& forget()         { setup = true; return *this; }
+    ParamSpec& performs()       { perform = true; return *this; }
 };
 
 inline ParamSpec knob (const char* id, const char* name, float mn, float mx, float def, const char* unit = "", float centre = NAN)

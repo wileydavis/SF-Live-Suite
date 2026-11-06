@@ -62,8 +62,8 @@ public:
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  toggle ("key_track", "KEY TRACK"),
                  pct ("res", "FILTER RES", 0.1f),
-                 toggle ("alloc", "ALLOC", true).noPreset(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -330,7 +330,7 @@ public:
                  toggle ("choke", "CHOKE", true),
                  pct ("spread", "SPREAD", 0.3f),
                  pct ("res", "FILTER RES", 0.1f),
-                 toggle ("alloc", "ALLOC", true).noPreset() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -556,13 +556,13 @@ public:
                  levelParam (-6.0f).prim(),
                  choice ("model", "MODEL", { "REVERB", "DELAY", "SUB DRONE", "DISTORTED", "DUB BOOM", "SAMPLE" }, 0),
                  knob ("tune", "TUNE", -12.0f, 12.0f, 0.0f, "st"),
-                 choice ("source", "SOURCE", { "KICK BUS", "MIDI", "BOTH" }, 0).noPreset(),
+                 choice ("source", "SOURCE", { "KICK BUS", "MIDI", "BOTH" }, 0).noPreset().forget(),
                  choice ("predelay", "PREDELAY", { "0", "1/32", "1/16", "1/8" }, 1),
                  pct ("width", "WIDTH", 0.3f),
                  pct ("pocket_shape", "POCKET SHAPE", 0.5f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 0),
-                 toggle ("alloc", "ALLOC", true).noPreset(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget(),
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP RUMBLE ONE-SHOT (MODEL: SAMPLE)"; }
