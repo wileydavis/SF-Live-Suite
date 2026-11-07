@@ -4,7 +4,7 @@ Ableton Live plugins for performing hypnotic / dub techno live. Private. `SPEC.m
 
 32 plugins, one shared core: 10 instruments (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE, STRIKE, DECK, CONTROL), 13 effects (STRIP, FILTER, GATE, DENSITY, DELAY, REVERB, TERROIR, CAPTURE, DRIVE, RADIO, REPEAT, DUCK, ENERGY), 9 master/mix tools (ISOLATOR, BUILD, GLUE, TONE, LOWEND, LIMIT, ROOM EQ, ALLOC, TAP).
 
-The reference manual is `docs/SF-Live-Suite-Manual.pdf`.
+The reference manual is `docs/SF-Live-Suite-Manual.pdf`. New to the suite: `docs/course/`, nine lessons that build three songs and a recorded set, read on a phone with a spoken guide (`docs/course/README.md`).
 
 ## Build (Mac)
 

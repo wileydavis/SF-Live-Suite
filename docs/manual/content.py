@@ -227,7 +227,7 @@ MODULES["VOICE"] = dict(
         "tune": "Playback pitch (varispeed) in semitones.",
         "echo_time": "Echo time, synced (1 BAR to 1/16). Default 1/4 dotted.",
         "echo_fb": "Echo feedback.",
-        "key_follow": "On: playback and carriers follow the KEY set on SF CONTROL (phrases written in C play in the song's key). Off: ignores KEY.",
+        "key_follow": "On: the carriers (VOCODER, ROBOT, CHOIR) and the choir played with no phrase loaded follow the KEY set on SF CONTROL. A loaded phrase keeps its own pitch (TUNE moves it). Off: ignores KEY.",
     },
 )
 

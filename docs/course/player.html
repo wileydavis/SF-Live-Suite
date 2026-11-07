@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<title>SF Live Suite Lessons</title>
+<style>
+:root {
+  --bg: #000; --panel: #0b0b0b; --line: #2a2a2a; --grid: #171717; --text: #e8e8e8; --dim: #8a8a8a;
+  --faint: #4a4a4a; --track: #2e2e2e; --cyan: #00c8ff; --green: #4cf59b; --amber: #ffb000;
+  --led-white: #eef2ff; --led-blue: #8cc4ff; --led-off: #383838; --led-dark: #1f1f1f;
+  --mono: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", Consolas, monospace;
+  --sans: -apple-system, system-ui, "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+  --size: 1;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font-family: var(--sans); font-size: calc(18px * var(--size)); line-height: 1.42; -webkit-text-size-adjust: 100%; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.mono { font-family: var(--mono); letter-spacing: 0.06em; }
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 18px; }
+
+/* ---------- home ---------- */
+#home { padding-bottom: 40px; }
+.brand { padding: 22px 0 4px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em; color: var(--dim); }
+h1 { margin: 2px 0 6px; font-size: calc(30px * var(--size)); line-height: 1.1; letter-spacing: -0.01em; }
+.lede { color: var(--dim); margin: 0 0 18px; }
+.resume { display: block; width: 100%; text-align: left; border: 1px solid var(--text); border-radius: 10px; padding: 14px 16px; margin: 6px 0 20px; }
+.resume .k { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--dim); }
+.resume .v { font-size: calc(20px * var(--size)); font-weight: 600; }
+.lesson { border-top: 1px solid var(--line); padding: 14px 0 12px; }
+.lesson-row { display: flex; gap: 14px; align-items: flex-start; width: 100%; text-align: left; }
+.lesson-num { font-family: var(--mono); font-size: calc(26px * var(--size)); line-height: 1; min-width: 34px; color: var(--dim); padding-top: 2px; }
+.lesson.done .lesson-num { color: var(--green); }
+.lesson-main { flex: 1; min-width: 0; }
+.lesson-title { font-weight: 650; font-size: calc(20px * var(--size)); }
+.lesson-sum { color: var(--dim); font-size: calc(15.5px * var(--size)); margin-top: 2px; }
+.lesson-meta { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.1em; color: var(--faint); margin-top: 6px; }
+.lesson-meta .p { color: var(--dim); }
+.lesson.done .lesson-meta .p { color: var(--green); }
+.along { margin: 10px 0 0 48px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px 7px 12px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--dim); }
+.along b { color: var(--text); font-weight: 400; }
+.settings { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 16px; }
+.settings h2, .howto h2 { font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--dim); font-weight: 400; margin: 0 0 10px; }
+.set-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; gap: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 8px 12px; font-family: var(--mono); font-size: 13px; color: var(--dim); min-width: 46px; }
+.seg button.on { background: var(--text); color: #000; }
+.howto { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px; color: var(--dim); font-size: calc(15.5px * var(--size)); }
+.howto p { margin: 0 0 8px; }
+.howto b { color: var(--text); font-weight: 600; }
+
+/* ---------- lesson ---------- */
+#lesson { display: none; min-height: 100vh; }
+.top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+.top-row { display: flex; align-items: center; gap: 10px; height: 46px; }
+.back-home { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--dim); padding: 12px 10px 12px 0; }
+.top-title { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-count { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.bar { height: 3px; background: var(--grid); }
+.bar i { display: block; height: 100%; width: 0; background: var(--text); transition: width .25s; }
+.step { padding-top: 18px; padding-bottom: 150px; }
+.where { display: inline-flex; gap: 8px; align-items: center; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.16em; color: var(--dim); margin-bottom: 8px; }
+.where .chip { border: 1px solid var(--faint); border-radius: 4px; padding: 2px 7px; color: var(--text); }
+.where .chip.play { border-color: var(--green); color: var(--green); }
+.step h2 { font-size: calc(27px * var(--size)); line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.01em; }
+.lines p { margin: 0 0 10px; }
+.lines b { font-weight: 650; }
+.lines ul { margin: 0 0 10px; padding-left: 20px; }
+.lines li { margin: 0 0 6px; }
+.path { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 14px; font-family: var(--mono); font-size: calc(13px * var(--size)); }
+.path span { border: 1px solid var(--line); border-radius: 4px; padding: 4px 7px; background: var(--panel); }
+.path span:last-child { border-color: var(--cyan); color: var(--cyan); }
+.path i { color: var(--faint); font-style: normal; }
+.note { border-left: 2px solid var(--faint); padding: 2px 0 2px 12px; margin: 14px 0; color: var(--dim); font-size: calc(16px * var(--size)); }
+.note .k { display: block; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.16em; color: var(--faint); margin-bottom: 2px; }
+.note.listen { border-color: var(--text); color: var(--text); }
+.note.listen .k { color: var(--dim); }
+.note.done { border-color: var(--green); }
+.note.done .k { color: var(--green); }
+.note.why .k { color: var(--dim); }
+.table { width: 100%; border-collapse: collapse; margin: 6px 0 14px; font-size: calc(15px * var(--size)); }
+.table td { border-top: 1px solid var(--line); padding: 7px 8px 7px 0; vertical-align: top; }
+.table td:first-child { font-family: var(--mono); font-size: calc(13px * var(--size)); white-space: nowrap; }
+.table tr:first-child td { border-top: 0; }
+
+/* E16 diagram */
+.dia { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 12px 10px; margin: 14px 0; }
+.dia-head { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.14em; color: var(--dim); margin-bottom: 10px; display: flex; justify-content: space-between; gap: 8px; }
+.dia-head b { color: var(--text); font-weight: 400; }
+.e16 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 6px; }
+.knob { display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
+.knob svg { width: 46px; height: 46px; display: block; }
+.knob .nm { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.03em; color: var(--faint); white-space: nowrap; }
+.knob.on .nm { color: var(--text); }
+.knob.ctx .nm { color: var(--dim); }
+.knob .act { position: absolute; top: -2px; right: 4px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; color: var(--cyan); }
+.e16-rule { grid-column: 1 / -1; height: 1px; background: var(--line); margin: 1px 0; }
+.dia-foot { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--dim); margin-top: 10px; }
+
+/* ONE diagram */
+.one { display: grid; grid-template-columns: 58px repeat(16, 1fr); gap: 2px; align-items: center; }
+.one .lab { font-family: var(--mono); font-size: 9.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
+.one .lab.on { color: var(--text); }
+.pad { aspect-ratio: 1; border-radius: 2px; background: var(--grid); }
+.pad.beat { background: #222; }
+.pad.on { background: var(--led-white); }
+.pad.tie { background: #9aa0aa; }
+.one .col { font-family: var(--mono); font-size: 8.5px; color: var(--faint); text-align: center; }
+
+/* timer */
+.timer { display: flex; align-items: center; gap: 14px; margin: 16px 0; }
+.timer button { border: 1px solid var(--text); border-radius: 999px; padding: 10px 18px; font-family: var(--mono); font-size: 14px; letter-spacing: 0.1em; }
+.timer .t { font-family: var(--mono); font-size: calc(30px * var(--size)); letter-spacing: 0.04em; }
+.timer.run .t { color: var(--green); }
+.timer.end .t { color: var(--green); }
+.timer .reset { border-color: var(--line); color: var(--dim); }
+
+/* bottom bar */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: rgba(0,0,0,0.94); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.dock .wrap { display: flex; gap: 10px; align-items: stretch; padding-top: 10px; padding-bottom: 12px; }
+.dock button { border-radius: 12px; min-height: 64px; }
+.b-back { width: 64px; border: 1px solid var(--line); font-size: 24px; color: var(--dim); }
+.b-say { width: 96px; border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.b-say .i { font-size: 20px; line-height: 1; }
+.b-say .d { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.b-say.playing { border-color: var(--cyan); color: var(--cyan); }
+.b-say.playing .d { color: var(--cyan); }
+.b-say[disabled] { opacity: 0.35; }
+.b-next { flex: 1; background: var(--text); color: #000; font-weight: 700; font-size: calc(19px * var(--size)); letter-spacing: 0.04em; }
+.b-next.finish { background: var(--green); }
+.b-play { flex: 1; background: var(--text); color: #000; display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 700; font-size: calc(19px * var(--size)); }
+.b-play .tm { font-family: var(--mono); font-size: 13px; font-weight: 400; color: #333; }
+.b-play.on { background: var(--cyan); }
+.b-skip { width: 64px; border: 1px solid var(--line); font-size: 22px; color: var(--dim); }
+.b-skip[disabled] { opacity: 0.3; }
+.mode { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; }
+.mode.flow { color: var(--cyan); border-color: var(--cyan); }
+.b-back[disabled] { opacity: 0.3; }
+.end-list { margin: 8px 0 18px; padding-left: 0; list-style: none; }
+.end-list li { border-top: 1px solid var(--line); padding: 10px 0 10px 30px; position: relative; }
+.end-list li::before { content: "✓"; position: absolute; left: 4px; color: var(--green); font-weight: 700; }
+.toast { position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%); background: #111; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-family: var(--mono); font-size: 12px; color: var(--dim); opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 9; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="home"></div>
+<div id="lesson"></div>
+<audio id="voice" preload="auto"></audio>
+<audio id="track" preload="none"></audio>
+<div class="toast" id="toast"></div>
+<script>
+const COURSE = /*COURSE_JSON*/null;
+
+(function () {
+  "use strict";
+  const $ = (s, r) => (r || document).querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // **bold** only, after escaping.
+  const fmt = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  const audio = $("#voice");
+  const track = $("#track");
+
+  // ---------------------------------------------------------------- storage (optional)
+  const KEY = "sf-lessons-v1";
+  let store = { pos: null, done: {}, seen: {}, voice: true, speed: 1, size: 1 };
+  try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s) store = Object.assign(store, s); } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+  const applySize = () => document.documentElement.style.setProperty("--size", store.size);
+  applySize();
+
+  let li = 0, si = 0, view = "home", timer = null, wake = null, flow = false;
+
+  // ---------------------------------------------------------------- wake lock (where the viewer allows it)
+  async function keepAwake() {
+    try { if ("wakeLock" in navigator && !wake) { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => { wake = null; }); } } catch (e) { wake = null; }
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && view === "lesson") keepAwake(); });
+
+  function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 1600); }
+
+  // ---------------------------------------------------------------- voice
+  function stopVoice() { try { audio.pause(); } catch (e) {} }
+  function sayStep(force) {
+    const st = curStep();
+    if (!st || !st.audio) { stopVoice(); updateSay(); return; }
+    if (!store.voice && !force) { stopVoice(); updateSay(); return; }
+    try {
+      if (!audio.src.endsWith(st.audio)) audio.src = st.audio;
+      audio.currentTime = 0;
+      audio.playbackRate = store.speed;
+      const p = audio.play();
+      if (p && p.catch) p.catch(() => updateSay());
+    } catch (e) {}
+    updateSay();
+  }
+  function toggleSay() {
+    const st = curStep();
+    if (!st || !st.audio) return;
+    if (!audio.paused && audio.src.endsWith(st.audio)) { stopVoice(); updateSay(); return; }
+    if (audio.src.endsWith(st.audio) && audio.currentTime > 0 && audio.currentTime < (audio.duration || 0) - 0.2) {
+      audio.playbackRate = store.speed; const p = audio.play(); if (p && p.catch) p.catch(() => {}); updateSay(); return;
+    }
+    sayStep(true);
+  }
+  const mmss = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+  function updateSay() {
+    const b = $(".b-say"); if (!b) return;
+    const st = curStep();
+    if (!st || !st.audio) { b.disabled = true; b.querySelector(".i").textContent = "↻"; b.querySelector(".d").textContent = "—"; return; }
+    b.disabled = false;
+    const mine = audio.src.endsWith(st.audio);
+    const playing = mine && !audio.paused && !audio.ended;
+    b.classList.toggle("playing", playing);
+    b.querySelector(".i").textContent = playing ? "❚❚" : "↻";
+    const left = playing ? (audio.duration || st.dur) - audio.currentTime : st.dur;
+    b.querySelector(".d").textContent = mmss(left / store.speed);
+  }
+  ["play", "pause", "ended", "timeupdate"].forEach((ev) => audio.addEventListener(ev, updateSay));
+
+  // ---------------------------------------------------------------- play along: the whole lesson, the screen follows the voice
+  const marks = () => curLesson().marks || [];
+  const stepAt = (t) => { const m = marks(); let i = 0; while (i + 1 < m.length && m[i + 1] <= t + 0.05) i++; return i; };
+  function seek(t) {
+    const set = () => { try { track.currentTime = t; } catch (e) {} };
+    if (track.readyState >= 1) set(); else track.addEventListener("loadedmetadata", set, { once: true });
+  }
+  function startFlow(lessonIndex, stepIndex) {
+    stopVoice(); stopTimer();
+    li = lessonIndex; view = "lesson"; flow = true;
+    const L = curLesson();
+    si = Math.min(stepIndex, L.steps.length - 1);
+    if (!track.src.endsWith(L.audio)) track.src = L.audio;
+    track.playbackRate = store.speed;
+    seek(marks()[si] || 0);
+    try { const p = track.play(); if (p && p.catch) p.catch(() => updateFlow()); } catch (e) {}
+    keepAwake();
+    render(); window.scrollTo(0, 0);
+  }
+  function stopFlow() { try { track.pause(); } catch (e) {} flow = false; }
+  function flowToggle() {
+    if (track.paused) { track.playbackRate = store.speed; try { const p = track.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+    else track.pause();
+    updateFlow();
+  }
+  function flowSkip(d) {
+    const L = curLesson(), m = marks();
+    const to = Math.max(0, Math.min(si + d, L.steps.length - 1));
+    seek(m[to] || 0); si = to; savePos(); render(); window.scrollTo(0, 0);
+  }
+  function updateFlow() {
+    const b = $("#b-play"); if (!b) return;
+    b.classList.toggle("on", !track.paused);
+    b.querySelector(".i").textContent = track.paused ? "▶ PLAY" : "❚❚ PAUSE";
+    b.querySelector(".tm").textContent = mmss(track.currentTime || 0) + " / " + mmss(curLesson().duration || track.duration || 0);
+  }
+  track.addEventListener("timeupdate", () => {
+    if (!flow || view !== "lesson") return;
+    const i = stepAt(track.currentTime);
+    if (i !== si && si < curLesson().steps.length) { si = i; savePos(); stopTimer(); render(); window.scrollTo(0, 0); }
+    updateFlow();
+  });
+  ["play", "pause"].forEach((ev) => track.addEventListener(ev, updateFlow));
+  track.addEventListener("ended", () => { if (!flow) return; const L = curLesson(); store.done[L.id] = true; si = L.steps.length; save(); flow = false; render(); });
+  function savePos() {
+    const L = curLesson();
+    store.pos = { l: li, s: si };
+    store.seen[L.id] = Math.max(store.seen[L.id] || 0, Math.min(si + 1, L.steps.length));
+    save();
+  }
+
+  // ---------------------------------------------------------------- navigation
+  const curLesson = () => COURSE.lessons[li];
+  const curStep = () => { const L = curLesson(); return L && si < L.steps.length ? L.steps[si] : null; };
+  function go(lessonIndex, stepIndex, speak) {
+    if (flow) stopFlow();
+    li = lessonIndex; si = stepIndex; view = "lesson";
+    stopTimer();
+    savePos();
+    render();
+    window.scrollTo(0, 0);
+    if (speak) sayStep(false); else stopVoice();
+    keepAwake();
+  }
+  function next() {
+    const L = curLesson();
+    if (si < L.steps.length) { go(li, si + 1, true); return; }
+    // on the end screen: next lesson
+    store.done[L.id] = true; save();
+    if (li + 1 < COURSE.lessons.length) go(li + 1, 0, true); else home();
+  }
+  function back() { if (si > 0) go(li, si - 1, true); }
+  function home() { view = "home"; stopTimer(); stopVoice(); stopFlow(); render(); window.scrollTo(0, 0); }
+
+  // ---------------------------------------------------------------- diagrams
+  const P = (deg, r) => { const a = deg * Math.PI / 180; return [23 + r * Math.cos(a), 23 + r * Math.sin(a)]; };
+  const f1 = (v) => v.toFixed(1);
+  // An arc of radius 7 inside the knob with an arrowhead at its end: clockwise (a right turn) or not.
+  function arrow(cw, from, to) {
+    const [x0, y0] = P(from, 7), [x1, y1] = P(to, 7);
+    const a = to * Math.PI / 180, dir = cw ? 1 : -1;
+    const tx = -Math.sin(a) * dir, ty = Math.cos(a) * dir;           // direction of travel at the tip
+    const wing = (rot) => { const c = Math.cos(rot), s = Math.sin(rot); return [x1 - 4 * (tx * c - ty * s), y1 - 4 * (tx * s + ty * c)]; };
+    const [ax, ay] = wing(0.5), [bx, by] = wing(-0.5);
+    return `<path d="M${f1(x0)} ${f1(y0)} A7 7 0 0 ${cw ? 1 : 0} ${f1(x1)} ${f1(y1)}" fill="none" stroke="var(--cyan)" stroke-width="1.9" stroke-linecap="round"/>` +
+      `<path d="M${f1(ax)} ${f1(ay)} L${f1(x1)} ${f1(y1)} L${f1(bx)} ${f1(by)}" fill="none" stroke="var(--cyan)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  function ring(colour, on, act) {
+    // 16 LEDs from just left of the bottom, clockwise, as the E16 draws them; a target's ring is lit whole.
+    const col = { white: "var(--led-white)", blue: "var(--led-blue)", green: "var(--green)" }[colour] || "var(--led-white)";
+    let s = '<svg viewBox="0 0 46 46" aria-hidden="true">';
+    for (let i = 0; i < 16; i++) {
+      const [x, y] = P(120 + i * 20, 19);
+      s += `<circle cx="${f1(x)}" cy="${f1(y)}" r="2.1" fill="${on ? col : "var(--led-dark)"}"/>`;
+    }
+    s += `<circle cx="23" cy="23" r="11.5" fill="${on ? "#161616" : "#0e0e0e"}" stroke="${on ? "#555" : "#222"}" stroke-width="1"/>`;
+    if (act === "right") s += arrow(true, 200, 340);
+    if (act === "left") s += arrow(false, 340, 200);
+    if (act === "turn") s += arrow(true, 210, 320) + arrow(true, 30, 140);
+    if (act === "press" || act === "hold") s += '<circle cx="23" cy="23" r="4.6" fill="var(--cyan)"/>';
+    return s + "</svg>";
+  }
+  function e16(d) {
+    const page = COURSE.e16.pages.find((p) => p.title === d.page);
+    const pageNo = COURSE.e16.pages.indexOf(page) + 1;
+    const knobs = COURSE.e16.top.concat(page.knobs);
+    const want = {}; (d.knobs || []).forEach((k) => { want[k.n] = k; });
+    let h = `<div class="dia"><div class="dia-head"><span>E16 · PAGE <b>${pageNo} ${esc(page.title)}</b></span><span>${d.topOnly ? "ROWS 1-2: EVERY PAGE" : ""}</span></div><div class="e16">`;
+    knobs.forEach((k, i) => {
+      if (i === 8) h += '<div class="e16-rule"></div>';
+      const w = want[k.n];
+      const on = !!w;
+      const colour = (w && w.colour) || k.colour;
+      const lab = w && w.act ? { left: "LEFT", right: "RIGHT", press: "PRESS", hold: "HOLD", turn: "TURN" }[w.act] : "";
+      h += `<div class="knob${on ? " on" : ""}"><div>${ring(colour, on, w && w.act)}</div><span class="nm">${esc(w && w.name ? w.name : k.name)}</span>${lab ? `<span class="act">${lab}</span>` : ""}</div>`;
+    });
+    h += "</div>";
+    const foot = d.foot != null ? d.foot : (d.topOnly ? "" : `PAGE ${pageNo}: HOLD SHIFT (THE O), TAP KNOB ${pageNo}`);
+    if (foot) h += `<div class="dia-foot">${esc(foot)}</div>`;
+    return h + "</div>";
+  }
+  function one(d) {
+    const rows = {}; (d.rows || []).forEach((r) => { rows[r.row] = r; });
+    let h = `<div class="dia"><div class="dia-head"><span>ONE · <b>${esc(d.title || "")}</b></span><span>${esc(d.right || "")}</span></div><div class="one">`;
+    for (let row = 8; row >= 1; row--) {
+      const r = rows[row];
+      h += `<div class="lab${r ? " on" : ""}">${r ? esc(r.label) : ""}</div>`;
+      const on = new Set(r ? r.steps : []), tie = new Set(r && r.ties ? r.ties : []);
+      for (let c = 1; c <= 16; c++) h += `<div class="pad${(c - 1) % 4 === 0 ? " beat" : ""}${on.has(c) ? " on" : ""}${tie.has(c) ? " tie" : ""}"></div>`;
+    }
+    h += '<div class="lab"></div>';
+    for (let c = 1; c <= 16; c++) h += `<div class="col">${(c - 1) % 4 === 0 ? c : ""}</div>`;
+    h += "</div>";
+    if (d.foot) h += `<div class="dia-foot">${esc(d.foot)}</div>`;
+    return h + "</div>";
+  }
+
+  // ---------------------------------------------------------------- timer (for PLAY steps)
+  function stopTimer() { if (timer) { clearInterval(timer.h); timer = null; } }
+  function timerUI(sec) {
+    return `<div class="timer" id="timer"><button id="t-go">START</button><span class="t" id="t-t">${mmss(sec)}</span><button class="reset" id="t-reset">RESET</button></div>`;
+  }
+  function wireTimer(sec) {
+    const box = $("#timer"); if (!box) return;
+    let left = sec;
+    const paint = () => { $("#t-t").textContent = mmss(left); };
+    $("#t-go").onclick = () => {
+      if (timer) { clearInterval(timer.h); timer = null; $("#t-go").textContent = "START"; box.classList.remove("run"); return; }
+      const t0 = Date.now(), from = left;
+      box.classList.add("run"); box.classList.remove("end"); $("#t-go").textContent = "PAUSE";
+      timer = { h: setInterval(() => {
+        left = Math.max(0, from - (Date.now() - t0) / 1000); paint();
+        if (left <= 0) { clearInterval(timer.h); timer = null; box.classList.remove("run"); box.classList.add("end"); $("#t-go").textContent = "START"; $("#t-t").textContent = "DONE"; left = sec; }
+      }, 250) };
+    };
+    $("#t-reset").onclick = () => { stopTimer(); left = sec; paint(); box.classList.remove("run", "end"); $("#t-go").textContent = "START"; };
+  }
+
+  // ---------------------------------------------------------------- render
+  function render() {
+    $("#home").style.display = view === "home" ? "block" : "none";
+    $("#lesson").style.display = view === "lesson" ? "block" : "none";
+    if (view === "home") renderHome(); else renderLesson();
+  }
+
+  function renderHome() {
+    const C = COURSE;
+    let h = `<div class="wrap"><div class="brand">${esc(C.brand)}</div><h1>${esc(C.title)}</h1><p class="lede">${fmt(C.lede)}</p>`;
+    const p = store.pos;
+    if (p && C.lessons[p.l] && p.s > 0 && !(store.done[C.lessons[p.l].id] && p.s >= C.lessons[p.l].steps.length)) {
+      const L = C.lessons[p.l];
+      const st = L.steps[Math.min(p.s, L.steps.length - 1)];
+      h += `<button class="resume" id="resume"><div class="k">CONTINUE</div><div class="v">${L.num} ${esc(L.title)} · ${esc(st.title)}</div></button>`;
+    }
+    C.lessons.forEach((L, i) => {
+      const seen = store.seen[L.id] || 0, done = !!store.done[L.id];
+      const prog = done ? "DONE" : seen ? `STEP ${seen} OF ${L.steps.length}` : `${L.steps.length} STEPS`;
+      h += `<div class="lesson${done ? " done" : ""}"><button class="lesson-row" data-l="${i}"><span class="lesson-num">${L.num}</span><span class="lesson-main"><div class="lesson-title">${esc(L.title)}</div><div class="lesson-sum">${fmt(L.summary)}</div><div class="lesson-meta"><span class="p">${prog}</span> · ${esc(L.time)}</div></span></button>`;
+      if (L.audio && L.marks) h += `<button class="along" data-a="${i}">▶ <b>PLAY ALONG</b> · ${mmss(L.duration)}</button>`;
+      h += "</div>";
+    });
+    h += `<div class="settings"><h2>SETTINGS</h2>
+      <div class="set-row"><span>Voice on each step</span><span class="seg" id="s-voice"><button data-v="1">ON</button><button data-v="0">OFF</button></span></div>
+      <div class="set-row"><span>Voice speed</span><span class="seg" id="s-speed"><button data-v="1">1×</button><button data-v="1.15">1.15×</button><button data-v="1.3">1.3×</button></span></div>
+      <div class="set-row"><span>Text size</span><span class="seg" id="s-size"><button data-v="0.9">A−</button><button data-v="1">A</button><button data-v="1.15">A+</button></span></div></div>`;
+    h += `<div class="howto"><h2>HOW TO USE IT</h2>${C.howto.map((x) => `<p>${fmt(x)}</p>`).join("")}</div></div>`;
+    $("#home").innerHTML = h;
+    document.querySelectorAll(".lesson-row").forEach((b) => { b.onclick = () => { const i = +b.dataset.l; const L = C.lessons[i]; const at = store.done[L.id] ? 0 : Math.min(Math.max((store.seen[L.id] || 1) - 1, 0), L.steps.length - 1); go(i, at, true); }; });
+    const r = $("#resume"); if (r) r.onclick = () => go(p.l, Math.min(p.s, C.lessons[p.l].steps.length - 1), true);
+    const seg = (id, key, conv) => {
+      const el = $(id);
+      el.querySelectorAll("button").forEach((b) => {
+        b.classList.toggle("on", String(conv(b.dataset.v)) === String(store[key]));
+        b.onclick = () => { store[key] = conv(b.dataset.v); save(); if (key === "size") applySize(); renderHome(); };
+      });
+    };
+    seg("#s-voice", "voice", (v) => v === "1");
+    seg("#s-speed", "speed", Number);
+    seg("#s-size", "size", Number);
+    // Only one lesson track plays at a time.
+    document.querySelectorAll(".along").forEach((b) => { b.onclick = () => startFlow(+b.dataset.a, 0); });
+  }
+
+  function renderStepBody(st) {
+    let h = "";
+    if (st.path) h += `<div class="path">${st.path.map((x) => `<span>${esc(x)}</span>`).join("<i>›</i>")}</div>`;
+    h += '<div class="lines">';
+    (st.lines || []).forEach((x) => { h += Array.isArray(x) ? `<ul>${x.map((y) => `<li>${fmt(y)}</li>`).join("")}</ul>` : `<p>${fmt(x)}</p>`; });
+    h += "</div>";
+    if (st.table) h += `<table class="table">${st.table.map((r) => `<tr>${r.map((c) => `<td>${fmt(c)}</td>`).join("")}</tr>`).join("")}</table>`;
+    if (st.e16) h += e16(st.e16);
+    if (st.one) h += one(st.one);
+    if (st.timer) h += timerUI(st.timer);
+    if (st.listen) h += `<div class="note listen"><span class="k">LISTEN FOR</span>${fmt(st.listen)}</div>`;
+    if (st.why) h += `<div class="note why"><span class="k">WHY</span>${fmt(st.why)}</div>`;
+    if (st.done) h += `<div class="note done"><span class="k">DONE WHEN</span>${fmt(st.done)}</div>`;
+    return h;
+  }
+
+  function renderLesson() {
+    const L = curLesson(), n = L.steps.length, st = curStep();
+    const pct = Math.round((Math.min(si + 1, n) / n) * 100);
+    let h = `<div class="top"><div class="wrap top-row"><button class="back-home" id="b-home">‹ LESSONS</button><div class="top-title">${L.num} ${esc(L.title)}</div>${L.audio && L.marks && st ? `<button class="mode${flow ? " flow" : ""}" id="b-mode">${flow ? "STEPS" : "▶ ALONG"}</button>` : ""}<div class="top-count">${st ? (si + 1) + "/" + n : "END"}</div></div><div class="bar"><i style="width:${st ? pct : 100}%"></i></div></div><div class="wrap step" id="stepbox">`;
+    if (st) {
+      const play = st.where === "PLAY";
+      h += `<div class="where"><span class="chip${play ? " play" : ""}">${esc(st.where)}</span>${st.sub ? esc(st.sub) : ""}</div><h2>${fmt(st.title)}</h2>` + renderStepBody(st);
+    } else {
+      h += `<div class="where"><span class="chip play">DONE</span></div><h2>${esc(L.num + " " + L.title)}: done</h2><div class="lines"><p>${fmt(L.endText || "")}</p></div>`;
+      if (L.checks) h += `<ul class="end-list">${L.checks.map((c) => `<li>${fmt(c)}</li>`).join("")}</ul>`;
+      const nx = COURSE.lessons[li + 1];
+      if (nx) h += `<div class="note"><span class="k">NEXT</span>${nx.num} ${esc(nx.title)}: ${fmt(nx.summary)}</div>`;
+    }
+    h += "</div>";
+    const last = !st, nxt = COURSE.lessons[li + 1];
+    if (flow && st) h += `<div class="dock"><div class="wrap"><button class="b-skip" id="b-prev" aria-label="Previous step"${si === 0 ? " disabled" : ""}>‹</button><button class="b-play" id="b-play"><span class="i">▶ PLAY</span><span class="tm"></span></button><button class="b-skip" id="b-fwd" aria-label="Next step"${si >= n - 1 ? " disabled" : ""}>›</button></div></div>`;
+    else h += `<div class="dock"><div class="wrap"><button class="b-back" id="b-back" aria-label="Back"${si === 0 ? " disabled" : ""}>‹</button><button class="b-say" id="b-say" aria-label="Replay the voice"><span class="i">↻</span><span class="d">—</span></button><button class="b-next${last ? " finish" : ""}" id="b-next">${last ? (nxt ? "NEXT LESSON ›" : "BACK TO LESSONS") : (si === n - 1 ? "FINISH ›" : "NEXT ›")}</button></div></div>`;
+    $("#lesson").innerHTML = h;
+    $("#b-home").onclick = home;
+    const m = $("#b-mode");
+    if (m) m.onclick = () => { if (flow) { stopFlow(); render(); } else startFlow(li, si); };
+    if (flow && st) {
+      $("#b-prev").onclick = () => flowSkip(-1);
+      $("#b-fwd").onclick = () => flowSkip(1);
+      $("#b-play").onclick = flowToggle;
+      updateFlow();
+    } else {
+      $("#b-back").onclick = back;
+      $("#b-next").onclick = next;
+      $("#b-say").onclick = toggleSay;
+      updateSay();
+    }
+    if (st && st.timer) wireTimer(st.timer);
+    // swipe between steps
+    const box = $("#stepbox");
+    let x0 = null, y0 = null;
+    box.addEventListener("touchstart", (e) => { const t = e.changedTouches[0]; x0 = t.clientX; y0 = t.clientY; }, { passive: true });
+    box.addEventListener("touchend", (e) => {
+      if (x0 == null) return; const t = e.changedTouches[0]; const dx = t.clientX - x0, dy = t.clientY - y0; x0 = null;
+      if (Math.abs(dx) > 70 && Math.abs(dy) < 45) { if (flow) flowSkip(dx < 0 ? 1 : -1); else if (dx < 0) next(); else back(); }
+    }, { passive: true });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (view !== "lesson") return;
+    if (e.key === "ArrowRight") { if (flow) flowSkip(1); else next(); }
+    else if (e.key === "ArrowLeft") { if (flow) flowSkip(-1); else back(); }
+    else if (e.key === " ") { e.preventDefault(); if (flow) flowToggle(); else toggleSay(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

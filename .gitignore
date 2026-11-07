@@ -5,3 +5,7 @@ JUCE/
 *.wav
 JUCE
 __pycache__/
+
+# Lessons: the built player, its voice and the voice cache (build_course.py)
+docs/course/site/
+docs/course/.voice-cache/
