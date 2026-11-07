@@ -81,7 +81,7 @@ class RigDiagram(Flowable):
         # Port notes under the side boxes
         for i, t in enumerate(("USB PORT A: DRUMS, CH 1-4", "USB PORT B: PITCHED, CH 1-7", "AND SF CONTROL, CH 16")):
             label(c, xo + bw / 2, yb - 12 - 8 * i, t, 5.8)
-        for i, t in enumerate(("USB PORT 2: REMOTE,", "INPUT AND OUTPUT", "PORTS 1 AND 3: OFF")):
+        for i, t in enumerate(("USB PORT 1: REMOTE,", "INPUT AND OUTPUT", "PORTS 2 AND 3: OFF")):
             label(c, xe + bw / 2, yb - 12 - 8 * i, t, 5.8)
         # Computer keys above Live
         yk = yl + hl + 18
@@ -497,8 +497,8 @@ story += bullets(["<b>Live is the clock master.</b> On the ONE: USB device mode,
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     ["ONE port A, in", "on", "off", "off"], ["ONE port B, in", "on", "off", "off"],
     ["ONE, out (the port it takes clock from)", "off", "on", "off"],
-    ["E16 Port 2, in", "off", "off", "on"], ["E16 Port 2, out", "off", "off", "on"],
-    ["E16 Ports 1 and 3, in and out", "off", "off", "off"]],
+    ["E16 Port 1, in", "off", "off", "on"], ["E16 Port 1, out", "off", "off", "on"],
+    ["E16 Ports 2 and 3, in and out", "off", "off", "off"]],
     [3.0 * inch, 0.9 * inch, 0.9 * inch, W - 4.8 * inch]))
 story.append(H2T("PROJECTS AND PATTERNS"))
 story += bullets(["<b>One ONE project per track</b> (per piece of music), with a pattern per section: SPARSE, MAIN, VARIATION, EXIT.",
@@ -553,7 +553,7 @@ story += numbered(["OXI App &gt; Scenes. If no computer folder is assigned yet, 
                    "Copy <b>SF SHOW.oxie16</b> (controllers/e16 in the repository) into the Scenes folder inside it and click Refresh Views.",
                    "Drag SF SHOW from On Computer onto a free slot under On Device. The presses come with it.",
                    "<b>Auto Transmit off</b>, for the scene and in the global settings: sending stored values on a page change would pull Live's faders to whatever the E16 last held. MIDI Thru off.",
-                   "In Live: E16 Port 2 Remote on, input and output; Ports 1 and 3 off (Port 1 is the OXI App's; a second Remote port would double every message, and a FREEZE would flip twice). Takeover Mode: Value Scaling."])
+                   "In Live: E16 Port 1 Remote on, input and output; Ports 2 and 3 off (Port 1 is the one the E16 sends on; a second Remote port could take a message twice, and a FREEZE would flip twice). Takeover Mode: Value Scaling."])
 story.append(H2T("CHECK IT ONCE"))
 story += numbered(["Every knob: turn it, the right parameter moves. Every press: the right switch.",
                    "Hold DROP, a THROW and ROLL for three seconds each: on for the whole hold, off on release. (A long press also opens the E16's own functions; if one interferes, make that press a toggle.)",
@@ -740,9 +740,9 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be SF KICK."],
     ["Pump early or late", "Live buffer 512 or less; the ONE's MIDI Clock Sync Delay; then POCKET OFFSET by ear."],
     ["Songs don't change", "PC ENABLE on, PC CHANNEL 16, sequencer 8 on 16B. The VST3 needs Live 12.2 or later; otherwise use the AU."],
-    ["E16 rings don't follow", "Remote on for E16 Port 2's output."],
+    ["E16 rings don't follow", "Remote on for E16 Port 1's output."],
     ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports."],
-    ["No green on a travelling knob", "SF CONTROL shows E16 RINGS PORT 3 in green? If not, the E16 isn't found: try PORT 2. Load SF SHOW from the repository again (the script is in it). Use the VST3s."],
+    ["No green on a travelling knob", "SF CONTROL shows E16 RINGS PORT 3 in green? If not, the E16 isn't found: try PORT 1. Load SF SHOW from the repository again (the script is in it). Use the VST3s."],
     ["Knob 1 swapped (green) changes nothing", "SLOW ALL isn't mapped in this set: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 and turn it. Cmd-M off, save."],
     ["Knob 1 moves LOW ENERGY and SLOW ALL together", "Its push was changed in the App: load SF SHOW.oxie16 again (knob 1's push must be Swap Destination)."],
     ["Every move glides (or none does)", "SLOW ALL is saved with the set: press knob 1 and set it. A plugin whose own SLOW isn't CONTROL keeps its own."],

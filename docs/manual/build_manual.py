@@ -194,7 +194,7 @@ lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Ma
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
 story.append(H2("THE E16"))
 story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's parameter panel (the triangle in its title bar), click the parameter there and turn the E16 knob. A parameter that isn't listed: Configure, touch it in the plugin window, Configure off.",
-                  "In Live's MIDI preferences turn <b>Remote</b> on for the E16's Port 2, input <i>and output</i>. Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
+                  "In Live's MIDI preferences turn <b>Remote</b> on for the E16's Port 1, input <i>and output</i> (Ports 2 and 3 off). Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
                   "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has a ready-made E16 scene for the show template, SF SHOW, and the show set with every address already mapped."])
 story.append(H2("SAMPLES"))
 story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the plugin window or click LOAD. The sample is analysed (root note, decay, onsets) and embedded in the Live set, so the set travels without the file."))
@@ -314,8 +314,8 @@ story += bullets(["KICK lane on C1: with KEY TRACK on, any other note transposes
 story.append(H2("CLOCK, MIDI AND LATENCY"))
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     ["ONE port A in", "on", "off", "off"], ["ONE port B in", "on", "off", "off"],
-    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 Port 2 in", "off", "off", "on"], ["E16 Port 2 out", "off", "off", "on"],
-    ["E16 Ports 1 and 3, in and out", "off", "off", "off"]],
+    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 Port 1 in", "off", "off", "on"], ["E16 Port 1 out", "off", "off", "on"],
+    ["E16 Ports 2 and 3, in and out", "off", "off", "off"]],
     [2.6 * inch, 0.9 * inch, 0.9 * inch, W - 4.4 * inch]))
 story.append(Spacer(1, 6))
 story += bullets(["Live is the clock master. On the ONE: USB device mode, sync from USB, Auto Sync on (it starts with Live), Start and Stop accepted, MIDI Thru off. Never send clock both ways.",
@@ -368,7 +368,7 @@ story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5
                   "<b>Mixer:</b> CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC volumes; channel 15: 100 LIVE BUS, 101 BRIDGE (102 kept for DECK). A parameter on two pages sends the same address from both: two ways to one mapping.",
                   "<b>Presses:</b> a hold is a CC, 127 on press and 0 on release, so the parameter is on while the knob is down. A toggle is a note: Live flips a switch on every Note On, so the E16 can never think FREEZE is on while Live has it off. SF SHOW sets every turn; until the OXI App's press format is known, the presses are added in the App (the README lists them), and again after loading a new scene file.",
                   "<b>On the E16:</b> Auto Transmit off, for the scene and globally (stored values sent on a page change would pull Live's faders to them), MIDI Thru off. Stay in SF SHOW for the whole show.",
-                  "<b>In Live:</b> E16 Port 2 Remote on, input and output; Ports 1 and 3 off (Port 1 is the OXI App's, and a second Remote port doubles every message: a toggle would flip twice). Takeover Mode: Value Scaling, so a knob that disagrees with Live after a recall moves the sound smoothly instead of jumping.",
+                  "<b>In Live:</b> E16 Port 1 Remote on, input and output; Ports 2 and 3 off (Port 1 is the one the E16 sends on, and a second Remote port could take a message twice: a toggle would flip twice). Takeover Mode: Value Scaling, so a knob that disagrees with Live after a recall moves the sound smoothly instead of jumping.",
                   "<b>Mapped once, kept:</b> MIDI mappings belong to the Live set. SF SHOW.als comes with every address mapped, every volume at Max 0 dB and DUB FEEDBACK at 0-70 %; save it as a template (File &gt; Save Live Set As Template) and new sets start mapped. In a set of your own, map once from the appendix and do the same.",
                   "<b>Map the E16 straight to the SF parameters, not through Instrument Rack macros.</b> A song recall changes the plugin's value underneath a macro: the macro doesn't follow, its ring shows the wrong value and the next turn jumps the sound back. Ranges go in Live's MIDI Mappings (Min and Max per mapping): give resonance and feedback the part of their travel that matters, and widen it when the music asks.",
                   "Check the shared knobs once: turn LOW ENERGY on page 2, go to page 1 and turn it a step. The sound must move a step, not jump back. If it jumps, the README's relative fallback fixes it.",
@@ -529,8 +529,8 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be an SF KICK (or use SF DUCK with SOURCE SIDECHAIN)."],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. The VST3 needs Live 12.2 or later; otherwise use the AU."],
-                    ["E16 rings don't follow", "Remote on for E16 Port 2's output in Live's MIDI preferences; map with Live's MIDI Map."],
-                    ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports, so the note arrives twice. Port 2 only."],
+                    ["E16 rings don't follow", "Remote on for E16 Port 1's output in Live's MIDI preferences; map with Live's MIDI Map."],
+                    ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports, so the note arrives twice. Port 1 only."],
                     ["An E16 knob jumps when touched", "A shared knob holding an old value: controllers/e16 README, check 2. Or Auto Transmit is on: off in the scene and globally."],
                     ["ALLOC does nothing", "ENABLE on, DEPTH above 0 on the band, the instruments' ALLOC toggles on. In DYNAMIC, the favoured source must be playing in that band."],
                     ["DECK row says MISSING", "The file moved. Drop it again."],

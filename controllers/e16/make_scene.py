@@ -66,7 +66,7 @@ REF_PUSH_NOTE = {"instrument": 127, "parameter": 0, "type": 1, "display": 0, "mo
                  "upper": 0, "nr1": 25, "nr2": 127, "output": 15, "scriptId": 0}      # output OFF there: ALL here
 REF_PUSH_SWAP = {"instrument": 127, "parameter": 0, "type": 9, "display": 0, "mode": 0, "channel": 0, "lower": 0,
                  "upper": 0, "nr1": 17, "nr2": 11, "output": 15, "scriptId": 0}     # nr1, nr2: what the App left there
-PAGE_OUTPUT = 0          # the App's default for a page ("ALL"): Live listens on E16 Port 2 only
+PAGE_OUTPUT = 0          # the App's default for a page ("ALL"): Live listens on E16 Port 1 only
 TITLE = "SF SHOW"
 
 # 16 x 16, one bit per pixel, two bytes per row, leftmost pixel in the top bit: a 4 x 4 grid of dots.

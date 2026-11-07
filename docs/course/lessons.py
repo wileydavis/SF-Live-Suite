@@ -75,10 +75,10 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       ["Turn on only what the table shows; everything else in the list off.", "Live may name the ONE's ports **1** and **2** instead of A and B. A third ONE port, if listed: off."],
       "Now the Link, Tempo and MIDI tab. The One shows up as two ports, A, and B; Live may call them one and two. Turn Track on "
       "for both of its inputs. On the One's first output port, A, or one, turn Sync on: that's how it follows Live's clock. For the E16, turn Remote "
-      "on for port two, input and output, and leave ports one and three off.",
+      "on for port one, input and output, and leave ports two and three off.",
       path=["Live", "Settings", "Link, Tempo & MIDI"],
       table=[["ONE port A (1), in", "Track **on**"], ["ONE port B (2), in", "Track **on**"], ["ONE port A (1), out", "Sync **on**"],
-             ["E16 Port 2, in and out", "Remote **on**"], ["E16 Ports 1 and 3", "all **off**"]],
+             ["E16 Port 1, in and out", "Remote **on**"], ["E16 Ports 2 and 3", "all **off**"]],
       why="A second Remote port would double every E16 message: a FREEZE press would flip twice. If the ONE doesn't follow Live later, put Sync on its other output port instead.", wait=12),
     S("LAPTOP", "Takeover: Value Scaling",
       ["Same tab: **Takeover Mode › Value Scaling**."],

@@ -67,12 +67,13 @@ and turn it, Cmd-M off, save.
 
 | PORT | TRACK | SYNC | REMOTE |
 |---|---|---|---|
-| OXI E16 Port 2, input | off | off | **on** |
-| OXI E16 Port 2, output | off | off | **on** |
-| OXI E16 Port 1 and Port 3, input and output | off | off | off |
+| OXI E16 Port 1, input | off | off | **on** |
+| OXI E16 Port 1, output | off | off | **on** |
+| OXI E16 Port 2 and Port 3, input and output | off | off | off |
 
-- Port 1 belongs to the OXI App. The E16 sends every message on all its ports, so a second port with
-  Remote on would double it: a FREEZE press would flip twice and do nothing.
+- Port 1 is the port the E16 sends its knobs and presses on. Remote on one E16 port only: a message
+  that reached Live on two Remote ports would be taken twice, and a FREEZE press would flip twice and
+  do nothing.
 - Remote on the **output** sends Live's values back: the rings follow song recalls, mouse moves and
   ALLOC slot changes, and the knobs hold the new values.
 - **Takeover Mode: Value Scaling.** A knob that disagrees with Live (after a song recall, say) moves
@@ -144,7 +145,7 @@ knob walking.
 - SF CONTROL's display shows **E16 RINGS PORT 3** in green once it has the port; **NO PORT 3** while
   the E16 isn't there (it looks again every 2 s).
 - Knob 1 is green both on SLOW ALL and while LOW ENERGY travels: a travelling ring moves.
-- No green: the plugins must come from the same build (SF CONTROL: BUS SHARED); try E16 RINGS PORT 2
+- No green: the plugins must come from the same build (SF CONTROL: BUS SHARED); try E16 RINGS PORT 1
   (Live's port: the SysEx goes in beside Live's feedback). An AU of SF LEAD, PERC or ENERGY (on
   several tracks in the scene) doesn't know its track name: use the VST3s.
 - Message format and timing: `Source/core/E16Glide.h`. Tests: `SFTests --rings` (the plugins and SF

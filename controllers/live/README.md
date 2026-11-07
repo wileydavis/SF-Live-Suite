@@ -55,8 +55,8 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 
 - Install the suite and turn VST3 on in Live (Settings > Plug-Ins > Use VST3 Plug-In System Folders).
   The set uses the VST3s: SF ALLOC lists its sources by track name only in VST3.
-- Live's MIDI ports as `controllers/e16/README.md`, step 3 (E16 Port 2 Remote, input and output;
-  Ports 1 and 3 off; Takeover Mode Value Scaling), and the ONE's ports as chapter 7, CLOCK, MIDI AND
+- Live's MIDI ports as `controllers/e16/README.md`, step 3 (E16 Port 1 Remote, input and output;
+  Ports 2 and 3 off; Takeover Mode Value Scaling), and the ONE's ports as chapter 7, CLOCK, MIDI AND
   LATENCY.
 
 ## 2. OPEN IT, THEN FINISH IT
