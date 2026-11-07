@@ -194,12 +194,14 @@ def cpp_turn(c):
 
 def cpp_press(p):
     """{ name, track, modules (with stand-ins), param, mode (1 hold, 2 toggle) }: a press that sends (a swap
-    sends nothing)."""
+    sends nothing). A Live mixer press (MUTE): no modules, param -1."""
     if p is None or p.mode == "SWAP":
         return "{ nullptr, nullptr, nullptr, -1, 0 }"
-    mods = "|".join([p.module] + L.alternates(p.module, p.pid))
-    return (f"{{ {cpp_str(p.name)}, {cpp_str(p.track)}, {cpp_str(mods)}, "
-            f"{L.module_params(p.module).index(p.pid)}, {1 if p.mode == 'HOLD' else 2} }}")
+    if p.module:
+        mods, param = "|".join([p.module] + L.alternates(p.module, p.pid)), L.module_params(p.module).index(p.pid)
+    else:
+        mods, param = "", -1
+    return f"{{ {cpp_str(p.name)}, {cpp_str(p.track)}, {cpp_str(mods)}, {param}, {1 if p.mode == 'HOLD' else 2} }}"
 
 
 def write_cpp_map(path):
@@ -224,7 +226,8 @@ def write_cpp_map(path):
             "// 1-8 the same on every page. A turn: its E16 abbreviation, its name, the Live track and the SF\n"
             "// plugins it lands on (several: stand-ins with the same parameter in the same place), the\n"
             "// parameter's index (-1: a Live mixer control), the ring's colour (0 white, 1 light blue, 2 green)\n"
-            "// and the top of Live's mapping. second: the turn its press swaps to; press: what the press sends.\n"
+            "// and the top of Live's mapping. second: the turn its press swaps to; press: what the press sends\n"
+            "// (param -1: a Live mixer control, a volume knob's MUTE).\n"
             "struct E16Turn { const char* abbr; const char* name; const char* track; const char* modules; int param, colour; float max; };\n"
             "struct E16Press { const char* name; const char* track; const char* modules; int param, mode; };\n"
             "struct E16Cell { E16Turn turn, second; E16Press press; };\n"

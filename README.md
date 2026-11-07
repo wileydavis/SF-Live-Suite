@@ -133,6 +133,11 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
 9. **A sample's part.** Drop a one-shot on SF KICK (MODEL: SAMPLE): its waveform appears under OUTPUT. Drag END in and turn FADE OUT up (the SAMPLE group): the kick gets shorter and ends without a click. On SF PAD's GRANULAR with a field recording, hold a chord and drag START: the texture wanders through the file.
 
+### Changes in the Nov 7 update
+
+- **E16 knobs 5-8: press to mute.** On every page, a press on KICK, LOW, DRUMS or MUSIC VOLUME mutes that track (Live's track activator); another press brings it back. Each sends a note, so Live flips the activator and the E16 never disagrees with it. SF SHOW.als comes with the four mapped; **load SF SHOW.oxie16 into the E16 again** (and in a set of your own, map the four: `controllers/e16`, README). A muted track's plugins keep running, as with its fader at zero: a muted KICK still drives the pockets and RUMBLE.
+- **SF SHOW.als rebuilt:** the mutes, and the samplers' START, END and fades in their devices.
+
 ### Changes in the third Nov 6 update
 
 - **START, END, FADE IN and FADE OUT on every sampler** (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE), in a new SAMPLE group (folded) and on the display: with a sample loaded its waveform appears under the display (VOICE: on the phrase), the part that plays bright, the fades as ramps, START and END as lines you drag. The fades run in the sample's own time (an octave up, twice as fast), and a cut inside the waveform always fades for at least 1 ms, so it never clicks. DECAY's gate on KICK and PERC measures the part, and KICK tells the pockets its shorter length. VOICE slices the part (AUTO from START; EQUAL 8 / 16 divide it). PAD's GRANULAR takes its grains from it, live.

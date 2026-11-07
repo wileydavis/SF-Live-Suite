@@ -15,7 +15,7 @@ mapped: `controllers/live`), save it as your template: nothing is remapped after
 
 ```
  1 LOW ENERGY      2 DRUMS ENERGY    3 MUSIC ENERGY    4 BUILD           press 1: SLOW ALL, press 4: DROP
- 5 KICK VOLUME     6 LOW VOLUME      7 DRUMS VOLUME    8 MUSIC VOLUME
+ 5 KICK VOLUME     6 LOW VOLUME      7 DRUMS VOLUME    8 MUSIC VOLUME    presses 5-8: MUTE
  9  ...           10  ...           11  ...           12  ...            rows 3 and 4: the page
 13  ...           14  ...           15  ...           16  ...
 ```
@@ -33,6 +33,15 @@ travelling keep the length they set off with. SF SHOW.als has it mapped; in a se
 saved before SLOW ALL existed), map it once: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 (green)
 and turn it, Cmd-M off, save.
 
+**Knobs 5-8: press to mute.** A press mutes the knob's track, on every page: 01 KICK, 10 LOW,
+20 DRUMS, 30 MUSIC (Live's track activator); another press brings it back. Each sends a note, so Live
+flips the activator on every press and the E16 never disagrees with it. A muted track's plugins keep
+running (Live mutes after them): muting KICK is its fader at zero, so the pockets and RUMBLE keep
+pumping to a kick you can't hear (to take the kick out of the groove, mute its lane on the ONE), and
+SF ALLOC still counts a muted track's sources. SF SHOW.als has the four mapped; in a set of your own
+(or one saved before the mutes existed), map each once: Cmd-M, click the track's activator (its
+number button), press the knob, Cmd-M off, save.
+
 ## ADDRESSES
 
 - **Channel = track.** 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB,
@@ -45,7 +54,9 @@ and turn it, Cmd-M off, save.
   GLUE, TONE, LOWEND and LIMIT. Channel 16: CONTROL 20 (MACRO 1-6 are
   20-25).
 - **Mixer:** CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC
-  volumes. Channel 15: 100 LIVE BUS, 101 BRIDGE (102 kept for DECK).
+  volumes. Channel 15: 100 LIVE BUS, 101 BRIDGE (102 kept for DECK). A volume knob's MUTE press is
+  the note with the volume's number: note 100 (E6) on channel 1 for KICK, notes 100-102 (E6, F6, F#6)
+  on channel 14 for LOW, DRUMS and MUSIC.
 - A parameter on two pages sends the same address from both. The plugins never reorder their
   parameters, so an address never moves.
 
@@ -90,7 +101,8 @@ SLOW ALL or the presses existed lacks those):
 2. Unfold every SF plugin's parameter panel (the triangle in its title bar). A parameter that isn't
    listed: Configure, touch it in the plugin window, Configure off.
 3. **Cmd-M.** Page by page on the E16: click the target in Live (`sf-show-map.csv` names it), turn
-   the knob. The top half and the PERFORM page's shared knobs need mapping only once.
+   the knob; for a press, click its target and press the knob (a MUTE's target is the track's
+   activator). The top half and the PERFORM page's shared knobs need mapping only once.
 4. In the Mapping Browser: every volume (faders and returns) **Max 0 dB**; DUB FEEDBACK 0-70 %.
 5. **Cmd-K** (Key Map): two computer keys, never E16 presses, because a knob is easily pressed while
    it is turned and neither of these may ever happen by accident.
@@ -109,6 +121,10 @@ from the App on 3 Nov): every press sends to Output ALL, like the turns. Nothing
 |---|---|---|---|---|
 | all 12 pages | 1 | SLOW ALL, swap | Swap Destination (sends nothing); Destination 2 = CC 34 ch 16 | 00 CONTROL > SF CONTROL > SLOW ALL |
 | all 12 pages | 4 | DROP, hold | CC 21 ch 15, Press & Release, P.Val 127, R.Val 0 | 90 LIVE BUS > SF BUILD > DROP |
+| all 12 pages | 5 | KICK MUTE, toggle | Note 100 (E6) ch 1, Press & Release, velocity 127 | 01 KICK > track activator |
+| all 12 pages | 6 | LOW MUTE, toggle | Note 100 (E6) ch 14, Press & Release, velocity 127 | 10 LOW > track activator |
+| all 12 pages | 7 | DRUMS MUTE, toggle | Note 101 (F6) ch 14, Press & Release, velocity 127 | 20 DRUMS > track activator |
+| all 12 pages | 8 | MUSIC MUTE, toggle | Note 102 (F#6) ch 14, Press & Release, velocity 127 | 30 MUSIC > track activator |
 | SPACE | 9 | DUB THROW, hold | CC 24 ch 12, Press & Release, P.Val 127, R.Val 0 | A DUB > SF DELAY > THROW |
 | SPACE | 10 | DUB FREEZE, toggle | Note 25 (C#0) ch 12, Press & Release, velocity 127 | A DUB > SF DELAY > FREEZE |
 | SPACE | 13 | SPACE THROW, hold | CC 26 ch 13, Press & Release, P.Val 127, R.Val 0 | B SPACE > SF REVERB > THROW |
@@ -117,9 +133,10 @@ from the App on 3 Nov): every press sends to Output ALL, like the turns. Nothing
 
 A hold press is a CC: 127 on press, 0 on release, and the parameter is on for as long as the knob is
 down. A toggle press is a note: Live flips the switch on every Note On, so the E16 can never think
-FREEZE is on while Live has it off. The swap sends nothing: it only chooses which destination knob 1
-turns. Every press here is one the set plays through if it happens by accident (a throw, a roll, a
-freeze, a drop, a flipped knob 1); what would stop the set is on a computer key.
+FREEZE is on, or a track muted, while Live has it otherwise. The swap sends nothing: it only chooses
+which destination knob 1 turns. Every press here is one the set plays through if it happens by
+accident (a throw, a roll, a freeze, a drop, one track muted, a flipped knob 1); what would stop the
+set is on a computer key (LIVE BUS has no MUTE).
 
 Never give an encoder a second destination without the Swap Destination press: it would send both on
 every turn. `make_scene.py` refuses to write one.
@@ -159,7 +176,7 @@ controls are SF REVERB's, in the same order, so the E16's SPACE page fits as it 
 2. Cmd-M, then on the E16's SPACE page: turn 13 SPC SIZE, 14 SPC DCY, 15 SPC DARK, 16 SPC DUCK, and
    press 13 (THROW) and 14 (FREEZE), each with its SF TERROIR control clicked. Cmd-M off, save.
 3. `python3 controllers/live/check_set.py "My Show.als"` counts SF TERROIR wherever the scene has
-   SF REVERB: 108 of 108 again. GLIDE RINGS find it too.
+   SF REVERB: 112 of 112 again. GLIDE RINGS find it too.
 
 ## 6. CHECKS
 

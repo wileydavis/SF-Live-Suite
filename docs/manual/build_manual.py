@@ -328,7 +328,8 @@ story.append(P("One E16 scene runs the whole rig: <b>SF SHOW</b>, in the reposit
 PRESS_DOES = {"SLOW ALL": "a quick press flips the knob to SLOW ALL on SF CONTROL (green ring): how long your next moves take, OFF to 128 BAR; another press flips it back",
               "DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "PANIC": "every SF plugin silent while held",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
-              "ROLL": "the drums roll while held"}
+              "ROLL": "the drums roll while held",
+              "MUTE": "mutes the knob's track (Live's track activator) until pressed again"}
 def press_text(p, full=True):
     kind = p.mode.lower()
     return f"{p.name} ({kind})" + (f": {PRESS_DOES[p.name]}" if full else "")
@@ -345,7 +346,12 @@ for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND",
     cells[i] = (name, f"PRESS: {pr.short()}" if pr else ("THE PLUGIN'S OWN" if quiet else ""),
                 CYAN if name == "LEVEL" else INK, bool(quiet))
 story.append(Spacer(1, 2)); story.append(E16Grid(cells)); story.append(Spacer(1, 8))
-story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(press_text(pr))}." for i, pr in sorted(E16.PRESSES_ALL.items())]
+mutes = [i for i, pr in sorted(E16.PRESSES_ALL.items()) if pr.name == "MUTE"]
+story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(press_text(pr))}." for i, pr in sorted(E16.PRESSES_ALL.items()) if pr.name != "MUTE"]
+                 + ([f"<b>Presses {mutes[0]}-{mutes[-1]}: MUTE (toggle)</b>, on every page: the knob's track goes silent, "
+                     + ", ".join(E16.PRESSES_ALL[i].track for i in mutes) + " (Live's track activator); press again, it is back. "
+                     "Live mutes after a track's plugins, so they keep running: a muted KICK is its fader at zero, the pockets and RUMBLE pump to a kick you can't hear "
+                     "(mute its lane on the ONE to take it out of the groove), and SF ALLOC still counts a muted track's sources."] if mutes else [])
                  + ["<b>PANIC and 92 PA's on/off are on computer keys</b> (Key Map, Cmd-K), never on a press: a knob is easily pressed while it is turned, and neither may ever happen by accident. A key flips them: PANIC on, every SF plugin silent; again, back. Every press on the E16 is one the set plays through if it happens by accident."])
 story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
                   "Each instrument's LEVEL belongs to its song; the volumes here are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix, and give every volume mapping a maximum of 0 dB (Max in Live's MIDI Mappings).",
