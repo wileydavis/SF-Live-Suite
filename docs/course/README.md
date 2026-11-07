@@ -6,7 +6,7 @@ laptop while your hands are on Live, the OXI One and the E16, with a spoken guid
 
 | LESSON | WHAT YOU DO |
 |---|---|
-| 1 SET UP | Live's settings, SF SHOW saved as your set, MIDI From on every track, the E16 scene, the ONE on Live's clock. Once only. |
+| 1 SET UP | Live's settings, SF SHOW saved as your set (MIDI From already in it), the E16 scene, the ONE on Live's clock and tempo. Once only. |
 | 2 THE KICK | An empty ONE project, four kicks on lane 1, the KICK page; SONG 01 stored. |
 | 3 THE LOW END | RUMBLE under the kick; LOW ENERGY and the volumes on rows 1-2. |
 | 4 THE DRUMS | Closed, open and clap lanes; DENSITY turns eighths into sixteenths. |

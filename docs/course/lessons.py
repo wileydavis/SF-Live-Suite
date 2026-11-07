@@ -38,18 +38,18 @@ L4_CLAP = (4, "4 CLAP", BACKBEAT)
 ACID_LINE = [(1, "C", [1, 3, 6, 9, 11, 14]), (4, "D#", [4, 12]), (8, "G", [7, 15])]
 
 MIDI_FROM = [
-    ["00 CONTROL", "port B · ch 16"],
-    ["01 KICK", "port A · ch 1"],
-    ["21 CLOSED", "port A · ch 2"],
-    ["22 OPEN", "port A · ch 3"],
-    ["23 CLAP", "port A · ch 4"],
-    ["11 BASS", "port B · ch 1"],
-    ["31 ACID", "port B · ch 2"],
-    ["32 STAB", "port B · ch 3"],
-    ["33 TEXTURE", "port B · ch 4"],
-    ["34 VOICE", "port B · ch 5"],
-    ["24 STRIKE", "port B · ch 6"],
-    ["41 DECK", "port B · ch 7 (optional)"],
+    ["00 CONTROL", "Port 2 (B) · ch 16"],
+    ["01 KICK", "Port 1 (A) · ch 1"],
+    ["21 CLOSED", "Port 1 (A) · ch 2"],
+    ["22 OPEN", "Port 1 (A) · ch 3"],
+    ["23 CLAP", "Port 1 (A) · ch 4"],
+    ["11 BASS", "Port 2 (B) · ch 1"],
+    ["31 ACID", "Port 2 (B) · ch 2"],
+    ["32 STAB", "Port 2 (B) · ch 3"],
+    ["33 TEXTURE", "Port 2 (B) · ch 4"],
+    ["34 VOICE", "Port 2 (B) · ch 5"],
+    ["24 STRIKE", "Port 2 (B) · ch 6"],
+    ["41 DECK", "Port 2 (B) · ch 7"],
 ]
 
 STORE = ["00 CONTROL", "SF CONTROL", param("CONTROL", "store_all")]
@@ -72,14 +72,14 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       path=["Live", "Settings", "Audio"],
       why="Pocket, the ducking that keeps every part out of the kick's way, needs a buffer of 512 or less.", wait=8),
     S("LAPTOP", "MIDI ports",
-      ["Turn on only what the table shows; everything else in the list off.", "Live may name the ONE's ports **1** and **2** instead of A and B. A third ONE port, if listed: off."],
-      "Now the Link, Tempo and MIDI tab. The One shows up as two ports, A, and B; Live may call them one and two. Turn Track on "
-      "for both of its inputs. On the One's first output port, A, or one, turn Sync on: that's how it follows Live's clock. For the E16, turn Remote "
-      "on for port one, input and output, and leave ports two and three off.",
+      ["Turn on only what the table shows; everything else in the list off.", "Live calls the ONE's ports **OXI ONE MKII (Port 1)** and **(Port 2)**: the ONE's A and B."],
+      "Now the Link, Tempo and MIDI tab. The One shows up as two ports, Port 1 and Port 2: on the One they're A, and B. Turn Track on "
+      "for both of its inputs. On Port 1's output, turn Sync on, and on nothing else: that's the clock the One follows. For the E16, turn Remote "
+      "on for its Port 1, input and output, and leave its ports two and three off.",
       path=["Live", "Settings", "Link, Tempo & MIDI"],
-      table=[["ONE port A (1), in", "Track **on**"], ["ONE port B (2), in", "Track **on**"], ["ONE port A (1), out", "Sync **on**"],
-             ["E16 Port 1, in and out", "Remote **on**"], ["E16 Ports 2 and 3", "all **off**"]],
-      why="A second Remote port would double every E16 message: a FREEZE press would flip twice. If the ONE doesn't follow Live later, put Sync on its other output port instead.", wait=12),
+      table=[["OXI ONE MKII (Port 1), in", "Track **on**"], ["OXI ONE MKII (Port 2), in", "Track **on**"], ["OXI ONE MKII (Port 1), out", "Sync **on**"],
+             ["OXI E16 (Port 1), in and out", "Remote **on**"], ["Every other port", "all **off**"]],
+      why="Sync on one port only: two clocks confuse the ONE. A second Remote port would double every E16 message: a FREEZE press would flip twice.", wait=12),
     S("LAPTOP", "Takeover: Value Scaling",
       ["Same tab: **Takeover Mode › Value Scaling**."],
       "Same tab, further down: set Takeover Mode to Value Scaling. When a song changes, the knobs and Live disagree for a moment. "
@@ -87,36 +87,38 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       path=["Link, Tempo & MIDI", "Takeover Mode", "Value Scaling"], wait=5),
     S("LAPTOP", "Open SF SHOW, keep it as yours",
       ["Open **SF SHOW.als** from the repository: controllers/live.", "**File › Save Live Set As…** into a folder of your own. Name it **FIRST SET**."],
-      "Open SF SHOW from the repository's controllers, live folder. Every track, every plugin, the routing and all the E16 "
-      "mappings are already in it. Save it straight away under a new name, First Set, in a folder of your own. "
-      "The songs you're about to build are stored inside this set.",
-      why="Every track, plugin, route and E16 mapping is already in it. Your songs will live in this set.", wait=8),
+      "Open SF SHOW from the repository's controllers, live folder. Every track, every plugin, the routing, which track listens "
+      "to which part of the One, and all the E16 mappings are already in it. Save it straight away under a new name, First Set, "
+      "in a folder of your own. The songs you're about to build are stored inside this set.",
+      why="Every track, plugin, route, MIDI From and E16 mapping is already in it. Your songs will live in this set.", wait=8),
     S("LAPTOP", "Two options",
       ["**Delay Compensation**: on.", "**Reduced Latency When Monitoring**: off."],
       "In Live's Options menu: Delay Compensation on, and Reduced Latency When Monitoring off.",
       path=["Live", "Options"], wait=5),
     S("LAPTOP", "Where you hear it",
-      ["Track **92 PA**: **Audio To** = the outputs your speakers or headphones are on (1/2 in the set).",
-       "**Main** goes to a pair that goes nowhere (5/6). That's on purpose."],
-      "Find track ninety-two, PA, near the right. That's what you hear: set its Audio To to the outputs your speakers or "
-      "headphones are on. The Main track goes to a pair that goes nowhere, and that's on purpose. Ninety-two PA carries the "
-      "set to the speakers, so a room correction at a venue never ends up in your recording.",
-      why="92 PA carries the set to the speakers; a venue's correction goes there, never into the recording.", wait=8),
+      ["Track **92 PA** takes the **Main** after its fader, through **SF ROOM EQ** and a safety **SF LIMIT**, out on **1/2**. Speakers or headphones on another pair: set its **Audio To** there.",
+       "Keep **92 PA**'s fader at **0 dB**. **Main** goes to a pair that goes nowhere (5/6): on purpose."],
+      "Find track ninety-two, PA, near the right. That's what you hear. It takes the Main after its fader, through the room "
+      "correction and a safety limiter, out on outputs one and two. If your speakers or headphones are on another pair, set its "
+      "Audio To there. Leave its fader at zero. The Main itself goes to a pair that goes nowhere, and that's on purpose: "
+      "ninety-two PA carries the set to the speakers, and ninety-three, REC, records the same signal without the room correction.",
+      why="A venue's correction goes on 92 PA, never into the recording. Its limiter never touches the set: it only catches what the correction pushes past -0.5 dB.", wait=8),
     S("LAPTOP", "Each track listens to its part",
-      ["Every instrument track opens on **No Input**. On each, set **MIDI From** to the ONE's port, then the channel:",
+      ["**MIDI From** is already set on every instrument track: the ONE's port, then the channel. Check a few against the table.",
+       "A port shown as missing: your Live names the ONE differently. Set that track from the table.",
        "**12 RUMBLE** stays on No Input: it follows the kick. Never **All Ins**: every instrument would play every part."],
-      "Now the important one. Every instrument track opens on No Input, so it plays nothing until you tell it where to listen. "
-      "Go down the list on screen. On each track, set MIDI From to the One's port, then the channel underneath. "
-      "The drums are on port A, channels one to four. Everything pitched, and SF Control, is on port B. "
-      "Rumble stays on No Input: it follows the kick by itself. And never All Ins, or every instrument plays every part.",
-      table=MIDI_FROM, wait=30),
-    S("LAPTOP", "Two keys for emergencies",
-      ["**Cmd-K**. On **00 CONTROL**, SF CONTROL's parameters already show in Live's device view: click **PANIC**, press a key.",
-       "Click **92 PA**'s activator, press another key. **Cmd-K** again."],
-      "Two things in this rig must never happen by accident, so they go on computer keys, not on the E16. Press Command K. "
-      "On the control track, SF Control's parameters already show in Live's device view: click Panic, and press a key you can find "
-      "in the dark. Then click track ninety-two's activator, its on and off switch, and press another key. Command K again to finish.",
-      why="PANIC silences every SF plugin; 92 PA's key silences the speakers while the recording goes on. Neither belongs on a knob you might press by accident.", wait=15),
+      "Every instrument track already listens to its own part of the One: MIDI From is the One's port, and the channel "
+      "underneath. Check a few against the table on screen. The drums are on Port 1, channels one to four. Everything pitched, "
+      "and SF Control, is on Port 2. If a track shows its port as missing, your Live names the One differently: set that track "
+      "from the table. Rumble stays on No Input: it follows the kick by itself. And never All Ins, or every instrument plays every part.",
+      table=MIDI_FROM, wait=15),
+    S("LAPTOP", "The emergency stop",
+      ["The interface's output knob (the Babyface's big knob) is the PA's volume, and the emergency stop.",
+       "Turn it down: the room goes quiet, the recording carries on. Nothing in Live or on the E16 stops the set."],
+      "One thing to know before any sound. The PA's volume, and the emergency stop, is the output knob on the audio interface: "
+      "the Babyface's big knob. Turn it down and the room goes quiet, while the recording carries on. Nothing in Live, and "
+      "nothing on the E16, stops the set: a knob you press by accident can only do something the set plays through.",
+      why="Feedback running away, a stuck note: the knob first, then find the cause.", wait=5),
     S("E16", "Load the scene",
       ["**OXI App › Scenes**: copy **SF SHOW.oxie16** (controllers/e16) into the Scenes folder, then **Refresh Views**.",
        "Drag **SF SHOW** from On Computer onto one of the first seven slots under On Device (S.1 to S.7).",
@@ -135,12 +137,16 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       "Shift and one: back to Perform. The top two rows stay the same on every page.",
       e16=e16("PERFORM", foot="PAGES: HOLD SHIFT (THE O), TAP KNOB 1-12"), wait=10),
     S("ONE", "Follow Live's clock",
-      ["ONE stopped: **Shift + Stop** until the screen shows **USB**.",
-       "**Shift + Back** opens the config: **MIDI › Start Stop Msgs Ignore: No**; **Performance › Auto Sync: On**. Hold **Shift + Back** to save it."],
-      "Now the One. While it's stopped, hold Shift and press Stop, and keep pressing until the sync mode shows USB. Then hold "
-      "Shift and press Back for the config: in MIDI, set Start Stop Messages Ignore to No; in Performance, set Auto Sync on. "
-      "Hold Shift and Back to save the config. Now press play in Live: the One starts with it. Stop Live, and it stops.",
-      why="Live is the clock master; the ONE follows and never sends clock back. After a power-on, check the sync mode still shows USB.", wait=20),
+      ["ONE stopped: **Shift + Stop** until the header shows **USB**, not INT.",
+       "**Shift + Back** opens the config: **MIDI › Start Stop Msgs Ignore: No**, **MIDI › MIDI Transport Msgs Send: Off**; **Performance › Auto Sync: On**. Hold **Shift + Back** to save it.",
+       "Start and stop from **Live**, never the ONE's Play: Live sends its clock only while it plays.",
+       "**Check:** play in Live, change Live's tempo: the ONE's tempo follows. Stop Live: the ONE stops."],
+      "Now the One. While it's stopped, hold Shift and press Stop, and keep pressing until the header shows USB. If it shows "
+      "I.N.T., that's the One's own clock. Then hold Shift and press Back for the config: in MIDI, set Start Stop Messages Ignore "
+      "to No, and MIDI Transport Messages Send to Off; in Performance, set Auto Sync on. Hold Shift and Back to save the config. "
+      "From now on, start and stop everything from Live, never with the One's own Play button: Live sends its clock only while it "
+      "plays. Press play in Live: the One starts with it. Change Live's tempo: the One follows. Stop Live, and it stops.",
+      why="Started from its own Play, the ONE runs at its own tempo. Not following Live: the header must show USB; Sync on OXI ONE MKII (Port 1)'s output only; hold Shift + Back for 2 s for the ONE's MIDI monitor: the clock arrives while Live plays. Still not: Sync on Port 2's output instead, never both.", wait=25),
     S("LAPTOP", "Check the bus",
       ["Open **SF CONTROL**'s window: track **00 CONTROL**, the wrench on the device.",
        "**BUS SHARED** shows green: every SF plugin hears the others.", "**KICK REPORTING** turns green once the kick plays: next lesson."],
@@ -150,9 +156,9 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
     S("LAPTOP", "Save",
       ["**Cmd-S**."],
       "Save the set: Command S. That's the rig set up. From here on you only play it.",
-      done="Live plays and the ONE follows; the E16 changes pages; every instrument track listens to its own channel.", wait=3),
-], ["Live at 48 kHz, buffer 256, Takeover: Value Scaling", "FIRST SET saved from SF SHOW", "MIDI From set on every instrument track",
-    "PANIC and 92 PA on computer keys", "SF SHOW on the E16, Auto Transmit off", "The ONE starts and stops with Live"],
+      done="Live plays and the ONE follows its tempo; the E16 changes pages; every instrument track listens to its own channel.", wait=3),
+], ["Live at 48 kHz, buffer 256, Takeover: Value Scaling", "FIRST SET saved from SF SHOW", "MIDI From checked on the instrument tracks",
+    "The interface's knob: the PA's volume and its stop", "SF SHOW on the E16, Auto Transmit off", "The ONE starts, stops and changes tempo with Live"],
     "The rig is set. Next, the first sound.")
 
 # ====================================================================================== 2
@@ -534,10 +540,11 @@ L6 = L(6, "THE SECTIONS", "SPARSE, MAIN, VARIATION, EXIT on the ONE, and the Pro
       one=one(BASS, [(1, "C", [])], right="SLOT 4 · EXIT"), wait=15),
     S("ONE", "Sequencer 8 calls the song",
       ["**Load**, **Shift + tap** column **1**.",
-       "**Shift + Seq 8**: **Knob 1** Ch **16B**, **Knob 2** Out **USB**, **Knob 3** PC **1**. Press Knobs 1 and 3 to confirm. No notes.",
+       "**Shift + Seq 8**: **Knob 4** Mode **MONO** first, then **Knob 1** Ch **16B**, **Knob 2** Out **USB**, **Knob 3** PC **1**. Press each knob that shows a *. No notes.",
        "**Seq 8**, **Save**, double-tap slot **1** on its row (the bottom row)."],
-      "Back to sparse: Load, Shift and tap column one. Now hold Shift and press sequencer eight. Knob one, the channel: sixteen B. "
-      "Knob two, the output: USB. Knob three, the Program Change: one. Press knobs one and three to confirm. Sequencer eight plays "
+      "Back to sparse: Load, Shift and tap column one. Now hold Shift and press sequencer eight. Knob four first, the mode: Mono. "
+      "Then knob one, the channel: sixteen B. Knob two, the output: USB. Knob three, the Program Change: one. Press each knob "
+      "that shows a star. Sequencer eight plays "
       "no notes; it only calls the song. Save it: press sequencer eight, then Save, and double-tap slot one on its row, the bottom one.",
       one=slots(SAVEV, [(8, [1])], right="PC 1 · CH 16B"),
       why="Slot 1 carries the call. A call for the song that's already playing changes nothing, so your live moves stay where they are.", wait=20),

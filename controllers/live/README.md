@@ -1,14 +1,15 @@
 # SF SHOW.als: the show set, built
 
-The Live set of the manual's chapter 7, ready to open: every track, group and return, every SF plugin
-in place with its starting settings, the routing, and every address of the E16 scene SF SHOW
-already mapped. Open it, finish it in five steps (section 2), save it as your template.
+The Live set of the manual's chapter 7, ready to play: every track, group and return, every SF plugin
+in place with its starting settings, the routing, every instrument's MIDI From on its OXI One port and
+channel, and every address of the E16 scene SF SHOW already mapped. Live's own settings (section 1)
+are set once per computer; then open it and play.
 
 | FILE | WHAT |
 |---|---|
 | `SF SHOW.als` | The set. Live 12.1 format: opens in Live 12.1 and later (VST3 song recall needs 12.2). |
 | `make_set.py` | Builds it from the track list in the script, `controllers/e16/layout.py` and the plugins' own code. |
-| `check_set.py` | Checks any Live set's mappings against the E16 scene: what is missing, on the wrong target or the wrong range, and which keys PANIC and 92 PA are on. Reads the set, never writes it. |
+| `check_set.py` | Checks any Live set's mappings against the E16 scene: what is missing, on the wrong target or the wrong range, and any computer keys mapped. Reads the set, never writes it. |
 
 ## IN THE SET
 
@@ -32,8 +33,8 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 | 40 BRIDGE | your audio clips | No Input, Monitor Off | Main |
 | 41 DECK | SF DECK | MIDI, Monitor In | Main |
 | 90 LIVE BUS | SF ISOLATOR > BUILD > GLUE > TONE > LOWEND; SF ALLOC, ENABLE off | No Input, Monitor In, sends disabled | Main |
-| 92 PA | SF ROOM EQ | Resampling, Monitor In, sends disabled | Ext. Out 1/2 |
-| 93 REC | none | Resampling, Monitor Off, sends disabled | Sends Only |
+| 92 PA | SF ROOM EQ > SF LIMIT (safety: CEILING -0.5 dB, CLIP 0 %, AUTO off) | Main, Post Mixer; Monitor In, sends disabled | Ext. Out 1/2 |
+| 93 REC | none | Main, Post Mixer; Monitor Off, sends disabled | Sends Only |
 | 94 ROOM | SF CAPTURE | Ext. In 1/2 (the room mics, a stereo pair), Monitor In, sends disabled | Ext. Out 3/4 |
 | A DUB (return) | SF DELAY, DRY off | | 90 LIVE BUS |
 | B SPACE (return) | SF REVERB, DRY off | | 90 LIVE BUS |
@@ -44,27 +45,54 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
 - **E16:** every address in `controllers/e16/sf-show-map.csv` is mapped, the presses and knob 1's
   second destination (SLOW ALL on SF CONTROL) included; the E16 scene carries them all. Every volume has
   Max 0 dB; DUB FEEDBACK is mapped 0-70 %.
-- Every MIDI track starts on MIDI From No Input, so nothing plays until section 2 points it at its
-  part. Cue Out 3/4. Tempo 120, 4/4, eight empty scenes. Colours: groups white, instruments light
-  grey, the rest grey; red is 92 PA, dark red 93 REC and 94 ROOM.
-- **94 ROOM** is the room mics. Armed, it records them with the set, for the mix. Its SF CAPTURE never
-  passes them (the set never hears the mics); for SF TERROIR it plays the sweep to a speaker on the
-  headphone out and records the place (the operator's manual, chapter 8, CAPTURING THE ROOM).
+- Every instrument listens to one OXI One port and channel (section 2's table), never All Ins. 12
+  RUMBLE has no MIDI: it follows the kick. Cue Out 3/4. Tempo 120, 4/4, eight empty scenes. Colours:
+  groups white, instruments light grey, the rest grey; red is 92 PA, dark red 93 REC and 94 ROOM.
+
+### WHERE THE SOUND GOES
+
+Every part reaches **90 LIVE BUS** (the kick and the returns directly, the rest through their group),
+the bus goes to the **Main**, and so do 40 BRIDGE and 41 DECK. The Main is the set: SF LIMIT holds it
+at -1 dBTP, and its own output goes nowhere (5/6). Two tracks take the Main after its fader:
+
+- **92 PA** adds the venue's correction (SF ROOM EQ) and a safety limiter that never touches the set
+  (its peaks are already at -1 dBTP; it only catches what the EQ's phase pushes past -0.5 dB), and
+  feeds the speakers on 1/2. Keep its fader at 0 dB: the PA's level, and the way to silence the room
+  in an emergency, is the interface's output knob. The recording carries on regardless.
+- **93 REC** records the set without the venue's correction.
+
+Don't send 90 LIVE BUS to 92 PA instead: BRIDGE, DECK and SF LIMIT would be left out of the PA, and
+93 REC would record only BRIDGE and DECK.
+
+**94 ROOM** is the room mics. Armed, it records them with the set, for the mix. Its SF CAPTURE never
+passes them (the set never hears the mics); for SF TERROIR it plays the sweep to a speaker on the
+headphone out and records the place (the operator's manual, chapter 8, CAPTURING THE ROOM).
 
 ## 1. BEFORE OPENING
 
 - Install the suite and turn VST3 on in Live (Settings > Plug-Ins > Use VST3 Plug-In System Folders).
   The set uses the VST3s: SF ALLOC lists its sources by track name only in VST3.
-- Live's MIDI ports as `controllers/e16/README.md`, step 3 (E16 Port 1 Remote, input and output;
-  Ports 2 and 3 off; Takeover Mode Value Scaling), and the ONE's ports as chapter 7, CLOCK, MIDI AND
-  LATENCY.
+- Live's MIDI ports (Settings > Link, Tempo & MIDI), once per computer:
 
-## 2. OPEN IT, THEN FINISH IT
+  | PORT | TRACK | SYNC | REMOTE |
+  |---|---|---|---|
+  | OXI ONE MKII (Port 1), input | **on** | off | off |
+  | OXI ONE MKII (Port 2), input | **on** | off | off |
+  | OXI ONE MKII (Port 1), output | off | **on** | off |
+  | OXI E16 (Port 1), input and output | off | off | **on** |
+  | every other port | off | off | off |
 
-Live names MIDI ports and audio inputs and outputs after your devices, so the first two belong to your rig:
+  Takeover Mode: **Value Scaling**. Audio: 48 kHz, buffer 256.
+- Live's preferences live outside any set: nothing in this file can set them.
+- The OXI One's own setup (sync, its config, the startup project): `controllers/oxi-one`. Live sends
+  its clock only while it plays: start and stop from Live.
 
-1. **MIDI From** on twelve tracks. Each is No Input until you set it: an instrument plays nothing
-   until then, and never All Ins (every instrument would play every part).
+## 2. OPEN IT
+
+1. **MIDI From** is set on twelve tracks, under the names Live gives the OXI One MkII's USB ports on a
+   Mac: **OXI ONE MKII (Port 1)** is the ONE's port A, **(Port 2)** its port B. If your Live lists the
+   ONE under another name, its tracks show the port as missing: set each by this table. Never All Ins
+   (every instrument would play every part).
 
    | TRACK | MIDI FROM |
    |---|---|
@@ -81,17 +109,15 @@ Live names MIDI ports and audio inputs and outputs after your devices, so the fi
    | 34 VOICE | ONE port B, ch 5 |
    | 41 DECK | ONE port B, ch 7 (hot cues; optional) |
 
-2. **Inputs and outputs.** 92 PA to the pair that feeds the PA (the set has 1/2). Cue Out, on the
+2. **Inputs and outputs**, set for an interface with the PA on 1/2 and headphones on 3/4 (a Babyface:
+   its main outs and its phones). 92 PA to the pair that feeds the PA (the set has 1/2). Cue Out, on the
    Main track, to the headphones (3/4; Live cues only when it differs from Main's), and 94 ROOM there
    too. Main to a pair that goes nowhere (5/6: on an interface without it, Main stays silent). Check
    all three before any sound reaches a PA: the PA pair must carry 92 PA and nothing else. The room
    mics on inputs 1 and 2 (1: the mic on your left as you face the speaker); in Settings > Audio >
    Input Config, 1/2 as a stereo pair, or 94 ROOM has no input.
-3. **Cmd-K**, two computer keys, never E16 presses: **PANIC** (SF CONTROL on 00 CONTROL; press,
-   every SF plugin silent; again, back) and **92 PA**'s activator (press, the speakers off and REC
-   still recording; again, on).
-4. **Options:** Delay Compensation on; Reduced Latency When Monitoring off.
-5. **Save:** File > Save Live Set As Template, or Save Live Set As into your show folder. The set
+3. **Options:** Delay Compensation on; Reduced Latency When Monitoring off.
+4. **Save:** File > Save Live Set As Template, or Save Live Set As into your show folder. The set
    came from a script; from this save on it is one Live wrote.
 
 For DECK's headphone cue, add an audio track: Audio From 41 DECK, CUE; out to the headphones.
@@ -118,7 +144,7 @@ python3 controllers/live/check_set.py "My Show.als"
 ```
 
 It lists every E16 address that is missing or on the wrong target, with where it sits on the E16, and
-the keys on PANIC and 92 PA. Map what it lists (Cmd-M: click the target, turn or press the knob), save,
+any computer keys mapped. Map what it lists (Cmd-M: click the target, turn or press the knob), save,
 run it again. It finds targets by the template's track names and plugin names, VST3 or AU.
 
 ## SF TERROIR
@@ -141,7 +167,7 @@ python3 controllers/live/make_set.py --base EMPTY.als [--out PATH]
   build-test`): each plugin's starting state is written by the plugin's own code and loaded back
   before it goes in the set.
 - Rebuild after a change to the track list (SHOW in the script), `controllers/e16/layout.py` or a
-  plugin's parameters. A rebuild is a new set: section 2 again.
+  plugin's parameters. A rebuild is a new set: songs stored in your own copy stay there.
 - Before writing, the script checks what Live enforces without saying: unique ids, all below
   NextPointeeId; one clip slot per scene; every group and every routed-to track present; no address
   mapped twice. The same input always gives the same file.

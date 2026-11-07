@@ -40,39 +40,41 @@ WHITE, LIGHT, GREY, DARK, BLACK, RED, DARK_RED = 13, 27, 41, 55, 69, 14, 58
 
 # kind: midi | audio | group | return. out: "main", "group", "pa" (PA_OUT), "none" (Sends Only) or a track name
 # (its Track In). monitor: in | auto | off. devices: (SF module, {parameter id: value}) in chain order.
-# midi: the MIDI From to set by hand (Live names a MIDI port after the device, so the set can't know it);
-# every MIDI track starts on No Input.
+# midi: the MIDI From, (ONE port, channel): set in the set, under the names Live gives the OXI One MkII's
+# two USB ports on a Mac (ONE_PORTS). A MIDI track without one (12 RUMBLE) stays on No Input.
 SHOW = [
-    dict(name="00 CONTROL", kind="midi", colour=BLACK, devices=[("CONTROL", {})], midi="ONE port B, ch 16"),
-    dict(name="01 KICK", kind="midi", colour=LIGHT, out="90 LIVE BUS", devices=[("KICK", {})], midi="ONE port A, ch 1"),
+    dict(name="00 CONTROL", kind="midi", colour=BLACK, devices=[("CONTROL", {})], midi=("B", 16)),
+    dict(name="01 KICK", kind="midi", colour=LIGHT, out="90 LIVE BUS", devices=[("KICK", {})], midi=("A", 1)),
     dict(name="10 LOW", kind="group", colour=WHITE, out="90 LIVE BUS", devices=[("ENERGY", {"profile": "BASS"})]),
-    dict(name="11 BASS", kind="midi", group="10 LOW", colour=LIGHT, devices=[("BASS", {})], midi="ONE port B, ch 1"),
+    dict(name="11 BASS", kind="midi", group="10 LOW", colour=LIGHT, devices=[("BASS", {})], midi=("B", 1)),
     dict(name="12 RUMBLE", kind="midi", group="10 LOW", colour=LIGHT, devices=[("RUMBLE", {"source": "KICK BUS"})],
-         midi="none: it follows the kick"),
+         midi=None),                         # it follows the kick
     dict(name="20 DRUMS", kind="group", colour=WHITE, out="90 LIVE BUS",
          devices=[("ENERGY", {"profile": "DRUMS"}), ("REPEAT", {})]),
     dict(name="21 CLOSED", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("PERC", {"model": "HAT 909-TYPE"})],
-         midi="ONE port A, ch 2"),
+         midi=("A", 2)),
     dict(name="22 OPEN", kind="midi", group="20 DRUMS", colour=LIGHT,
-         devices=[("PERC", {"model": "HAT 909-TYPE", "decay": "0.8"})], midi="ONE port A, ch 3"),
+         devices=[("PERC", {"model": "HAT 909-TYPE", "decay": "0.8"})], midi=("A", 3)),
     dict(name="23 CLAP", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("PERC", {"model": "CLAP"})],
-         midi="ONE port A, ch 4"),
-    dict(name="24 STRIKE", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("STRIKE", {})], midi="ONE port B, ch 6"),
+         midi=("A", 4)),
+    dict(name="24 STRIKE", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("STRIKE", {})], midi=("B", 6)),
     dict(name="30 MUSIC", kind="group", colour=WHITE, out="90 LIVE BUS", devices=[("ENERGY", {"profile": "MUSIC"})]),
     dict(name="31 ACID", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("LEAD", {"model": "ACID 303-TYPE"})],
-         midi="ONE port B, ch 2"),
+         midi=("B", 2)),
     dict(name="32 STAB", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("LEAD", {"model": "STAB DUB"})],
-         midi="ONE port B, ch 3"),
+         midi=("B", 3)),
     dict(name="33 TEXTURE", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("PAD", {"model": "GRANULAR"})],
-         midi="ONE port B, ch 4"),
-    dict(name="34 VOICE", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("VOICE", {})], midi="ONE port B, ch 5"),
+         midi=("B", 4)),
+    dict(name="34 VOICE", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("VOICE", {})], midi=("B", 5)),
     dict(name="40 BRIDGE", kind="audio", colour=GREY, audio_in="none", monitor="off", devices=[]),
-    dict(name="41 DECK", kind="midi", colour=GREY, devices=[("DECK", {})], midi="ONE port B, ch 7 (hot cues; optional)"),
+    dict(name="41 DECK", kind="midi", colour=GREY, devices=[("DECK", {})], midi=("B", 7)),
     dict(name="90 LIVE BUS", kind="audio", colour=DARK, audio_in="none", monitor="in", sends=False,
          devices=[("ISOLATOR", {}), ("BUILD", {}), ("GLUE", {}), ("TONE", {}), ("LOWEND", {}), ("ALLOC", {"enable": "off"})]),
-    dict(name="92 PA", kind="audio", colour=RED, audio_in="resampling", monitor="in", sends=False, out="pa",
-         devices=[("ROOMEQ", {})]),
-    dict(name="93 REC", kind="audio", colour=DARK_RED, audio_in="resampling", monitor="off", sends=False, out="none",
+    # The PA feed: the Main (the set, after SF LIMIT), the venue's correction, then a safety limiter that never
+    # touches the set (its peaks are already at -1 dBTP) and only catches what the room EQ's phase pushes past.
+    dict(name="92 PA", kind="audio", colour=RED, audio_in="main", monitor="in", sends=False, out="pa",
+         devices=[("ROOMEQ", {}), ("LIMIT", {"ceiling": "-0.5", "clip": "0", "auto": "off"})]),
+    dict(name="93 REC", kind="audio", colour=DARK_RED, audio_in="main", monitor="off", sends=False, out="none",
          devices=[]),
     # The room mics (a stereo pair on inputs 1/2): arm it to record the room with the set. SF CAPTURE
     # plays TERROIR's sweep out of the headphone pair (a speaker on it) and records the mics; it never
@@ -85,6 +87,8 @@ SHOW = [
 MAIN_DEVICES = [("LIMIT", {})]
 MAIN_COLOUR = DARK
 PA_OUT = "ext:S0"            # 92 PA: outputs 1/2, the only signal on them
+# The OXI One MkII's USB ports as Live names them on a Mac: port A is Port 1, port B is Port 2.
+ONE_PORTS = {"A": "OXI ONE MKII (Port 1){28E9-1113-0-in-0}", "B": "OXI ONE MKII (Port 2){28E9-1113-0-in-1}"}
 CUE_OUT = "ext:S1"           # Cue Out 3/4, the headphones (Live: never the Main's pair)
 MAIN_OUT = "ext:S2"          # Main 5/6, a pair that goes nowhere: a missing pair stays silent
 TEMPO = 120                  # Live's own default; the set's tempo is set per song
@@ -448,13 +452,18 @@ class Builder:
             audio_in = s.get("audio_in")
             if audio_in == "none":
                 self.route(t, "AudioInputRouting", "AudioIn/None", "No Input")
-            elif audio_in == "resampling":
-                self.route(t, "AudioInputRouting", "AudioIn/Main", "Resampling")
+            elif audio_in == "main":                    # the Main's output after its fader: the finished set
+                self.route(t, "AudioInputRouting", "AudioIn/Track.-1/TrackOut", "Main", "Post Mixer")
             elif audio_in and audio_in.startswith("ext:S"):           # a stereo pair of the interface's inputs
                 n = int(audio_in[5:])
                 self.route(t, "AudioInputRouting", f"AudioIn/External/S{n}", "Ext. In", f"{2 * n + 1}/{2 * n + 2}")
-            if s["kind"] == "midi":                     # silent until its MIDI From is set: never every part at once
-                self.route(t, "MidiInputRouting", "MidiIn/None", "No Input")
+            if s["kind"] == "midi":                     # one port, one channel: never All Ins, every part at once
+                if s.get("midi"):
+                    port, ch = s["midi"]
+                    dev = ONE_PORTS[port]
+                    self.route(t, "MidiInputRouting", f"MidiIn/External.Dev:{dev}/{ch - 1}", dev.split("{")[0], f"Ch. {ch}")
+                else:
+                    self.route(t, "MidiInputRouting", "MidiIn/None", "No Input")
             self.set_sends(t, len(returns), s.get("sends", s["kind"] != "return"))
             built.append(t)
         for t in built:                                 # Live lists the returns after every other track
@@ -573,7 +582,7 @@ def check(root, scenes, track_ids):
             problems.append(f"{t.find('Name/EffectiveName').get('Value')} is in a group that doesn't exist")
     for e in root.iter("Target"):
         v = e.get("Value", "")
-        if v.startswith(("AudioOut/Track.", "AudioIn/Track.")) and v.split("/")[1].split(".")[1] not in tids:
+        if v.startswith(("AudioOut/Track.", "AudioIn/Track.")) and v.split("/")[1].split(".")[1] not in tids | {"-1"}:
             problems.append(f"routing to a track that doesn't exist: {v}")
     keys = [(k.find("IsNote").get("Value"), k.find("Channel").get("Value"), k.find("NoteOrController").get("Value"))
             for k in root.iter("KeyMidi")]
@@ -615,10 +624,10 @@ def main():
     n_dev = sum(len(v) for v in b.devices.values())
     print(f"{a.out}: {len(SHOW)} tracks, {n_dev} SF plugins, {len(b.mapped)} E16 mappings "
           f"(Live {base.get('Creator', '?').replace('Ableton Live ', '')} format)")
-    print("MIDI From, to set by hand:")
+    print("MIDI From (set):")
     for s in SHOW:
-        if s.get("midi") and not s["midi"].startswith("none"):
-            print(f"  {s['name']:12s} {s['midi']}")
+        if s.get("midi"):
+            print(f"  {s['name']:12s} ONE port {s['midi'][0]}, ch {s['midi'][1]}")
     print("Audio setup in Live's Settings:")
     for s in SHOW:
         if s.get("setup"):

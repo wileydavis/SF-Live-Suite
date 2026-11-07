@@ -172,7 +172,7 @@ story += bullets(["SF LIMIT measures true peak (the level between samples that a
 story.append(H2("ANY BUFFER SIZE, ANY SAMPLE RATE"))
 story.append(P("Every plugin processes in 64-sample steps on a fixed grid of the audio stream, whatever Live's buffer size, so a set sounds exactly the same at buffer 64 and buffer 2048 (bit for bit) and at 44.1, 48 or 96 kHz. Song recalls land on the exact sample of the bar line."))
 story.append(H2("RECORDING A SET"))
-story += bullets(["Record the Main output (after SF LIMIT, before SF ROOM EQ) at the session's sample rate, 24-bit or 32-bit float: an audio track REC with Audio From = Resampling, Monitor Off, armed. Live records what comes into a track, before its devices.",
+story += bullets(["Record the Main output (after SF LIMIT, before SF ROOM EQ) at the session's sample rate, 24-bit or 32-bit float: an audio track REC with Audio From = Main, Post Mixer, Monitor Off, armed. Live records what comes into a track, before its devices.",
                   "The room's correction stays out of the release: SF ROOM EQ sits on the PA track (see Setting up Live), or do the venue EQ in the audio interface's own mixer, after Live.",
                   "Press RESET on SF LIMIT before you start: INTEGRATED then reads the loudness of the whole set.",
                   "MOTION's RANDOM and DRIFT are seeded and the seeds are saved with the set, so they move the same way every time the set is played."])
@@ -186,8 +186,8 @@ lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Ma
        ["Groups", "SF ENERGY on each group, PROFILE to match (DRUMS, BASS, MUSIC, VOICE)."],
        ["Returns", "SF DELAY, SF REVERB, SF DENSITY, each with DRY off (the return gives only the effect)."],
        ["Main (master)", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND > SF LIMIT. SF ALLOC anywhere on it. Its output to an output pair you don't use."],
-       ["Audio track PA", "Audio From = Resampling (the Main output), Monitor In, SF ROOM EQ, Audio To = the PA outputs. The venue hears ROOM EQ."],
-       ["Audio track REC", "Audio From = Resampling, Monitor Off, armed: records the set without ROOM EQ."],
+       ["Audio track PA", "Audio From = Main, Post Mixer (the Main output), Monitor In, SF ROOM EQ, then SF LIMIT as a safety (CEILING -0.5 dB, CLIP 0 %, AUTO off), Audio To = the PA outputs, fader at 0 dB. The venue hears ROOM EQ."],
+       ["Audio track REC", "Audio From = Main, Post Mixer, Monitor Off, armed: records the set without ROOM EQ."],
        ["Audio track ROOM", "Audio From = the room mics (a stereo pair), Monitor In, SF CAPTURE, Audio To = the outputs a speaker can go on (the headphones), sends disabled. SF TERROIR captures the place from here (SF CAPTURE); armed, it records the room with the set."],
        ["Live instruments / hardware", "SF STRIP last on the track: the suite's performance row, Pocket and ALLOC for any sound."],
        ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
@@ -220,7 +220,7 @@ story += bullets(["SF CONTROL shows <b>BUS SHARED</b>. Play SF KICK: it shows <b
                   "SF ALLOC on the master: every SF source appears in the list; raise DEPTH on a band where two of them overlap and watch the amber.",
                   "Store two songs; switch with Program Change: the E16 rings follow. With SF FILTER on tracks above and below SF CONTROL, every track changes on the same bar.",
                   "SF DECK: load a track, PLAY A: it starts on the bar, locked to Live's tempo.",
-                  "Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune. Hold PANIC with SF DELAY in feedback: silence within 5 ms, for as long as you hold it.",
+                  "Set KEY on SF CONTROL: BASS, LEAD and PAD transpose, KICK and RUMBLE retune.",
                   "Record a minute on REC with a deep cut on ROOM EQ: the PA has the cut, the recording doesn't."])
 story.append(P("Chapter 7 is a complete show set built on this layout."))
 story.append(PageBreak())
@@ -229,7 +229,7 @@ story.append(PageBreak())
 story.append(H1("7  THE SHOW TEMPLATE"))
 story.append(Rule())
 story.append(P("One Live set for every show, built on fixed roles. The OXI ONE plays the notes and patterns; the E16 plays the sound, the balance and the transitions. The E16's top half is the same on every page, so the whole arrangement is always under one hand while the other works deep in one sound.", "summary"))
-story.append(P("The set is built: <b>controllers/live/SF SHOW.als</b> in the repository holds every track, group and return below, every SF plugin with its starting settings, the routing, and every E16 address mapped. Open it, do the five steps its README lists (MIDI From, the inputs and outputs, the two keys, two options, the save), and keep it as your template."))
+story.append(P("The set is built: <b>controllers/live/SF SHOW.als</b> in the repository holds every track, group and return below, every SF plugin with its starting settings, the routing, and every E16 address mapped. Every instrument's MIDI From is set to its OXI One port and channel, 92 PA and 93 REC take the Main. Set Live's own preferences once per computer (its README, section 1: the MIDI ports, audio, Takeover Mode), check its outputs against your interface before any sound reaches a PA, play, and save it as your template."))
 
 story.append(H2("TRACKS"))
 story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
@@ -254,8 +254,8 @@ story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
     ["B SPACE (return)", "SF REVERB, DRY off", ""],
     ["90 LIVE BUS", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND; SF ALLOC (off at first)", ""],
     ["Main", "SF LIMIT", ""],
-    ["92 PA", "SF ROOM EQ", "audio: Resampling"],
-    ["93 REC", "nothing", "audio: Resampling"],
+    ["92 PA", "SF ROOM EQ > SF LIMIT (safety)", "audio: Main, Post Mixer"],
+    ["93 REC", "nothing", "audio: Main, Post Mixer"],
     ["94 ROOM", "SF CAPTURE", "audio: Ext. In 1/2, the room mics"]], [1.35 * inch, 3.25 * inch, W - 4.6 * inch]))
 story.append(Spacer(1, 6))
 story += bullets(["The kick stays outside LOW, so bass and rumble fade together while the kick holds the floor. In each section decide whether BASS or RUMBLE carries the sustained low end: one of two knobs then steers it.",
@@ -275,17 +275,17 @@ story.append(table([["TRACK", "INPUT / MONITOR", "OUTPUT"],
     ["40 BRIDGE", "clips, Monitor Off (clips still play)", "Main"],
     ["41 DECK", "MIDI From port B ch 7, Monitor In", "Main"],
     ["Main", "", "an output pair that goes nowhere"],
-    ["92 PA", "Audio From Resampling, Monitor In, sends disabled", "the PA outputs"],
-    ["93 REC", "Audio From Resampling, Monitor Off, sends disabled", "Sends Only"],
+    ["92 PA", "Audio From Main, Post Mixer, Monitor In, sends disabled", "the PA outputs"],
+    ["93 REC", "Audio From Main, Post Mixer, Monitor Off, sends disabled", "Sends Only"],
     ["94 ROOM", "Ext. In 1/2 (the room mics, a stereo pair), Monitor In, sends disabled", "the headphone outputs: a speaker on them for a capture"],
     ["Cue", "Live's Cue Out; DECK's CUE track", "the headphone outputs"]], [1.75 * inch, 2.75 * inch, W - 4.5 * inch]))
 story.append(Spacer(1, 6))
 story += bullets(["Main is the set. Exporting or resampling it gives the release mix; the venue's correction (ROOM EQ) exists only on 92 PA, so the recording never hears it.",
                   "<b>Disable every send on 90 LIVE BUS</b> (right-click a send, Disable Send). The returns feed LIVE BUS, and Live can't compensate a return's delay on a track whose matching send is active, even at zero (Ableton's Delay Compensation FAQ).",
-                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK keep playing. Mute 92 PA and the speakers go silent while REC keeps recording. Put 92 PA's on/off on a computer key (Cmd-K, click its activator, press the key), not on an E16 press: a knob is easily pressed while it is turned.",
-                  "PANIC silences every SF plugin, DECK included, but not Live's own clips and devices: for total silence, mute 92 PA.",
+                  "Never send 90 LIVE BUS to 92 PA: BRIDGE, DECK and SF LIMIT would be left out of the PA, and 93 REC would record only BRIDGE and DECK.",
+                  "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK keep playing. The audio interface's output knob is the PA's volume and the emergency stop: turn it down and the room goes quiet while REC keeps recording. Nothing that would stop the set is in Live or on the E16.",
                   "BRIDGE is for transitions and regrouping. It still needs Live: it is not a backup for a computer failure.",
-                  "ROOM EQ only cuts, so it needs no limiter after it; LIMIT's -1 dB ceiling leaves the margin.",
+                  "92 PA's SF LIMIT is a safety: CEILING -0.5 dB, no clip, AUTO off. The set's peaks are already at -1 dBTP, so it only catches what the room EQ's phase pushes past. Keep 92 PA's fader at 0 dB: the PA's level is the interface's.",
                   "94 ROOM is the room: armed, it records the mics with the set, for the mix. Its SF CAPTURE never passes them, so the set never hears the mics; for SF TERROIR it plays the sweep to a speaker on the headphone out (transport stopped) and records the place (SF CAPTURE)."])
 
 story.append(H2("THE MASTER DEVICES"))
@@ -294,13 +294,13 @@ story += bullets(["Start GLUE, TONE and LOWEND gently: the set doesn't need ever
                   "SF ALLOC off at first. Turn it on band by band once the arrangement is known. It measures each source before its LEVEL and before Live's fader, so a source you've faded out still claims its bands: take a source out with its lane mute or its FILTER, or switch its ALLOC off."])
 
 story.append(H2("THE OXI ONE"))
-story.append(P("Port A carries the drums, port B everything pitched and SF CONTROL. Every sequencer has its own channel; in Live, set every track's MIDI From to its port and channel, never All Ins / All Channels."))
+story.append(P("Port A carries the drums, port B everything pitched and SF CONTROL. Every sequencer has its own channel, and SF SHOW.als listens to each on its own track (Live lists port A as OXI ONE MKII (Port 1), port B as (Port 2)), never All Ins / All Channels."))
 story.append(table([["SEQUENCER", "MODE", "OUTPUT", "TRACK"],
     ["1 DRUMS", "Multitrack: lane 1-4 on ch 1-4", "port A", "KICK, CLOSED, OPEN, CLAP (lanes 5-8 spare)"],
     ["2 BASS", "Mono", "port B ch 1", "BASS"],
     ["3 ACID", "Mono", "port B ch 2", "ACID"],
-    ["4 STAB", "Chord or Poly", "port B ch 3", "STAB"],
-    ["5 TEXTURE", "Poly", "port B ch 4", "TEXTURE"],
+    ["4 STAB", "Mono to start; Chord or Poly for whole chords", "port B ch 3", "STAB"],
+    ["5 TEXTURE", "Mono to start; Poly for chords", "port B ch 4", "TEXTURE"],
     ["6 VOICE", "Mono", "port B ch 5", "VOICE"],
     ["7 STRIKE", "Mono to start", "port B ch 6", "STRIKE"],
     ["8 CONTROL", "Program Change only", "port B ch 16", "CONTROL"]], [1.0 * inch, 1.9 * inch, 1.0 * inch, W - 3.9 * inch]))
@@ -308,17 +308,18 @@ story.append(Spacer(1, 6))
 story += bullets(["KICK lane on C1: with KEY TRACK on, any other note transposes the kick (C1 = TUNE), so C1 is right either way. PERC plays any note.",
                   "RUMBLE needs no lane: SOURCE KICK BUS follows SF KICK.",
                   "KEY OFF on SF CONTROL to start with: the ONE's notes set the pitch, and KICK and RUMBLE are tuned per song with TUNE. Turn KEY on for songs that should change key without reprogramming the ONE (mind the low register, chapter 1).",
-                  "One ONE project per track, with a pattern per section: SPARSE, MAIN, VARIATION, EXIT. Sequencer 8 sends that track's Program Change on port B ch 16, so loading the project recalls the matching SF song. Program Change stays off on the musical sequencers.",
+                  "One ONE project per track, with a pattern per section: SPARSE, MAIN, VARIATION, EXIT, each a copy of the startup project SF START (controllers/oxi-one: every sequencer as above, no notes). Sequencer 8 sends that track's Program Change on port B ch 16, so loading the project recalls the matching SF song. Program Change stays off on the musical sequencers.",
                   "When patterns change is set on the ONE (its launch and arranger settings): Live's launch quantization doesn't reach it."])
 
 story.append(H2("CLOCK, MIDI AND LATENCY"))
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
-    ["ONE port A in", "on", "off", "off"], ["ONE port B in", "on", "off", "off"],
-    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 Port 1 in", "off", "off", "on"], ["E16 Port 1 out", "off", "off", "on"],
-    ["E16 Ports 2 and 3, in and out", "off", "off", "off"]],
+    ["OXI ONE MKII (Port 1) in: the ONE's port A", "on", "off", "off"], ["OXI ONE MKII (Port 2) in: its port B", "on", "off", "off"],
+    ["OXI ONE MKII (Port 1) out: the clock", "off", "on", "off"], ["OXI E16 (Port 1) in", "off", "off", "on"], ["OXI E16 (Port 1) out", "off", "off", "on"],
+    ["Every other port, E16 Ports 2 and 3 included", "off", "off", "off"]],
     [2.6 * inch, 0.9 * inch, 0.9 * inch, W - 4.4 * inch]))
 story.append(Spacer(1, 6))
-story += bullets(["Live is the clock master. On the ONE: USB device mode, sync from USB, Auto Sync on (it starts with Live), Start and Stop accepted, MIDI Thru off. Never send clock both ways.",
+story += bullets(["Live is the clock master. On the ONE: sync USB (stopped, Shift + Stop until the header shows USB, not INT); in its config, Start Stop Msgs Ignore No, MIDI Transport Msgs Send Off, MIDI Thru off, Auto Sync on (it starts with Live). Never send clock both ways.",
+                  "Live sends its clock only while it plays: start and stop from Live. Started with its own Play, the ONE runs at its own tempo and ignores Live's.",
                   "Audio: 48 kHz, buffer 256 (Pocket needs 512 or less), Delay Compensation on, <b>Reduced Latency When Monitoring off</b> (it skips compensation on monitored tracks, so returns and Pocket drift), launch quantization 1 bar, record quantization off.",
                   "Calibrate once: record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences. Leave POCKET OFFSET at 0 unless the pump is still off after that.",
                   "Every Pocket stage in a chain adds its 512-sample lookahead to the total latency (compensated, but it adds up): no SF TAP or SF DUCK on tracks that already hold SF instruments."])
@@ -346,7 +347,7 @@ for i, (name, quiet) in zip(range(9, 17), [("SOUND", 1), ("SOUND", 1), ("SOUND",
                 CYAN if name == "LEVEL" else INK, bool(quiet))
 story.append(Spacer(1, 2)); story.append(E16Grid(cells)); story.append(Spacer(1, 8))
 story += bullets([f"<b>Press {i}{', on every page' if i > 8 else ''}:</b> {esc(press_text(pr))}." for i, pr in sorted(E16.PRESSES_ALL.items())]
-                 + ["<b>PANIC and 92 PA's on/off are on computer keys</b> (Key Map, Cmd-K), never on a press: a knob is easily pressed while it is turned, and neither may ever happen by accident. A key flips them: PANIC on, every SF plugin silent; again, back. Every press on the E16 is one the set plays through if it happens by accident."])
+                 + ["A knob is easily pressed while it is turned, so every press on the E16 is one the set plays through if it happens by accident. Nothing that would stop the set is on the E16: the PA's emergency stop is the audio interface's output knob."])
 story += bullets(["The ENERGY knobs are the group DJ filters, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in.",
                   "Each instrument's LEVEL belongs to its song; the volumes here are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix, and give every volume mapping a maximum of 0 dB (Max in Live's MIDI Mappings).",
                   "Rings: light blue is a volume, white is everything else, green is knob 1 on SLOW ALL. A knob that is travelling (SLOW) turns green and walks with the sound until it arrives (GLIDE RINGS: SF CONTROL's E16 RINGS and the scene's script; controllers/e16 README)."])
@@ -410,7 +411,7 @@ story += bullets(["Instrument tracks on Monitor In: they play from the ONE wheth
                   "Collect All and Save. SF samples are inside the set; DECK tracks are referenced by path, so keep the files where they are."])
 
 story.append(H2("BUILD ORDER"))
-story += numbered(["SF SHOW.als (controllers/live): MIDI From, the inputs and outputs, PANIC and 92 PA on their keys, the two options; saved as a template.",
+story += numbered(["SF SHOW.als (controllers/live): Live's preferences set once, the outputs checked against the interface; saved as a template.",
                    "CONTROL, KICK, BASS, RUMBLE, LIVE BUS, PA and REC playing. Clock and latency calibrated, a short recording made.",
                    "CLOSED, OPEN, CLAP and STRIKE.",
                    "ACID, STAB, TEXTURE and VOICE, one at a time.",
@@ -423,7 +424,7 @@ story.append(CondPageBreak(2.2 * inch))
 story.append(H2("BEFORE THE FIRST SHOW"))
 story += bullets(["CONTROL shows BUS SHARED and KICK REPORTING; the pump lands on the kick.",
                   "The ONE's Program Change recalls the song, every track on the same bar, and a recalled knob is yours the moment you turn it. (VST3 needs Live 12.2 or later; the AU works in any version.)",
-                  "PANIC from its key: silence, and every header shows PANIC. Again: back without a click. 92 PA muted from its key: the speakers silent, REC still recording.",
+                  "The interface's output knob down: the speakers silent, REC still recording.",
                   "Every E16 hold press (DROP, THROW, ROLL) held for three seconds stays on for the whole hold and goes off on release.",
                   "The shared E16 knobs don't jump: LOW ENERGY turned on page 2, then a step on page 1, moves a step. Changing pages sends nothing (Live's MIDI input indicator stays dark).",
                   "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording.",
@@ -525,9 +526,11 @@ story += bullets(["Songs, samples, ALLOC choices, MOTION random seeds, DECK trac
 story.append(H2("WHEN SOMETHING ISN'T RIGHT"))
 story.append(table([["SYMPTOM", "CHECK"],
                     ["SF SHOW.als: a plugin is missing", "The suite isn't installed, or VST3 is off (Settings &gt; Plug-Ins). Install or turn VST3 on, then open the set again."],
-                    ["An instrument doesn't play", "MIDI From: SF SHOW.als starts every MIDI track on No Input; set each to its ONE port and channel (chapter 7), never All Ins, where every instrument plays every part."],
+                    ["An instrument doesn't play", "MIDI From: each track listens to one ONE port and channel (chapter 7). Shown as missing: your Live names the ONE's ports otherwise; set each by the table. Track on for both ONE ports in Live's MIDI preferences. Never All Ins: every instrument would play every part."],
+                    ["A group or track is silent", "Its volume or ENERGY knob on the E16 at the far left; SF ALLOC on 90 LIVE BUS with ENABLE on (it cuts lower-priority sources in its bands: ENABLE off to check); the group's output (every group to 90 LIVE BUS)."],
                     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be an SF KICK (or use SF DUCK with SOURCE SIDECHAIN)."],
                     ["Pump early or late", "Live buffer size 512 or less. Then trim POCKET OFFSET on SF CONTROL by ear."],
+                    ["The ONE doesn't follow Live's tempo", "Start from Live, not the ONE: Live sends clock only while it plays. The ONE's header shows USB (stopped: Shift + Stop until it does). Sync on OXI ONE MKII (Port 1)'s output and on no other port. Hold Shift + Back for 2 s: the ONE's MIDI monitor shows the clock arriving while Live plays. Still nothing: Sync on Port 2's output instead, never both."],
                     ["Songs don't change", "PC ENABLE on, PC CHANNEL matches the OXI. The VST3 needs Live 12.2 or later; otherwise use the AU."],
                     ["E16 rings don't follow", "Remote on for E16 Port 1's output in Live's MIDI preferences; map with Live's MIDI Map."],
                     ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports, so the note arrives twice. Port 1 only."],
@@ -541,8 +544,8 @@ story.append(table([["SYMPTOM", "CHECK"],
                     ["A capture says THE SWEEP DIDN'T COME BACK, or under 30 dB", "The speaker didn't play the sweep, or the mics didn't hear it: the speaker on 94 ROOM's output (3/4), the track on and up; the mics on 94 ROOM's input (Input Config: 1/2 a stereo pair), Monitor In. Then louder or closer. The slot stays as it was."],
                     ["A capture says NO SWEEP IN THE RIGHT CHANNEL", "That mic heard nothing (its cable, its gain, Input Config): the place came in mono from the other. Fix it and capture again."],
                     ["A capture says CAPTURE STOPPED: SF CAPTURE STOPPED ANSWERING", "94 ROOM's SF CAPTURE was removed or switched off, or its track's audio stood still. Put it back and capture again: nothing was stored."],
-                    ["Something won't stop", "PANIC on SF CONTROL: every SF plugin fades out, clears and stays silent while held. Live's own clips and devices aren't SF: mute the PA track for those."],
-                    ["Header shows PANIC (red)", "PANIC is on at SF CONTROL: held in its window, or flipped on by its key or button. A key flips it back."],
+                    ["Something won't stop", "The audio interface's output knob down: the room goes quiet, the recording carries on. Then find it. PANIC on SF CONTROL, held in its window, fades every SF plugin out and clears every voice, tail and delay line; Live's own clips and devices aren't SF."],
+                    ["Header shows PANIC (red)", "PANIC is on at SF CONTROL: held in its window, or switched on by a mapping. Let it go there."],
                     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds. Rebuild and install the whole suite."],
                     ["A return doubles the dry signal", "DRY off on SF DELAY, SF REVERB or SF DENSITY on a return track."],
                     ["Pitch is wrong after a song change", "KEY on SF CONTROL is stored per song. KEY FOLLOW off on an instrument ignores it."],

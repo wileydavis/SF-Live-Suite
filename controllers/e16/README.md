@@ -82,8 +82,8 @@ and turn it, Cmd-M off, save.
 ## 4. MAP LIVE, ONCE
 
 **The show set comes mapped.** `controllers/live/SF SHOW.als` holds every address below, presses
-included, with every volume at Max 0 dB and DUB FEEDBACK at 0-70 %: open it and go to its README
-(MIDI From, outputs, the two keys of item 5). Map by hand only in a set of your own;
+included, with every volume at Max 0 dB and DUB FEEDBACK at 0-70 %: open it (its README has Live's
+own settings, set once per computer). Map by hand only in a set of your own;
 `python3 controllers/live/check_set.py "My Show.als"` lists what it is missing (a set saved before
 SLOW ALL or the presses existed lacks those):
 
@@ -93,13 +93,8 @@ SLOW ALL or the presses existed lacks those):
 3. **Cmd-M.** Page by page on the E16: click the target in Live (`sf-show-map.csv` names it), turn
    the knob. The top half and the PERFORM page's shared knobs need mapping only once.
 4. In the Mapping Browser: every volume (faders and returns) **Max 0 dB**; DUB FEEDBACK 0-70 %.
-5. **Cmd-K** (Key Map): two computer keys, never E16 presses, because a knob is easily pressed while
-   it is turned and neither of these may ever happen by accident.
-   - **PANIC** on SF CONTROL: press, every SF plugin silent (every header shows PANIC); press again,
-     back. Pick a key you can find in the dark.
-   - **92 PA**'s activator: press, the speakers off and REC still recording; press again, on.
-6. Cmd-M off. Save. Then **File > Save Live Set As Template** (or as the Default Set): MIDI and key
-   mappings belong to the Live set, so a new set made from it starts mapped.
+5. Cmd-M off. Save. Then **File > Save Live Set As Template** (or as the Default Set): MIDI mappings
+   belong to the Live set, so a new set made from it starts mapped.
 
 ## 5. PRESSES
 
@@ -120,7 +115,8 @@ A hold press is a CC: 127 on press, 0 on release, and the parameter is on for as
 down. A toggle press is a note: Live flips the switch on every Note On, so the E16 can never think
 FREEZE is on while Live has it off. The swap sends nothing: it only chooses which destination knob 1
 turns. Every press here is one the set plays through if it happens by accident (a throw, a roll, a
-freeze, a drop, a flipped knob 1); what would stop the set is on a computer key.
+freeze, a drop, a flipped knob 1). Nothing that would stop the set is on the E16: the PA's emergency
+stop is the audio interface's output knob.
 
 Never give an encoder a second destination without the Swap Destination press: it would send both on
 every turn. `make_scene.py` refuses to write one.
@@ -179,15 +175,14 @@ controls are SF REVERB's, in the same order, so the E16's SPACE page fits as it 
    dark (nothing sent).
 6. **Recall.** Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from
    the new value when turned.
-7. **PANIC** from its key: silence, every SF header shows PANIC. Again: back without a click.
-8. **Glide rings.** SLOW ALL to 4 BAR, turn a knob on the page and let go: its ring turns green and
+7. **Glide rings.** SLOW ALL to 4 BAR, turn a knob on the page and let go: its ring turns green and
    walks to where you set it over four bars, then turns white. Turn it while it walks: the ring shows
    your hand, then green again. SF CONTROL shows E16 RINGS PORT 3 in green.
 
 ## CHANGING THE LAYOUT
 
-Edit `layout.py`: `TOP` is rows 1-2, `PAGES` is rows 3-4 of each page, `PRESSES_*` the presses, `KEYS`
-the computer keys. Run `python3 make_scene.py` (it checks that every address names one Live target),
+Edit `layout.py`: `TOP` is rows 1-2, `PAGES` is rows 3-4 of each page, `PRESSES_*` the presses.
+Run `python3 make_scene.py` (it checks that every address names one Live target),
 load the new file and map only what changed. It also rewrites `Source/core/E16Map.h`, the plugins'
 copy of the knob map for GLIDE RINGS: rebuild the suite after a layout change. `python3
 docs/manual/build_manual.py` and `python3 docs/manual/build_show_manual.py` put the new layout in the

@@ -312,7 +312,7 @@ MODULES["CONTROL"] = dict(
         "To save into another song, choose it in STORE TO first, then press STORE ALL. That song isn't recalled, so nothing you hear changes; it becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. If a song change is waiting for its bar, that change still lands and stays the song in force.",
         "The display shows macro levels, the song, the key, whether the bus is shared, SF KICK is reporting and SF ALLOC is running, and the E16 RINGS port.",
         "KEY: write parts in C and set each song's key here. Every pitched SF instrument follows; KICK, RUMBLE and STRIKE tune themselves to the key root.",
-        "PANIC: map it to a button you can find in the dark. Every SF plugin fades out over 5 ms, clears every voice, tail and delay line, and stays silent while you hold it.",
+        "PANIC, held in this window: every SF plugin fades out over 5 ms, clears every voice, tail and delay line, and stays silent while you hold it. In a show the emergency stop is the audio interface's output knob, which also silences Live's own clips.",
     ],
     models=[],
     desc={
@@ -534,7 +534,7 @@ MODULES["LIMIT"] = dict(group="MASTER AND MIX", summary="Clipper and true-peak l
         "input": "Input gain.", "release": "Limiter release. Under sustained limiting a slower envelope holds the gain, so dense passages don't pump.", "auto": "Automatic input trim (+/-12 dB) that keeps the loudest short-term loudness of the last minute at TARGET. It moves up only after 3 s of music within 6 dB of TARGET, so it never lifts a breakdown. Measured on the raw input, so it settles without overshoot.", "auto_mode": "DOWN ONLY (default): AUTO never lifts above unity, it only stops the set running above TARGET. UP AND DOWN: it also lifts a quieter set.",
         "reset": "Resets the integrated loudness and true-peak hold."})
 MODULES["ROOMEQ"] = dict(group="MASTER AND MIX", summary="Cut-only correction for the room or PA, stored per venue (16 venues). Not part of songs.",
-    use=["Put it after the recording point: on an audio track PA with Audio From = Resampling (the Main output), routed to the PA outputs (see Setting up Live). The set is recorded on its own track from the same signal, without the venue's correction.",
+    use=["Put it after the recording point: on an audio track PA with Audio From = Main, Post Mixer (the Main output), routed to the PA outputs, with a safety SF LIMIT after it (see Setting up Live). The set is recorded on its own track from the same signal, without the venue's correction.",
          "Find the boomy and harsh frequencies at soundcheck, cut them, STORE VENUE.", "Next time at that venue, choose it from VENUE."],
     models=[], desc=dict({f"cut{i}": f"Cut at band {i} (0 to 18 dB)." for i in range(1, 7)}, **{f"freq{i}": f"Frequency of band {i}." for i in range(1, 7)},
         q="Width of all six bands.", venue="Recalls a stored venue.", store_venue="Stores the current bands into the selected venue."))

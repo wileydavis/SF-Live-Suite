@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks a Live set's mappings against the E16 scene SF SHOW: every address in
 controllers/e16/layout.py mapped once, to the right parameter on the right track, with the right range;
-and which computer keys PANIC and 92 PA's activator are on. Reads the set, never writes it.
+and any computer keys mapped. Reads the set, never writes it.
 
     python3 check_set.py "My Show.als" [--relative-shared]
 
@@ -50,8 +50,10 @@ def mappings(root):
         v = {c.tag: c.get("Value") for c in k}
         owner = parent[k]
         t = up(owner, TRACK_TAGS)
-        name = t.find("Name/EffectiveName") if t is not None else None
-        track = name.get("Value") if name is not None else ("Main" if t is not None else "?")
+        # The name you gave the track (Live 12.4 writes a return's EffectiveName as "A-A DUB"), else Live's own.
+        names = [t.find("Name/" + k) for k in ("UserName", "EffectiveName")] if t is not None else []
+        names = [n.get("Value") for n in names if n is not None and n.get("Value")]
+        track = names[0] if names else ("Main" if t is not None else "?")
         if owner.tag == "ParameterValue":
             dev = up(owner, ("PluginDevice", "AuPluginDevice"))
             pn = dev.find(".//PluginDesc/*/Name") if dev is not None else None
@@ -139,15 +141,10 @@ def main():
             print(f"\n{title}:")
             for r in rows:
                 print("  " + r)
-    print("\nCOMPUTER KEYS:")
-    panic = [k for k, t, g in keys if g == "SF CONTROL > PANIC"]
-    pa = [k for k, t, g in keys if t == "92 PA" and g == "activator"]
-    print(f"  PANIC (SF CONTROL): {', '.join(repr(k) for k in panic) if panic else 'no key (Cmd-K)'}")
-    print(f"  92 PA activator:    {', '.join(repr(k) for k in pa) if pa else 'no key (Cmd-K)'}")
-    for k, t, g in sorted(keys):
-        if (g == "SF CONTROL > PANIC") or (t == "92 PA" and g == "activator"):
-            continue
-        print(f"  {k!r}: {t} > {g}")
+    if keys:
+        print("\nCOMPUTER KEYS (yours: not checked):")
+        for k, t, g in sorted(keys):
+            print(f"  {k!r}: {t} > {g}")
     bad = missing or wrong or twice or ranges or modes
     print("\n" + ("Something to fix: see above." if bad else "Every E16 address is mapped to its target, with its range and mode."))
     return 1 if bad else 0

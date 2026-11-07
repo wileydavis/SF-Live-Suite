@@ -238,12 +238,6 @@ class Swap:
         return self.name                    # fits a grid cell: "PRESS: SLOW ALL"
 
 
-class Key:
-    """A Live control on a computer key (Key Map, Cmd-K): a key flips a switch on every press."""
-    def __init__(self, target, does):
-        self.target, self.does = target, does
-
-
 def note_name(n):
     return ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][n % 12] + str(n // 12 - 2)
 
@@ -319,8 +313,8 @@ PAGES = [
 
 # Presses. A knob is easily pressed while it is turned, so a press must be harmless when it happens by
 # accident: a throw, a roll, a freeze or a drop is a musical mistake the set plays through, and a swap
-# only flips the knob (SLOW ALL never moves the sound, only how the next moves go). What would stop
-# the set goes on a computer key instead (KEYS), never on a press.
+# only flips the knob (SLOW ALL never moves the sound, only how the next moves go). Nothing that would
+# stop the set is on the E16: the PA's emergency stop is the audio interface's output knob.
 PRESSES_ALL = {
     1: Swap(P("CONTROL", "slow_all", "SLOW ALL", "SLOW")),
     4: Press("BUILD", "drop", "HOLD"),
@@ -332,10 +326,6 @@ PRESSES_PAGE = {
     ("SPACE", 14): Press("SPACE", "freeze", "TOGGLE"),
     ("MACROS", 15): Press("REPEAT", "roll", "HOLD"),
 }
-KEYS = [
-    Key("00 CONTROL > SF CONTROL > PANIC", "press: every SF plugin silent (headers show PANIC); press again: back"),
-    Key("92 PA > track activator", "press: the speakers off, REC still recording; press again: on"),
-]
 
 
 def page_channel(controls):
