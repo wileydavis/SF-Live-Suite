@@ -422,23 +422,23 @@ story.append(PageBreak())
 chapter("2  THE SHOW TEMPLATE", "SF SHOW.als is built: every track, group and return, every SF plugin with its starting settings, the routing, and every E16 address mapped. Open it, do the five steps below, and keep it as the template for every show.")
 story.append(H2T("TRACKS"))
 story.append(table([["TRACK", "DEVICES", "MIDI FROM", "OUT"],
-    ["00 CONTROL", "SF CONTROL", "ONE port B, ch 16", "Main"],
-    ["01 KICK", "SF KICK", "ONE port A, ch 1", "90 LIVE BUS"],
+    ["00 CONTROL", "SF CONTROL", "ONE Port 2 (B), ch 16", "Main"],
+    ["01 KICK", "SF KICK", "ONE Port 1 (A), ch 1", "90 LIVE BUS"],
     ["10 LOW (group)", "SF ENERGY, PROFILE BASS", "", "90 LIVE BUS"],
-    ["11 BASS", "SF BASS", "port B, ch 1", "LOW"],
+    ["11 BASS", "SF BASS", "Port 2 (B), ch 1", "LOW"],
     ["12 RUMBLE", "SF RUMBLE, SOURCE KICK BUS", "none: it follows the kick", "LOW"],
     ["20 DRUMS (group)", "SF ENERGY, PROFILE DRUMS; SF REPEAT", "", "90 LIVE BUS"],
-    ["21 CLOSED", "SF PERC: closed hat", "port A, ch 2", "DRUMS"],
-    ["22 OPEN", "SF PERC: open hat or ride", "port A, ch 3", "DRUMS"],
-    ["23 CLAP", "SF PERC: clap or rim", "port A, ch 4", "DRUMS"],
-    ["24 STRIKE", "SF STRIKE", "port B, ch 6", "DRUMS"],
+    ["21 CLOSED", "SF PERC: closed hat", "Port 1 (A), ch 2", "DRUMS"],
+    ["22 OPEN", "SF PERC: open hat or ride", "Port 1 (A), ch 3", "DRUMS"],
+    ["23 CLAP", "SF PERC: clap or rim", "Port 1 (A), ch 4", "DRUMS"],
+    ["24 STRIKE", "SF STRIKE", "Port 2 (B), ch 6", "DRUMS"],
     ["30 MUSIC (group)", "SF ENERGY, PROFILE MUSIC", "", "90 LIVE BUS"],
-    ["31 ACID", "SF LEAD: ACID 303-TYPE", "port B, ch 2", "MUSIC"],
-    ["32 STAB", "SF LEAD: STAB DUB", "port B, ch 3", "MUSIC"],
-    ["33 TEXTURE", "SF PAD: GRANULAR", "port B, ch 4", "MUSIC"],
-    ["34 VOICE", "SF VOICE", "port B, ch 5", "MUSIC"],
+    ["31 ACID", "SF LEAD: ACID 303-TYPE", "Port 2 (B), ch 2", "MUSIC"],
+    ["32 STAB", "SF LEAD: STAB DUB", "Port 2 (B), ch 3", "MUSIC"],
+    ["33 TEXTURE", "SF PAD: GRANULAR", "Port 2 (B), ch 4", "MUSIC"],
+    ["34 VOICE", "SF VOICE", "Port 2 (B), ch 5", "MUSIC"],
     ["40 BRIDGE", "Live audio clips", "", "Main"],
-    ["41 DECK", "SF DECK", "port B, ch 7 (hot cues; optional)", "Main"],
+    ["41 DECK", "SF DECK", "Port 2 (B), ch 7 (hot cues; optional)", "Main"],
     ["A DUB (return)", "SF DELAY, DRY off", "", "90 LIVE BUS"],
     ["B SPACE (return)", "SF REVERB, DRY off", "", "90 LIVE BUS"],
     ["90 LIVE BUS", "SF ISOLATOR &gt; BUILD &gt; GLUE &gt; TONE &gt; LOWEND; SF ALLOC (off at first)", "sends disabled", "Main"],
@@ -457,7 +457,7 @@ story += bullets(["Main is the set: exporting or resampling it gives the release
                   "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK play on. Mute 92 PA and the speakers go silent while REC keeps recording.",
                   "94 ROOM is the room mics, a stereo pair. Armed, it records them with the set. Its SF CAPTURE never passes them (the set never hears the mics): it only plays SF TERROIR's sweep, to a speaker on the headphone out, when you capture the room (chapter 8)."])
 story.append(H2T("FINISH THE SET: FIVE STEPS"))
-story += numbered(["<b>MIDI From</b> on the twelve MIDI tracks, as in the table above (chapter 3 shows the ONE's side). Every track opens on No Input: an instrument plays nothing until it is set. Never All Ins: every instrument would play every part.",
+story += numbered(["<b>MIDI From</b> on the twelve MIDI tracks, as in the table above (chapter 3 shows the ONE's side; Port 1 is the ONE's bank A, Port 2 bank B). MPE must be off on those ports (chapter 7), or the channel stays at All Channels. Every track opens on No Input: an instrument plays nothing until it is set. Never All Ins: every instrument would play every part.",
                    "<b>Inputs and outputs.</b> 92 PA to the pair that feeds the PA (1/2 in the set). Cue Out, on the Main track, to the headphones (3/4), and 94 ROOM there too. Main to a pair that goes nowhere (5/6). Check all three before any sound reaches a PA: the PA pair carries 92 PA and nothing else. The room mics on inputs 1 and 2 (1: the mic on your left as you face the speaker), and in Live's Settings &gt; Audio &gt; Input Config, 1/2 as a stereo pair: 94 ROOM's input.",
                    "<b>Two computer keys</b> (Cmd-K), never E16 presses: PANIC on SF CONTROL, and 92 PA's activator. Pick keys you can find in the dark.",
                    "<b>Two options:</b> Delay Compensation on; Reduced Latency When Monitoring off.",
@@ -474,13 +474,13 @@ story.append(H2T("WHAT THE ONE BRINGS"))
 story.append(table([["", "OXI ONE MKII"],
     ["SEQUENCERS", "8, each in one of six modes: Mono, Poly (up to 7 voices), Chord (up to 8 voices), Multitrack (8 tracks), Stochastic, Matriceal."],
     ["PATTERNS", "Up to 128 steps; 128 patterns per project."],
-    ["USB", "USB-C for MIDI and power: 32 MIDI channels, as two ports in Live (banks A and B, 16 channels each)."],
+    ["USB", "USB-C for MIDI and power: 32 MIDI channels, as ports in Live: Port 1 is bank A, Port 2 bank B (16 channels each)."],
     ["UNUSED HERE", "TRS MIDI in and out, Bluetooth MIDI, 8 CV and 8 gate outputs, clock in and out. The rig runs on USB alone."]],
     [1.25 * inch, W - 1.25 * inch]))
 story.append(Spacer(1, 3))
 story.append(P("Sources: <link href='https://www.thomann.co.uk/oxi_instruments_one_mkii_black_edition.htm'>Thomann, OXI One MkII</link>; <link href='https://www.milkaudiostore.com/fi/shop/oxi-instruments-oxi-one-black-edition-mk2'>Milk Audio, OXI ONE MkII specifications</link>; <link href='https://www.elektronauts.com/t/oxi-one-hardware-sequencer/141839?page=48'>Elektronauts: banks A and B appear as two USB MIDI devices</link>. Check menus and limits against your firmware's manual.", "smallgrey"))
 story.append(H2T("SEQUENCERS, OUTPUTS, TRACKS"))
-story.append(P("On the ONE an output is a channel and a port: 1A is channel 1 on port A, 16B channel 16 on port B. Set each sequencer's output as below, and each Live track's MIDI From to the same port and channel."))
+story.append(P("On the ONE an output is a channel and a port: 1A is channel 1 on port A, 16B channel 16 on port B. In Live, port A is ONE Port 1 and port B ONE Port 2. Set each sequencer's output as below, and each Live track's MIDI From to the same port and channel."))
 story.append(OxiMap())
 story.append(Spacer(1, 6))
 story += bullets(["<b>KICK lane on C1.</b> With KEY TRACK on, any other note transposes the kick (C1 = TUNE), so C1 is right either way. PERC plays any note.",
@@ -494,12 +494,13 @@ story.append(H2T("CLOCK AND PORTS"))
 story += bullets(["<b>Live is the clock master.</b> On the ONE: USB device mode, sync from USB, Auto Sync on (it starts with Live), Start and Stop accepted, MIDI Thru off. Never send clock both ways.",
                   "<b>Audio:</b> 48 kHz, buffer 256 (Pocket needs 512 or less), launch quantization 1 bar, record quantization off.",
                   "<b>Calibrate once:</b> record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump is still off after that."])
-story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
-    ["ONE port A, in", "on", "off", "off"], ["ONE port B, in", "on", "off", "off"],
-    ["ONE, out (the port it takes clock from)", "off", "on", "off"],
-    ["E16 Port 2, in", "off", "off", "on"], ["E16 Port 2, out", "off", "off", "on"],
-    ["E16 Ports 1 and 3, in and out", "off", "off", "off"]],
-    [3.0 * inch, 0.9 * inch, 0.9 * inch, W - 4.8 * inch]))
+story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE", "MPE"],
+    ["ONE Port 1 (A), in", "on", "off", "off", "off"], ["ONE Port 2 (B), in", "on", "off", "off", "off"],
+    ["ONE, out (the port it takes clock from)", "off", "on", "off", ""],
+    ["E16 Port 2, in", "off", "off", "on", "off"], ["E16 Port 2, out", "off", "off", "on", ""],
+    ["E16 Ports 1 and 3, in and out", "off", "off", "off", "off"]],
+    [2.9 * inch, 0.75 * inch, 0.75 * inch, 0.75 * inch, W - 5.15 * inch]))
+story.append(P("<b>MPE off on the ONE's inputs.</b> With MPE on, Live fixes a track's MIDI From channel at All Channels: no track could take a single channel.", "smallgrey"))
 story.append(H2T("PROJECTS AND PATTERNS"))
 story += bullets(["<b>One ONE project per track</b> (per piece of music), with a pattern per section: SPARSE, MAIN, VARIATION, EXIT.",
                   "<b>Sequencer 8 carries the song.</b> The ONE sends a Program Change (and bank) per pattern: give sequencer 8's patterns the track's song number, output 16B. Loading the project recalls the matching SF song on the bar (chapter 6). Program Change stays off on the musical sequencers.",
@@ -737,6 +738,7 @@ story.append(H2T("TROUBLESHOOTING"))
 story.append(table([["SYMPTOM", "CHECK"],
     ["An instrument doesn't play", "MIDI From: its ONE port and channel, never All Ins. The ONE's sequencer output (1A, 2B ...) matches."],
     ["Every instrument plays every part", "A track's MIDI From is All Ins or All Channels."],
+    ["MIDI From's channel offers only All Channels", "MPE is on for that ONE port: Settings &gt; Link, Tempo &amp; MIDI, MPE off on ONE Port 1 and Port 2."],
     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be SF KICK."],
     ["Pump early or late", "Live buffer 512 or less; the ONE's MIDI Clock Sync Delay; then POCKET OFFSET by ear."],
     ["Songs don't change", "PC ENABLE on, PC CHANNEL 16, sequencer 8 on 16B. The VST3 needs Live 12.2 or later; otherwise use the AU."],

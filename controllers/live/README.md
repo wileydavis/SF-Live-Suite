@@ -57,29 +57,32 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
   The set uses the VST3s: SF ALLOC lists its sources by track name only in VST3.
 - Live's MIDI ports as `controllers/e16/README.md`, step 3 (E16 Port 2 Remote, input and output;
   Ports 1 and 3 off; Takeover Mode Value Scaling), and the ONE's ports as chapter 7, CLOCK, MIDI AND
-  LATENCY.
+  LATENCY. Live lists the ONE's USB banks as ports: **Port 1 is bank A, Port 2 bank B** (Port 3,
+  bank C, unused). **MPE off** on every ONE input: with MPE on, Live fixes a track's MIDI From
+  channel at All Channels and no single channel can be chosen.
 
 ## 2. OPEN IT, THEN FINISH IT
 
 Live names MIDI ports and audio inputs and outputs after your devices, so the first two belong to your rig:
 
 1. **MIDI From** on twelve tracks. Each is No Input until you set it: an instrument plays nothing
-   until then, and never All Ins (every instrument would play every part).
+   until then, and never All Ins (every instrument would play every part). Channel stuck at All Channels: MPE is
+   on for that ONE port (section 1).
 
    | TRACK | MIDI FROM |
    |---|---|
-   | 00 CONTROL | ONE port B, ch 16 |
-   | 01 KICK | ONE port A, ch 1 |
-   | 11 BASS | ONE port B, ch 1 |
-   | 21 CLOSED | ONE port A, ch 2 |
-   | 22 OPEN | ONE port A, ch 3 |
-   | 23 CLAP | ONE port A, ch 4 |
-   | 24 STRIKE | ONE port B, ch 6 |
-   | 31 ACID | ONE port B, ch 2 |
-   | 32 STAB | ONE port B, ch 3 |
-   | 33 TEXTURE | ONE port B, ch 4 |
-   | 34 VOICE | ONE port B, ch 5 |
-   | 41 DECK | ONE port B, ch 7 (hot cues; optional) |
+   | 00 CONTROL | ONE Port 2 (B), ch 16 |
+   | 01 KICK | ONE Port 1 (A), ch 1 |
+   | 11 BASS | ONE Port 2 (B), ch 1 |
+   | 21 CLOSED | ONE Port 1 (A), ch 2 |
+   | 22 OPEN | ONE Port 1 (A), ch 3 |
+   | 23 CLAP | ONE Port 1 (A), ch 4 |
+   | 24 STRIKE | ONE Port 2 (B), ch 6 |
+   | 31 ACID | ONE Port 2 (B), ch 2 |
+   | 32 STAB | ONE Port 2 (B), ch 3 |
+   | 33 TEXTURE | ONE Port 2 (B), ch 4 |
+   | 34 VOICE | ONE Port 2 (B), ch 5 |
+   | 41 DECK | ONE Port 2 (B), ch 7 (hot cues; optional) |
 
 2. **Inputs and outputs.** 92 PA to the pair that feeds the PA (the set has 1/2). Cue Out, on the
    Main track, to the headphones (3/4; Live cues only when it differs from Main's), and 94 ROOM there

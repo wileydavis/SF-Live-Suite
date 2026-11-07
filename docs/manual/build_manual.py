@@ -233,23 +233,23 @@ story.append(P("The set is built: <b>controllers/live/SF SHOW.als</b> in the rep
 
 story.append(H2("TRACKS"))
 story.append(table([["TRACK", "DEVICES", "MIDI FROM"],
-    ["00 CONTROL", "SF CONTROL", "ONE port B, ch 16"],
-    ["01 KICK", "SF KICK", "ONE port A, ch 1"],
+    ["00 CONTROL", "SF CONTROL", "ONE Port 2 (B), ch 16"],
+    ["01 KICK", "SF KICK", "ONE Port 1 (A), ch 1"],
     ["10 LOW (group)", "SF ENERGY, PROFILE BASS", ""],
-    ["11 BASS", "SF BASS", "port B, ch 1"],
+    ["11 BASS", "SF BASS", "Port 2 (B), ch 1"],
     ["12 RUMBLE", "SF RUMBLE, SOURCE KICK BUS", "none: it follows the kick"],
     ["20 DRUMS (group)", "SF ENERGY, PROFILE DRUMS; SF REPEAT", ""],
-    ["21 CLOSED", "SF PERC: closed hat", "port A, ch 2"],
-    ["22 OPEN", "SF PERC: open hat or ride", "port A, ch 3"],
-    ["23 CLAP", "SF PERC: clap or rim", "port A, ch 4"],
-    ["24 STRIKE", "SF STRIKE", "port B, ch 6"],
+    ["21 CLOSED", "SF PERC: closed hat", "Port 1 (A), ch 2"],
+    ["22 OPEN", "SF PERC: open hat or ride", "Port 1 (A), ch 3"],
+    ["23 CLAP", "SF PERC: clap or rim", "Port 1 (A), ch 4"],
+    ["24 STRIKE", "SF STRIKE", "Port 2 (B), ch 6"],
     ["30 MUSIC (group)", "SF ENERGY, PROFILE MUSIC", ""],
-    ["31 ACID", "SF LEAD: ACID 303-TYPE or another mono lead", "port B, ch 2"],
-    ["32 STAB", "SF LEAD: chords and stabs", "port B, ch 3"],
-    ["33 TEXTURE", "SF PAD, often GRANULAR", "port B, ch 4"],
-    ["34 VOICE", "SF VOICE: phrases, radio fragments, choir", "port B, ch 5"],
+    ["31 ACID", "SF LEAD: ACID 303-TYPE or another mono lead", "Port 2 (B), ch 2"],
+    ["32 STAB", "SF LEAD: chords and stabs", "Port 2 (B), ch 3"],
+    ["33 TEXTURE", "SF PAD, often GRANULAR", "Port 2 (B), ch 4"],
+    ["34 VOICE", "SF VOICE: phrases, radio fragments, choir", "Port 2 (B), ch 5"],
     ["40 BRIDGE", "Live audio clips", ""],
-    ["41 DECK", "SF DECK", "port B, ch 7 (hot cues; optional)"],
+    ["41 DECK", "SF DECK", "Port 2 (B), ch 7 (hot cues; optional)"],
     ["A DUB (return)", "SF DELAY, DRY off", ""],
     ["B SPACE (return)", "SF REVERB, DRY off", ""],
     ["90 LIVE BUS", "SF ISOLATOR > SF BUILD > SF GLUE > SF TONE > SF LOWEND; SF ALLOC (off at first)", ""],
@@ -273,7 +273,7 @@ story.append(table([["TRACK", "INPUT / MONITOR", "OUTPUT"],
     ["Groups, returns A and B", "", "90 LIVE BUS"],
     ["90 LIVE BUS", "the tracks routed to it, Monitor In, every send disabled", "Main"],
     ["40 BRIDGE", "clips, Monitor Off (clips still play)", "Main"],
-    ["41 DECK", "MIDI From port B ch 7, Monitor In", "Main"],
+    ["41 DECK", "MIDI From ONE Port 2 (B) ch 7, Monitor In", "Main"],
     ["Main", "", "an output pair that goes nowhere"],
     ["92 PA", "Audio From Resampling, Monitor In, sends disabled", "the PA outputs"],
     ["93 REC", "Audio From Resampling, Monitor Off, sends disabled", "Sends Only"],
@@ -294,7 +294,7 @@ story += bullets(["Start GLUE, TONE and LOWEND gently: the set doesn't need ever
                   "SF ALLOC off at first. Turn it on band by band once the arrangement is known. It measures each source before its LEVEL and before Live's fader, so a source you've faded out still claims its bands: take a source out with its lane mute or its FILTER, or switch its ALLOC off."])
 
 story.append(H2("THE OXI ONE"))
-story.append(P("Port A carries the drums, port B everything pitched and SF CONTROL. Every sequencer has its own channel; in Live, set every track's MIDI From to its port and channel, never All Ins / All Channels."))
+story.append(P("Port A (ONE Port 1 in Live) carries the drums, port B (ONE Port 2) everything pitched and SF CONTROL. Every sequencer has its own channel; in Live, set every track's MIDI From to its port and channel, never All Ins / All Channels."))
 story.append(table([["SEQUENCER", "MODE", "OUTPUT", "TRACK"],
     ["1 DRUMS", "Multitrack: lane 1-4 on ch 1-4", "port A", "KICK, CLOSED, OPEN, CLAP (lanes 5-8 spare)"],
     ["2 BASS", "Mono", "port B ch 1", "BASS"],
@@ -312,11 +312,12 @@ story += bullets(["KICK lane on C1: with KEY TRACK on, any other note transposes
                   "When patterns change is set on the ONE (its launch and arranger settings): Live's launch quantization doesn't reach it."])
 
 story.append(H2("CLOCK, MIDI AND LATENCY"))
-story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
-    ["ONE port A in", "on", "off", "off"], ["ONE port B in", "on", "off", "off"],
-    ["ONE out (the one it takes clock from)", "off", "on", "off"], ["E16 Port 2 in", "off", "off", "on"], ["E16 Port 2 out", "off", "off", "on"],
-    ["E16 Ports 1 and 3, in and out", "off", "off", "off"]],
-    [2.6 * inch, 0.9 * inch, 0.9 * inch, W - 4.4 * inch]))
+story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE", "MPE"],
+    ["ONE Port 1 (A) in", "on", "off", "off", "off"], ["ONE Port 2 (B) in", "on", "off", "off", "off"],
+    ["ONE out (the one it takes clock from)", "off", "on", "off", ""], ["E16 Port 2 in", "off", "off", "on", "off"], ["E16 Port 2 out", "off", "off", "on", ""],
+    ["E16 Ports 1 and 3, in and out", "off", "off", "off", "off"]],
+    [2.6 * inch, 0.75 * inch, 0.75 * inch, 0.75 * inch, W - 4.85 * inch]))
+story.append(P("MPE off on the ONE's inputs: with MPE on, Live fixes a track's MIDI From channel at All Channels.", "smallgrey"))
 story.append(Spacer(1, 6))
 story += bullets(["Live is the clock master. On the ONE: USB device mode, sync from USB, Auto Sync on (it starts with Live), Start and Stop accepted, MIDI Thru off. Never send clock both ways.",
                   "Audio: 48 kHz, buffer 256 (Pocket needs 512 or less), Delay Compensation on, <b>Reduced Latency When Monitoring off</b> (it skips compensation on monitored tracks, so returns and Pocket drift), launch quantization 1 bar, record quantization off.",

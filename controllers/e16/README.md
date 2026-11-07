@@ -65,11 +65,15 @@ and turn it, Cmd-M off, save.
 
 ## 3. LIVE SETTINGS (Settings > Link, Tempo & MIDI)
 
-| PORT | TRACK | SYNC | REMOTE |
-|---|---|---|---|
-| OXI E16 Port 2, input | off | off | **on** |
-| OXI E16 Port 2, output | off | off | **on** |
-| OXI E16 Port 1 and Port 3, input and output | off | off | off |
+| PORT | TRACK | SYNC | REMOTE | MPE |
+|---|---|---|---|---|
+| OXI E16 Port 2, input | off | off | **on** | off |
+| OXI E16 Port 2, output | off | off | **on** | |
+| OXI E16 Port 1 and Port 3, input and output | off | off | off | off |
+| OXI ONE Port 1 (bank A) and Port 2 (bank B), input | **on** | off | off | **off** |
+
+- **MPE off on the ONE's inputs:** with MPE on, Live fixes a track's MIDI From channel at All
+  Channels, and no track can take a single channel.
 
 - Port 1 belongs to the OXI App. The E16 sends every message on all its ports, so a second port with
   Remote on would double it: a FREEZE press would flip twice and do nothing.
