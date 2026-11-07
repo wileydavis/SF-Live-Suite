@@ -31,7 +31,7 @@ depend on it.
 
 | SEQ | PART | MODE | CH | OUT | PC |
 |---|---|---|---|---|---|
-| 1 | DRUMS | MULTITRACK | per lane: 1A KICK, 2A CLOSED, 3A OPEN, 4A CLAP; lanes 5-8 spare | USB | off |
+| 1 | DRUMS | MULTITRACK | per track, top row down: 8 KICK 1A, 7 STRIKE 6B, 6 CLAP 4A, 5 OPEN 3A, 4 CLOSED 2A; 3-1 off | USB | off |
 | 2 | BASS | MONO | 1B | USB | off |
 | 3 | ACID | MONO | 2B | USB | off |
 | 4 | STAB | MONO | 3B | USB | off |
@@ -40,8 +40,10 @@ depend on it.
 | 7 | STRIKE | MONO | 6B | USB | off |
 | 8 | CONTROL | MONO, no notes | 16B | USB | set per song, on pattern 1 |
 
-- **Drum lanes:** lane 1 is the bottom row. Tap a lane's first pad to select it, then **Track**,
-  **Knob 1** for its channel. The KICK lane plays C1.
+- **Drum tracks:** track 1 is the bottom row, track 8 the top. Hold a track's first pad to select
+  it, then **Track**, **Knob 1** for its channel. Any order works, since each track names its channel;
+  SF START keeps the kick on top (the lessons build theirs from the bottom: 1 KICK, 2 CLOSED, 3 OPEN,
+  4 CLAP).
 - **STAB and TEXTURE play single notes:** SF LEAD's CHORD (or its model's own chord) voices the stab.
   For whole chords from the ONE, set that sequencer to CHORD or POLY and the plugin's CHORD to NONE.
   Never both.
@@ -74,12 +76,11 @@ table:
 | 3, 4, 6 | Mono 2B, 3B, 5B, Out ALL | the same, Out USB |
 | 5 | Chord 4B, Out ALL | Mono 4B, Out USB |
 | 7 | Multitrack, no channel | Mono 6B, Out USB |
-| 8 | Multitrack, channel byte 8A | Mono 16B, Out USB; PC 1 (the reading below) |
+| 8 | Multitrack, channel byte 8A | Mono 16B, Out USB; PC off |
 
-The beat on sequencer 1: lane 1 on the beats, lane 4 on the off-beats, lane 5 on every eighth. Its
-lane channels read (below) 1A, 6B, 4A, 3A, 2A for lanes 1-5: the kick to KICK, the off-beats to OPEN,
-the eighths to CLOSED, lane 3 to CLAP and lane 2 to STRIKE. That routes every part to its track, in
-another lane order than the table's (1-4: KICK, CLOSED, OPEN, CLAP).
+The beat on sequencer 1 (a test, not meant to stay): KICK on the beats, CLOSED on every eighth, OPEN
+on the off-beats. Its tracks, as the ONE shows them: 8 KICK 1A, 7 STRIKE 6B, 6 CLAP 4A, 5 OPEN 3A, 4
+CLOSED 2A, 3-1 off. Every sequencer's Program Change is off.
 
 ## THE FILE FORMAT, AS FAR AS IT IS READ
 
@@ -99,13 +100,20 @@ spec.
   the byte after the channel, Mono +0x0CBE, Multitrack +0x2A31. 0 ALL (the default), 2 USB.
 - **Mono steps:** 128 records of 24 bytes from +0x04. Byte 0 the note (FF none, 0 the root), byte 1
   the velocity (75 by default), byte 3 the gate (50).
-- **Multitrack steps:** 128 records of 81 bytes from +0x04. Byte 0 the lanes that play (bit 0 lane
-  1), then per lane: the velocity at +9 to +16 (75), the gate at +17 to +24 (50).
-- **Program Change, probably:** the header, 6 bytes per sequencer from 0x2103, the PC at 0x2104 + 6
-  × (seq - 1): 0 OFF, n PC n. Only one byte of the header changed between the saves, in sequencer 8's
-  place, to 1: unconfirmed until a ONE shows sequencer 8's PC as 1.
-- **Lane channels, probably:** +0x288C, one byte per lane, 1-based (1 is 1A, 17 is 1B), 0 the
-  sequencer's own. +0x2894 holds 1 to 8 in every multitrack (lane numbers, or notes). Unconfirmed.
+- **Multitrack:** the tracks are stored top row first: index 0 is track 8, index 7 track 1.
+  - Steps: 128 records of 81 bytes from +0x04. Byte 0 the tracks that play (bit 0 track 8), then
+    per track: the velocity at +9 to +16 (75), the gate at +17 to +24 (50).
+  - Track channels: +0x288C, one byte per track, 1-based (1 is 1A, 17 is 1B), 0 off. Confirmed: the
+    ONE showed 8 1A, 7 6B, 6 4A, 5 3A, 4 2A, 3-1 off; the bytes read 01 16 04 03 02 00 00 00.
+  - +0x2894 holds 1 to 8 in every multitrack (track numbers, or notes).
+  - Every byte between an empty multitrack and one with a beat is a trigger, a track channel or the
+    group's base, x and y; between an empty Mono and one with notes, a note, a velocity, the base or
+    the channel.
+- **Header, per pattern slot:** 128 entries of 16 bytes from 0x12 (sequencer s, slot p at 0x12 + 16
+  × (16s + p)): a flag (1 on every slot 1, the only slots in use), the sequencer's colour, the name
+  ("Pattern 1"). Whether the flag means "in use" or "loaded" needs a save with another slot in use.
+- **Program Change:** not found. All eight are off in both saves; the one header byte that changed
+  between them (0x212E, 0 to 1) is something else.
 - Tempo, probably: 0x10 reads 1320 in both saves.
 - Not found: clock and sync (the ONE's config, not the project's).
 
