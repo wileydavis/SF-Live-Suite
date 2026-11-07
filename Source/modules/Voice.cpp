@@ -14,14 +14,15 @@ namespace sf
 class VoiceModule : public Module
 {
 public:
-    enum { SIGNAL, TONE, GATE, DENS, FILT, ECHO, DRIVE, LEVEL, MODEL, SLICEMODE, TUNE, ECHOTIME, ECHOFB, PDEPTH, PSHAPE, ESPACE, ALLOCON, KEYFOLLOW };
+    // SSTART: the phrase's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
+    enum { SIGNAL, TONE, GATE, DENS, FILT, ECHO, DRIVE, LEVEL, MODEL, SLICEMODE, TUNE, ECHOTIME, ECHOFB, PDEPTH, PSHAPE, ESPACE, ALLOCON, KEYFOLLOW, SSTART };
     std::string id() const override { return "VOICE"; }
     bool instrument() const override { return true; }
     int latency() const override { return Pocket::kLatency; }
     double tailSeconds() const override { return 10.0; }
     std::vector<ParamSpec> params() const override
     {
-        return { pct ("signal", "SIGNAL", 0.6f).prim().dir (1),
+        return withRegion ({ pct ("signal", "SIGNAL", 0.6f).prim().dir (1),
                  pct ("tone", "TONE", 0.5f).prim(),
                  pct ("gate", "GATE", 0.6f).prim(),
                  pct ("density", "DENSITY", 0.0f).prim().dir (1),
@@ -38,7 +39,7 @@ public:
                  pct ("pocket_shape", "POCKET SHAPE", 0.3f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP PHRASE (C3 = SLICE 1)"; }
@@ -81,6 +82,7 @@ public:
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), 0.0f, 1.0f, true);
         const SampleData* smp = sample.audio();
+        const SampleRegion reg = smp != nullptr ? regionFrom (c, SSTART, *smp) : SampleRegion();    // a note started now plays in this part
         const int model = c.ci (MODEL);
         int autoOff; float relMul;
         gateShape (c.v (GATE), c.samplesPerBeat(), autoOff, relMul);
@@ -117,7 +119,7 @@ public:
             while (e < events.size() && events[e].offset <= i)
             {
                 const auto& ev = events[e++];
-                if (ev.on) noteOn (ev, smp, c.ci (SLICEMODE), autoOff, relMul);
+                if (ev.on) noteOn (ev, smp, c.ci (SLICEMODE), autoOff, relMul, reg);
                 else noteOff (ev.note, ev.gen);
             }
             float x = 0.0f;
@@ -130,7 +132,7 @@ public:
                     if (ip + 2 >= play.end || ip + 2 >= len) play.active = false;
                     else
                     {
-                        const float a = 0.5f * (smp->read (0, play.pos, rate) + smp->read (1, play.pos, rate));
+                        const float a = 0.5f * (smp->read (0, play.pos, rate) + smp->read (1, play.pos, rate)) * play.reg.gain (play.pos);
                         float env = std::min (1.0f, (float) (play.pos - play.start) / (0.003f * (float) sr) + 0.001f);
                         if (play.releasing) { play.rel *= play.relCoef; env *= play.rel; if (play.rel < 1e-4f) play.active = false; }
                         if (play.autoOff > 0 && --play.autoOff == 0) startRelease (relMul);
@@ -175,6 +177,8 @@ public:
         dispSlice = play.active ? play.slice : -1;
     }
 
+    // The phrase: the part that plays bright, its slices (the one playing green), START and END to
+    // drag over it.
     int displayHeight() const override { return 110; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
@@ -182,48 +186,33 @@ public:
         auto in = r.reduced (8, 18);
         auto s = sample.get();
         if (s == nullptr) { ui::label (g, "NO PHRASE: FORMANT CHOIR PLAYS THE NOTES", in, ui::kFaint, 11.0f, juce::Justification::centred); return; }
-        const int n = s->length();
-        g.setColour (ui::kDim);
-        const int w = (int) in.getWidth();
-        for (int x = 0; x < w; ++x)
-        {
-            const int a = (int) ((double) x / w * n), b = std::min (n, (int) ((double) (x + 1) / w * n));
-            float pk = 0; for (int k = a; k < b; k += 8) pk = std::max (pk, std::fabs (s->buf.getSample (0, k)));
-            const float h = pk / s->peak * in.getHeight() * 0.5f;
-            g.drawVerticalLine ((int) in.getX() + x, in.getCentreY() - h, in.getCentreY() + h);
-        }
-        const int count = sliceCount (*s, sliceModeDisp);
+        const int n = std::max (1, s->length());
+        const auto reg = SampleStrip::regionOf (*s, *this, SSTART);
+        SampleStrip::drawRegion (g, in, *s, reg);
+        const int count = Slices::count (*s, sliceModeDisp, reg);
         for (int k = 0; k < count; ++k)
         {
-            const float x = in.getX() + (float) sliceStart (*s, sliceModeDisp, k) / (float) n * in.getWidth();
+            const float x = in.getX() + (float) (Slices::start (*s, sliceModeDisp, k, reg) / n) * in.getWidth();
             g.setColour ((int) k == dispSlice.load() ? ui::kGreen : ui::kText);
             g.drawVerticalLine ((int) x, in.getY(), in.getBottom());
             ui::label (g, juce::MidiMessage::getMidiNoteName (60 + (int) k, true, true, 3), { x + 2, in.getY(), 30, 12 }, ui::kFaint, 9.0f);
         }
+        ui::label (g, SampleStrip::times (*s, reg), r.reduced (8, 2).removeFromTop (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
         ui::label (g, s->name.toUpperCase(), r.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
     }
+    void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
+    {
+        if (sample.get() != nullptr) strip.mouse (p, r.reduced (8, 18), down, *this, SSTART);
+        else if (down) strip.up();
+    }
+    void displayMouseUp() override { strip.up(); }
 
 private:
     static constexpr int kVb = 16;
-    struct Play { bool active = false, releasing = false; double pos = 0, start = 0; int end = 0, slice = -1, autoOff = -1; float vel = 1, rel = 1, relCoef = 0.999f; };
+    struct Play { bool active = false, releasing = false; double pos = 0, start = 0; int end = 0, slice = -1, autoOff = -1; float vel = 1, rel = 1, relCoef = 0.999f; SampleRegion reg; };
     struct ChoirVoice { bool active = false; int note = 0, gen = 0; float f = 220, a = 0, target = 0; Osc osc; Svf fm[3]; };
 
-    // Slice layout without allocation (audio thread): count, and the start of slice k.
-    static int sliceCount (const SampleData& s, int mode)
-    {
-        if (mode == 0) return std::max (1, (int) s.slices.size());
-        if (mode == 1) return 8;
-        if (mode == 2) return 16;
-        return 1;
-    }
-    static int sliceStart (const SampleData& s, int mode, int k)
-    {
-        if (mode == 0) return s.slices.empty() ? 0 : s.slices[(size_t) juce::jlimit (0, (int) s.slices.size() - 1, k)];
-        if (mode == 1 || mode == 2) return (int) ((long long) s.length() * k / (mode == 1 ? 8 : 16));
-        return 0;
-    }
-
-    void noteOn (const NoteEvent& ev, const SampleData* s, int sliceMode, int autoOff, float relMul)
+    void noteOn (const NoteEvent& ev, const SampleData* s, int sliceMode, int autoOff, float relMul, const SampleRegion& reg)
     {
         sliceModeDisp = sliceMode;
         if (s == nullptr)
@@ -235,11 +224,12 @@ private:
             for (int k = 0; k < 3; ++k) v->fm[k].set (formant[k], 8.0f, sr);
             return;
         }
-        const int count = sliceCount (*s, sliceMode);
+        const int count = Slices::count (*s, sliceMode, reg);
         const int idx = ev.note - 60;
         play.slice = (idx >= 0 && sliceMode != 3) ? std::min (idx, count - 1) : -1;
-        play.start = play.slice >= 0 ? sliceStart (*s, sliceMode, play.slice) : 0;
-        play.end = play.slice >= 0 && play.slice + 1 < count ? sliceStart (*s, sliceMode, play.slice + 1) : s->length();
+        play.start = play.slice >= 0 ? Slices::start (*s, sliceMode, play.slice, reg) : reg.start;
+        play.end = play.slice >= 0 && play.slice + 1 < count ? (int) Slices::start (*s, sliceMode, play.slice + 1, reg) : (int) reg.end;
+        play.reg = reg;
         play.pos = play.start;
         play.active = true; play.releasing = false; play.rel = 1.0f;
         play.vel = (0.5f + 0.5f * ev.vel) * ev.gain;      // velocity response, then the DENSITY fade
@@ -325,6 +315,7 @@ private:
     float heldY = 0, keyShift = 0, formant[3] { 800, 1150, 2900 };
     int holdN = 0, sliceModeDisp = 0;
     std::atomic<int> dispSlice { -1 };
+    SampleStrip strip;                  // START and END dragged on the phrase
 };
 ModulePtr makeVOICE() { return std::make_unique<VoiceModule>(); }
 } // namespace sf

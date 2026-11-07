@@ -32,6 +32,7 @@ inline float readAt (const juce::AudioBuffer<float>& b, const Mips& m, int ch, d
 
 struct SampleData
 {
+    static constexpr int kOverview = 1024;
     juce::AudioBuffer<float> buf;   // stereo, at the module's sample rate
     double sr = 48000.0;
     juce::String name;
@@ -43,10 +44,60 @@ struct SampleData
     float flacGain = 1.0f;          // the copy is scaled to fit FLAC's range: multiply back by this
     float peak = 1.0f;
     Mips mips;                      // octave-down copies of buf (readAt)
+    std::vector<float> overview;    // kOverview parts: the largest |x| of either channel in each, over the peak (displays)
     int length() const { return buf.getNumSamples(); }
     float read (int ch, double pos, double rate) const { return readAt (buf, mips, ch, pos, rate); }
 };
 using SamplePtr = std::shared_ptr<const SampleData>;
+
+// The part of a sample that plays: START to END (fractions of it), FADE IN after START and FADE OUT
+// before END (raised cosine). The fades are in the sample's own time (ms of it as recorded): played
+// higher, they pass faster, as the sample does. A point inside the sample always fades for 1 ms at
+// least, so a cut into a waveform never clicks; at the sample's own ends a fade of 0 is none. At
+// the defaults (0, 100 %, 0, 0) it is the whole sample, no fades: as before these existed, to the bit.
+// (Knob values within a hair of a default count as it: smoothing settles a step short of a target.)
+struct SampleRegion
+{
+    double start = 0.0, end = 0.0, fadeIn = 0.0, fadeOut = 0.0;    // in the sample's samples; end: one past
+    static SampleRegion of (const SampleData& s, float startFrac, float endFrac, float fadeInMs, float fadeOutMs)
+    {
+        SampleRegion r;
+        const double n = (double) s.length(), one = std::max (2.0, 0.001 * s.sr);
+        if (n <= 0.0) return r;
+        const bool cutStart = startFrac > 1.0e-4f, cutEnd = endFrac < 0.9999f;
+        r.start = cutStart ? std::min ((double) juce::jlimit (0.0f, 1.0f, startFrac) * n, std::max (0.0, n - one)) : 0.0;
+        r.end = cutEnd ? std::min (n, std::max ((double) juce::jlimit (0.0f, 1.0f, endFrac) * n, r.start + one)) : n;
+        r.fadeIn = fadeInMs > 0.01f ? (double) fadeInMs * 0.001 * s.sr : 0.0;
+        r.fadeOut = fadeOutMs > 0.01f ? (double) fadeOutMs * 0.001 * s.sr : 0.0;
+        if (cutStart) r.fadeIn = std::max (r.fadeIn, 0.001 * s.sr);
+        if (cutEnd) r.fadeOut = std::max (r.fadeOut, 0.001 * s.sr);
+        if (const double len = r.end - r.start, both = r.fadeIn + r.fadeOut; both > len && both > 0.0) { r.fadeIn *= len / both; r.fadeOut *= len / both; }
+        return r;
+    }
+    static SampleRegion whole (const SampleData& s) { SampleRegion r; r.end = (double) s.length(); return r; }
+    double length() const { return end - start; }
+    int last() const { return (int) end; }      // a read stops 2 samples before it, as at the sample's end
+    // The fades' gain at a position (1 outside them).
+    float gain (double pos) const
+    {
+        float g = 1.0f;
+        if (fadeIn > 0.0 && pos < start + fadeIn) g = rc ((pos - start) / fadeIn);
+        if (fadeOut > 0.0 && pos > end - fadeOut) g *= rc ((end - pos) / fadeOut);
+        return g;
+    }
+    static float rc (double x) { return x <= 0.0 ? 0.0f : x >= 1.0 ? 1.0f : (float) (0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * x)); }
+};
+
+// VOICE's slices of a phrase, in the part of it that plays (reg); allocation-free (audio thread).
+// mode: 0 AUTO, 1 EQUAL 8, 2 EQUAL 16, 3 WHOLE. AUTO: the onsets from START to END, START itself the
+// first slice's start unless an onset follows it within 40 ms (as the analysis does at the phrase's
+// own start). EQUAL 8 / 16: START to END in equal parts. WHOLE: one, from START. The whole phrase
+// (START 0, END 100 %): the slices as they were before regions, to the sample.
+struct Slices
+{
+    static int count (const SampleData& s, int mode, const SampleRegion& reg);
+    static double start (const SampleData& s, int mode, int k, const SampleRegion& reg);    // in the phrase's samples
+};
 
 // Decode, resample to `targetSr` (windowed sinc), analyse. Returns null on failure.
 // Message/background thread. Files longer than maxSeconds are cut there.

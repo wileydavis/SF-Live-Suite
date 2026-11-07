@@ -40,12 +40,13 @@ static std::vector<std::string> kickModelNames() { std::vector<std::string> v; f
 class KickModule : public Module
 {
 public:
-    enum { TUNE, DECAY, PUNCH, CLICK, DRIVE, FILT, DENS, LEVEL, MODEL, LAYERMODEL, LAYER, PTIME, VELSENS, ESPACE, ESWING, KEYTRACK, RES, ALLOCON, KEYFOLLOW };
+    // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
+    enum { TUNE, DECAY, PUNCH, CLICK, DRIVE, FILT, DENS, LEVEL, MODEL, LAYERMODEL, LAYER, PTIME, VELSENS, ESPACE, ESWING, KEYTRACK, RES, ALLOCON, KEYFOLLOW, SSTART };
     std::string id() const override { return "KICK"; }
     bool instrument() const override { return true; }
     std::vector<ParamSpec> params() const override
     {
-        return { knob ("tune", "TUNE", -12.0f, 12.0f, 0.0f, "st").prim(),
+        return withRegion ({ knob ("tune", "TUNE", -12.0f, 12.0f, 0.0f, "st").prim(),
                  pct ("decay", "DECAY", 0.5f).prim().dir (1),
                  pct ("punch", "PUNCH", 0.5f).prim().dir (1),
                  pct ("click", "CLICK", 0.5f).prim(),
@@ -63,7 +64,7 @@ public:
                  toggle ("key_track", "KEY TRACK"),
                  pct ("res", "FILTER RES", 0.1f),
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -100,6 +101,7 @@ public:
         unsigned tick = 0;
         Svf res;
         float srate = 1.0f, gate = 1.0e9f;
+        SampleRegion reg;                   // SAMPLE: the part of the sample this hit plays
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.01f, decay)) : 0.0f; }
     };
 
@@ -157,14 +159,25 @@ public:
         v.lp = m.lp * std::pow (0.6f, (float) gen);
         v.srate = semis (tune);
         if (model == kNumKickModels - 1)
-            if (auto s = smp) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.srate, gen);
+            if (auto s = smp)
+            {
+                // From START; DECAY's gate measures the part that plays.
+                v.reg = regionFrom (c, SSTART, *s);
+                v.phase = v.reg.start;
+                v.gate = sampleGateSeconds (c.v (DECAY), (float) (v.reg.length() / s->sr) / v.srate, gen);
+            }
         if (publish)
         {
             float hp, lp;
             DJFilter::corners (c.v (FILT), hp, lp);
             float f1r = v.f1, f0r = v.f0, decr = v.decay;
             if (model == kNumKickModels - 1)
-                if (auto s = smp) { f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate)); }
+                if (auto s = smp)
+                {
+                    f1r = s->rootHz > 20 && s->rootHz < 200 ? s->rootHz * v.srate : 50.0f; f0r = f1r * 2.0f; decr = std::max (0.02f, std::min (s->decaySec * 0.4f, v.gate));
+                    // A cut sample is over at END, whatever its own decay.
+                    if (v.reg.start > 0.0 || v.reg.end < (double) s->length()) decr = std::max (0.02f, std::min (decr, (float) (v.reg.length() / s->sr) / v.srate));
+                }
             // The hit's velocity (not the voice's mix gain): layering must not make pockets shallower.
             c.bus->publishKick ({ c.ppqAt (offset), std::min (1.0f, vel * fade), f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
         }
@@ -177,12 +190,13 @@ public:
         float y = 0.0f;
         if (v.model == kNumKickModels - 1)
         {
-            if (s == nullptr || (int) v.phase + 2 >= s->length()) { v.active = false; return 0.0f; }
+            if (s == nullptr || (int) v.phase + 2 >= (v.reg.end > 0.0 ? std::min (s->length(), v.reg.last()) : s->length())) { v.active = false; return 0.0f; }
             const double rate = v.srate * 0.5;               // input samples per output (2x) sample
             y = 0.5f * (s->read (0, v.phase, rate) + s->read (1, v.phase, rate)) * v.vel;
             const float g = sampleGateGain (t, v.gate);
             if (g <= 0.0f) { v.active = false; return 0.0f; }
             y *= g;
+            y *= v.reg.gain (v.phase);
             v.t += 1.0 / osr;
             v.phase += v.srate * 0.5;
         }
@@ -254,9 +268,14 @@ public:
         }
         out.process (c, io, FILT, RES, 0.0f, 0.0f, c.b (ALLOCON), LEVEL);
     }
-    int displayHeight() const override { return 70; }
+    // OUTPUT; under it, with a sample loaded, the sample (its START and END to drag).
+    int displayHeight() const override { return kOwn + (sample.get() != nullptr ? SampleStrip::kHeight : 0); }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
+        auto s = sample.get();
+        const auto st = SampleStrip::frameIn (r, kOwn);
+        if (s != nullptr && ! st.isEmpty()) strip.paint (g, st, *s, *this, SSTART);
+        r = r.withHeight ((float) kOwn);
         ui::frame (g, r, "OUTPUT");
         auto in = r.reduced (8, 18);
         juce::Path p;
@@ -268,10 +287,18 @@ public:
             if (i == 0) p.startNewSubPath (x, in.getBottom() - v * in.getHeight()); else p.lineTo (x, in.getBottom() - v * in.getHeight());
         }
         g.setColour (ui::kText); g.strokePath (p, juce::PathStrokeType (1.0f));
-        auto s = sample.get();
-        ui::label (g, s ? "SAMPLE " + s->name.toUpperCase() : "NO SAMPLE", r.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
+        if (s == nullptr) ui::label (g, "NO SAMPLE", r.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
+        else if (st.isEmpty()) ui::label (g, "SAMPLE " + s->name.toUpperCase(), r.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f, juce::Justification::centredRight);
     }
+    void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
+    {
+        if (const auto st = SampleStrip::frameIn (r, kOwn); ! st.isEmpty() && sample.get() != nullptr) strip.mouse (p, SampleStrip::wave (st), down, *this, SSTART);
+        else if (down) strip.up();
+    }
+    void displayMouseUp() override { strip.up(); }
 private:
+    static constexpr int kOwn = 70;     // OUTPUT
+    SampleStrip strip;
     struct DecimHist { std::atomic<float> v[512] {}; int w = 0, k = 0; float acc = 0; void push (float x) { acc = std::max (acc, x); if (++k >= 512) { v[w].store (std::min (1.0f, acc)); w = (w + 1) % 512; k = 0; acc = 0; } } };
     double sr = 48000.0, osr = 96000.0;
     Halfband dec;
@@ -310,12 +337,13 @@ static std::vector<std::string> percModelNames() { std::vector<std::string> v; f
 class PercModule : public Module
 {
 public:
-    enum { TUNE, DECAY, TONE, DENS, FILT, ACCENT, DRIVE, LEVEL, MODEL, ESPACE, ESWING, EPROB, CHOKE, SPREAD, RES, ALLOCON };
+    // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
+    enum { TUNE, DECAY, TONE, DENS, FILT, ACCENT, DRIVE, LEVEL, MODEL, ESPACE, ESWING, EPROB, CHOKE, SPREAD, RES, ALLOCON, SSTART };
     std::string id() const override { return "PERC"; }
     bool instrument() const override { return true; }
     std::vector<ParamSpec> params() const override
     {
-        return { knob ("tune", "TUNE", -24.0f, 24.0f, 0.0f, "st").prim(),
+        return withRegion ({ knob ("tune", "TUNE", -24.0f, 24.0f, 0.0f, "st").prim(),
                  pct ("decay", "DECAY", 0.5f).prim().dir (1),
                  pct ("tone", "TONE", 0.5f).prim(),
                  pct ("density", "DENSITY", 0.0f).prim().dir (1),
@@ -330,7 +358,7 @@ public:
                  toggle ("choke", "CHOKE", true),
                  pct ("spread", "SPREAD", 0.3f),
                  pct ("res", "FILTER RES", 0.1f),
-                 toggle ("alloc", "ALLOC", true).noPreset().forget() };
+                 toggle ("alloc", "ALLOC", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
@@ -367,6 +395,7 @@ public:
         int oct[6] {};
         double spos = 0;
         float gate = 1.0e9f;
+        SampleRegion reg;                   // SAMPLE: the part of the sample this hit plays
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.005f, decay)) : 0.0f; }
     };
 
@@ -413,7 +442,13 @@ public:
                 }
                 break;
             case P_SAMPLE:
-                if (auto* s = sample.audio()) v.gate = sampleGateSeconds (c.v (DECAY), (float) (s->length() / s->sr) / v.tune, ev.gen);
+                // From START; DECAY's gate measures the part that plays.
+                if (auto* s = sample.audio())
+                {
+                    v.reg = regionFrom (c, SSTART, *s);
+                    v.spos = v.reg.start;
+                    v.gate = sampleGateSeconds (c.v (DECAY), (float) (v.reg.length() / s->sr) / v.tune, ev.gen);
+                }
                 break;
         }
         for (int k = 0; k < 6; ++k) v.oct[k] = waves->square.octaveFor (v.freqs[k]);
@@ -474,10 +509,10 @@ public:
             }
             case P_SAMPLE:
             {
-                if (s == nullptr || (int) v.spos + 2 >= s->length()) { v.active = false; return 0.0f; }
+                if (s == nullptr || (int) v.spos + 2 >= (v.reg.end > 0.0 ? std::min (s->length(), v.reg.last()) : s->length())) { v.active = false; return 0.0f; }
                 const float g = sampleGateGain (t, v.gate);
                 if (g <= 0.0f) { v.active = false; return 0.0f; }
-                y = 0.5f * (s->read (0, v.spos, v.tune * 0.5) + s->read (1, v.spos, v.tune * 0.5)) * g;
+                y = 0.5f * (s->read (0, v.spos, v.tune * 0.5) + s->read (1, v.spos, v.tune * 0.5)) * g * v.reg.gain (v.spos);
                 v.spos += v.tune * 0.5;
                 break;
             }
@@ -518,8 +553,20 @@ public:
         }
         out.process (c, io, FILT, RES, 0.0f, 0.0f, c.b (ALLOCON), LEVEL);
     }
-    int displayHeight() const override { return 0; }
+    // No display of its own: with a sample loaded, the sample (its START and END to drag).
+    int displayHeight() const override { return sample.get() != nullptr ? SampleStrip::kHeight : 0; }
+    void paint (juce::Graphics& g, juce::Rectangle<float> r) override
+    {
+        if (auto s = sample.get()) strip.paint (g, SampleStrip::frameIn (r, 0), *s, *this, SSTART);
+    }
+    void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
+    {
+        if (const auto st = SampleStrip::frameIn (r, 0); ! st.isEmpty() && sample.get() != nullptr) strip.mouse (p, SampleStrip::wave (st), down, *this, SSTART);
+        else if (down) strip.up();
+    }
+    void displayMouseUp() override { strip.up(); }
 private:
+    SampleStrip strip;
     double sr = 48000.0, osr = 96000.0;
     std::shared_ptr<const WaveSet> waves;
     Halfband dec[2];
@@ -539,14 +586,15 @@ ModulePtr makePERC() { return std::make_unique<PercModule>(); }
 class RumbleModule : public Module
 {
 public:
-    enum { SIZE, DARK, GRIT, PUMP, GATE, DENS, FILT, LEVEL, MODEL, TUNE, SOURCE, PREDELAY, WIDTH, PSHAPE, ESPACE, ALLOCON, KEYFOLLOW };
+    // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
+    enum { SIZE, DARK, GRIT, PUMP, GATE, DENS, FILT, LEVEL, MODEL, TUNE, SOURCE, PREDELAY, WIDTH, PSHAPE, ESPACE, ALLOCON, KEYFOLLOW, SSTART };
     std::string id() const override { return "RUMBLE"; }
     bool instrument() const override { return true; }
     int latency() const override { return Pocket::kLatency; }
     double tailSeconds() const override { return 10.0; }
     std::vector<ParamSpec> params() const override
     {
-        return { pct ("size", "SIZE", 0.6f).prim().dir (1),
+        return withRegion ({ pct ("size", "SIZE", 0.6f).prim().dir (1),
                  pct ("dark", "DARK", 0.6f).prim(),
                  pct ("grit", "GRIT", 0.3f).prim().dir (1),
                  pct ("pump", "PUMP", 0.7f).prim(),
@@ -562,7 +610,7 @@ public:
                  pct ("pocket_shape", "POCKET SHAPE", 0.5f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 0),
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP RUMBLE ONE-SHOT (MODEL: SAMPLE)"; }
@@ -628,6 +676,7 @@ public:
         const float dens = c.v (DENS);
         const double space = echoSpaceBeats (c.ci (ESPACE));
         const SampleData* smp = sample.audio();
+        nextReg = smp != nullptr ? regionFrom (c, SSTART, *smp) : SampleRegion();     // a thump from here on plays this part
         const float modelCal = cal::at (cal::rumble, model);
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         float gates[Oversampler::kBlock];
@@ -656,8 +705,8 @@ public:
             {
                 if (model == 5 && smp != nullptr)
                 {
-                    const int len = smp->length();
-                    if ((int) sPos + 2 < len) x = 0.5f * (smp->read (0, sPos, tune) + smp->read (1, sPos, tune)) * thumpVel;
+                    const int len = sReg.end > 0.0 ? std::min (smp->length(), sReg.last()) : smp->length();
+                    if ((int) sPos + 2 < len) x = 0.5f * (smp->read (0, sPos, tune) + smp->read (1, sPos, tune)) * thumpVel * sReg.gain (sPos);
                     sPos += tune;
                 }
                 else
@@ -722,13 +771,29 @@ public:
         }
         out.process (c, io, FILT, -1, c.v (PUMP), c.v (PSHAPE), c.b (ALLOCON), LEVEL, false);
     }
-    int displayHeight() const override { return 80; }
-    void paint (juce::Graphics& g, juce::Rectangle<float> r) override { out.pocket.paint (g, r); }
+    // The pocket; under it, with a sample loaded, the sample (its START and END to drag).
+    int displayHeight() const override { return kOwn + (sample.get() != nullptr ? SampleStrip::kHeight : 0); }
+    void paint (juce::Graphics& g, juce::Rectangle<float> r) override
+    {
+        const auto st = SampleStrip::frameIn (r, kOwn);
+        if (auto s = sample.get(); s != nullptr && ! st.isEmpty()) strip.paint (g, st, *s, *this, SSTART);
+        out.pocket.paint (g, r.withHeight ((float) kOwn));
+    }
+    void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool down) override
+    {
+        if (const auto st = SampleStrip::frameIn (r, kOwn); ! st.isEmpty() && sample.get() != nullptr) strip.mouse (p, SampleStrip::wave (st), down, *this, SSTART);
+        else if (down) strip.up();
+    }
+    void displayMouseUp() override { strip.up(); }
 private:
+    static constexpr int kOwn = 80;     // the pocket
+    SampleStrip strip;
+    SampleRegion nextReg, sReg;         // SAMPLE: the part the next thump plays; the part this one plays
     void fire (float f0, float f1, float tau, float vel, float tune, double tq, float dens, double space)
     {
         thF0 = f0 * tune; thF1 = std::max (25.0f, f1 * tune); thTau = std::max (0.002f, tau);
-        thumpT = 0.0f; thumpVel = vel; thPh = 0.0f; sPos = 0.0; sinceTrig = 0;
+        sReg = nextReg;
+        thumpT = 0.0f; thumpVel = vel; thPh = 0.0f; sPos = sReg.start; sinceTrig = 0;
         lastF0 = f0; lastF1 = f1; lastTau = tau;
         if (tq > 0.0 && dens > 0.001f && extras.size() < 240)
         {

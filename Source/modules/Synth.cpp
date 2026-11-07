@@ -177,8 +177,9 @@ struct Ensemble
 class SynthModule : public Module
 {
 public:
+    // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
     enum { CUTOFF, RES, ENVAMT, GATE, DENS, FILT, DRIVE, LEVEL, MODEL, DECAY, ATTACK, ACCENT, GLIDE, TUNE, DETUNE, COLOR,
-           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW };
+           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART };
 
     SynthModule (const char* idName, int role, std::vector<SynthModel> m, float cutDef, float resDef, float envDef, float gateDef, float pDepth)
         : name (idName), roleId (role), models (std::move (m)), dCut (cutDef), dRes (resDef), dEnv (envDef), dGate (gateDef), dPocket (pDepth) {}
@@ -190,7 +191,7 @@ public:
     std::vector<ParamSpec> params() const override
     {
         std::vector<std::string> mn; for (auto& m : models) mn.push_back (m.name);
-        return { pct ("cutoff", "CUTOFF", dCut).prim().dir (1),
+        return withRegion ({ pct ("cutoff", "CUTOFF", dCut).prim().dir (1),
                  pct ("res", "RES", dRes).prim(),
                  pct ("env_amt", "ENV AMT", dEnv).prim().dir (1),
                  pct ("gate", "GATE", dGate).prim(),
@@ -215,7 +216,7 @@ public:
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
-                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() };
+                 toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP SAMPLE (MODELS: SAMPLE, GRANULAR)"; }
@@ -280,8 +281,9 @@ public:
         Ladder ladder;
         Svf svf, svf2, nbp;
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
-        struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; } grains[8];
+        struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; SampleRegion reg; } grains[8];   // reg: where it started (end 0: the whole source)
         int grainClock = 0;
+        SampleRegion reg;                 // SAMPLE: the part of the sample this note plays
         uint64_t born = 0;                // renderTick when it started: one that hasn't sounded yet is never stolen
         float level() const { return active ? amp.v * vel * gain : 0.0f; }
     };
@@ -290,6 +292,9 @@ public:
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), c.v (ESWING), 1.0f, true);
         const SampleData* smp = sample.audio();
+        // The sample's START..END now: a SAMPLE note started in this block plays it, GRANULAR's
+        // grains come from it.
+        blockReg = smp != nullptr ? regionFrom (c, SSTART, *smp) : SampleRegion();
         pitchOffset = c.v (TUNE) + (c.b (KEYFOLLOW) ? (float) keyOffset (c.keyRoot) : 0.0f);
         const int modelA = c.ci (MODEL), modelB = c.ci (LAYERMODEL);
         ensembleAmt = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelA)].ensemble;
@@ -379,19 +384,31 @@ public:
         activeVoices = act;
     }
 
-    int displayHeight() const override { return 80; }
+    // VOICES and the pocket; under them, with a sample loaded, the sample (its START and END to drag).
+    int displayHeight() const override { return kOwn + (sample.get() != nullptr ? SampleStrip::kHeight : 0); }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
     {
+        auto s = sample.get();
+        const auto st = SampleStrip::frameIn (r, kOwn);
+        if (s != nullptr && ! st.isEmpty()) strip.paint (g, st, *s, *this, SSTART);
+        r = r.withHeight ((float) kOwn);
         auto left = r.removeFromLeft (r.getWidth() * 0.4f);
         ui::frame (g, left, "VOICES");
         // Playing has kPlayVoices; more sound only while a MODEL change lets the old sound release.
         const int nv = activeVoices.load();
         ui::label (g, juce::String (nv) + (nv <= kPlayVoices ? " / " + juce::String (kPlayVoices) : juce::String()), left.reduced (10, 18), ui::kText, 18.0f, juce::Justification::centred);
-        auto s = sample.get();
-        ui::label (g, s ? s->name.toUpperCase() + (s->rootHz > 0 ? " ROOT " + juce::MidiMessage::getMidiNoteName ((int) std::lround (s->rootNote), true, true, 3) : "") : "NO SAMPLE",
+        // The sample's name is on the strip under this, once the editor has made room for it.
+        const juce::String root = s != nullptr && s->rootHz > 0 ? "ROOT " + juce::MidiMessage::getMidiNoteName ((int) std::lround (s->rootNote), true, true, 3) : juce::String();
+        ui::label (g, s == nullptr ? juce::String ("NO SAMPLE") : st.isEmpty() ? s->name.toUpperCase() + (root.isEmpty() ? "" : " " + root) : root,
                    left.reduced (8, 2).removeFromBottom (14), ui::kFaint, 10.0f);
         out.pocket.paint (g, r.withTrimmedLeft (8));
     }
+    void displayMouse (juce::Point<float> p, juce::Rectangle<float> r, bool press) override
+    {
+        if (const auto st = SampleStrip::frameIn (r, kOwn); ! st.isEmpty() && sample.get() != nullptr) strip.mouse (p, SampleStrip::wave (st), press, *this, SSTART);
+        else if (press) strip.up();
+    }
+    void displayMouseUp() override { strip.up(); }
 
 private:
     void noteOn (Ctx& c, int modelIdx, const NoteEvent& ev, float gain, int layerId, int autoOff, float relMul)
@@ -437,6 +454,8 @@ private:
         {
             const float keepFreq = v.freq;
             v = Voice();
+            v.reg = blockReg;                  // SAMPLE: from START (a legato slide plays on where it is)
+            v.spos = v.reg.start;
             v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.engine == E_SYNC) ? 4 : 2;
             v.rate = sr * v.os;
             v.freq = wasActive ? keepFreq : noteHz (note);
@@ -718,9 +737,18 @@ private:
                 {
                     const auto& src = smp != nullptr ? smp->buf : grainSrc;
                     const auto& mips = smp != nullptr ? smp->mips : grainMips;
-                    const int len = src.getNumSamples();
+                    // A loaded sample's grains start inside START..END as the knobs are now (moving
+                    // them moves where a held note's grains come from); each plays out in the part
+                    // it started in, faded at its ends, so a part moved while grains play never cuts
+                    // one. The built-in source is played whole. A part shorter than the grains makes
+                    // them shorter.
+                    const int srcLen = src.getNumSamples();
+                    const bool inReg = smp != nullptr && blockReg.end > 0.0;
+                    const int r0 = inReg ? (int) blockReg.start : 0;
+                    const int len = (inReg ? std::min (srcLen, blockReg.last()) : srcLen) - r0;
                     const float root = smp != nullptr && smp->rootHz > 0 ? smp->rootHz : 130.81f;
-                    const int glen = (int) ((0.03f + color * 0.25f) * sr);       // source samples
+                    int glen = (int) ((0.03f + color * 0.25f) * sr);             // source samples
+                    if (inReg && (blockReg.start > 0.0 || blockReg.end < (double) srcLen)) glen = std::min (glen, std::max (16, len - 8));
                     if (len > glen + 4 && --v.grainClock <= 0)
                     {
                         v.grainClock = std::max (1, glen * v.os / 4);             // voice-rate samples (= glen / 4 at 1x)
@@ -731,6 +759,8 @@ private:
                                 const float scatter = det * 0.3f;
                                 gr.pos = std::fmod (v.t * 0.05f * sr + rng.uni() * scatter * len, (double) (len - glen - 4));
                                 if (gr.pos < 0) gr.pos += len - glen - 4;
+                                gr.pos += r0;
+                                gr.reg = inReg ? blockReg : SampleRegion();
                                 gr.rate = (f / root) / v.os * (1.0 + (rng.uni() - 0.5f) * det * 0.02f);
                                 gr.pan = 0.5f + (rng.uni() - 0.5f) * 0.8f;
                                 break;
@@ -740,9 +770,10 @@ private:
                     for (auto& gr : v.grains)
                     {
                         if (! gr.on) continue;
-                        if ((int) gr.pos + 2 >= len || gr.age >= gr.len) { gr.on = false; continue; }
+                        const bool own = gr.reg.end > 0.0;
+                        if ((int) gr.pos + 2 >= (own ? std::min (srcLen, gr.reg.last()) : srcLen) || gr.age >= gr.len) { gr.on = false; continue; }
                         const float w = 0.5f - 0.5f * std::cos (kTwoPi * (float) gr.age / (float) gr.len);
-                        const float y = (readAt (src, mips, 0, gr.pos, gr.rate) + readAt (src, mips, 1, gr.pos, gr.rate)) * 0.5f * w;
+                        const float y = (readAt (src, mips, 0, gr.pos, gr.rate) + readAt (src, mips, 1, gr.pos, gr.rate)) * 0.5f * w * (own ? gr.reg.gain (gr.pos) : 1.0f);
                         xl += y * (1.0f - gr.pan); xr += y * gr.pan;
                         gr.pos += gr.rate; ++gr.age;
                     }
@@ -751,11 +782,12 @@ private:
                 case E_SAMPLE:
                 {
                     if (smp == nullptr) { v.active = false; return; }
-                    const int len = smp->length();
+                    const int len = v.reg.end > 0.0 ? std::min (smp->length(), v.reg.last()) : smp->length();
                     if ((int) v.spos + 2 >= len) { v.active = false; return; }
                     const double rate = (double) f / (double) noteHz (smp->rootNote) / v.os;
-                    xl = smp->read (0, v.spos, rate);
-                    xr = smp->read (1, v.spos, rate);
+                    const float rg = v.reg.gain (v.spos);
+                    xl = smp->read (0, v.spos, rate) * rg;
+                    xr = smp->read (1, v.spos, rate) * rg;
                     stereo = true;
                     v.spos += rate;
                     break;
@@ -847,6 +879,9 @@ private:
     juce::AudioBuffer<float> grainSrc;
     Mips grainMips;
     std::atomic<int> activeVoices { 0 };
+    SampleRegion blockReg;                             // the sample's START..END in this block (process)
+    static constexpr int kOwn = 80;                    // the display's VOICES and pocket
+    SampleStrip strip;
 };
 
 // Gain staging (Calibration.h): every model at its role's target loudness.

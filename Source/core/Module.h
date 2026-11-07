@@ -33,6 +33,7 @@ struct ParamSpec
                                     // the editor's SETUP group, below everything else
     bool perform = false;           // played, though not in the top row (DECK's PLAY, CONTROL's
                                     // PANIC): the editor shows it with the top row
+    bool inSample = false;          // the sample's own (START, END, its fades): the editor's SAMPLE group
 
     ParamSpec& prim()           { primary = true; return *this; }
     ParamSpec& dir (int d)      { macroDir = d; return *this; }
@@ -45,6 +46,7 @@ struct ParamSpec
     ParamSpec& noPreset()       { preset = false; return *this; }
     ParamSpec& forget()         { setup = true; return *this; }
     ParamSpec& performs()       { perform = true; return *this; }
+    ParamSpec& sampleGroup()    { inSample = true; return *this; }
 };
 
 inline ParamSpec knob (const char* id, const char* name, float mn, float mx, float def, const char* unit = "", float centre = NAN)

@@ -1,5 +1,6 @@
 #include "Sample.h"
 #include "Resample.h"
+#include <algorithm>
 #include <cmath>
 
 namespace sf
@@ -134,6 +135,53 @@ void Mips::build (const juce::AudioBuffer<float>& b)
     }
 }
 
+// ---------------------------------------------------------------- VOICE's slices
+namespace
+{
+bool wholeOf (const SampleData& s, const SampleRegion& reg) { return reg.start <= 0.0 && reg.end >= (double) s.length(); }
+struct Onsets { int i0 = 0, i1 = 0; bool lead = true; };     // s.slices[i0..i1) lie in the region; lead: START starts slice 1
+Onsets onsetsIn (const SampleData& s, const SampleRegion& reg)
+{
+    const auto b = s.slices.begin(), e = s.slices.end();
+    auto below = [] (int a, double v) { return (double) a < v; };
+    Onsets o;
+    o.i0 = (int) (std::lower_bound (b, e, reg.start, below) - b);
+    o.i1 = std::max (o.i0, (int) (std::lower_bound (b, e, reg.end, below) - b));
+    o.lead = o.i1 == o.i0 || (double) s.slices[(size_t) o.i0] > reg.start + 0.04 * s.sr;
+    return o;
+}
+} // namespace
+
+int Slices::count (const SampleData& s, int mode, const SampleRegion& reg)
+{
+    if (mode == 0)
+    {
+        if (wholeOf (s, reg)) return std::max (1, (int) s.slices.size());
+        const auto o = onsetsIn (s, reg);
+        return o.i1 - o.i0 + (o.lead ? 1 : 0);
+    }
+    if (mode == 1) return 8;
+    if (mode == 2) return 16;
+    return 1;
+}
+
+double Slices::start (const SampleData& s, int mode, int k, const SampleRegion& reg)
+{
+    if (mode == 0)
+    {
+        if (wholeOf (s, reg)) return s.slices.empty() ? 0 : s.slices[(size_t) juce::jlimit (0, (int) s.slices.size() - 1, k)];
+        const auto o = onsetsIn (s, reg);
+        if (o.lead) { if (k <= 0) return reg.start; --k; }
+        return o.i1 > o.i0 ? (double) s.slices[(size_t) (o.i0 + juce::jlimit (0, o.i1 - o.i0 - 1, k))] : reg.start;
+    }
+    if (mode == 1 || mode == 2)
+    {
+        if (wholeOf (s, reg)) return (int) ((long long) s.length() * k / (mode == 1 ? 8 : 16));
+        return reg.start + reg.length() * k / (mode == 1 ? 8 : 16);
+    }
+    return reg.start;
+}
+
 SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double targetSr, const juce::String& name, bool encode)
 {
     auto s = std::make_shared<SampleData>();
@@ -180,6 +228,15 @@ SamplePtr makeSample (juce::AudioBuffer<float>&& audio, double fileSr, double ta
     }
     analyse (*s);
     s->mips.build (s->buf);
+    // The displays' waveform: the largest |x| of either channel over each part, over the peak.
+    s->overview.assign ((size_t) SampleData::kOverview, 0.0f);
+    for (int k = 0, n = s->length(); k < SampleData::kOverview && n > 0; ++k)
+    {
+        const int a = (int) ((int64_t) n * k / SampleData::kOverview), b = std::max (a + 1, (int) ((int64_t) n * (k + 1) / SampleData::kOverview));
+        float pk = 0.0f;
+        for (int c = 0; c < 2; ++c) pk = std::max (pk, s->buf.getMagnitude (c, a, std::min (b, n) - a));
+        s->overview[(size_t) k] = std::min (1.0f, pk / s->peak);
+    }
     return s;
 }
 

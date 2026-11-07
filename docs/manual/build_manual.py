@@ -198,6 +198,22 @@ story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's paramet
                   "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has a ready-made E16 scene for the show template, SF SHOW, and the show set with every address already mapped."])
 story.append(H2("SAMPLES"))
 story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the plugin window or click LOAD. The sample is analysed (root note, decay, onsets) and embedded in the Live set, so the set travels without the file."))
+story.append(P("The part of the sample that plays is set like an Ableton clip's: START and END, with FADE IN after START and FADE OUT before END (the SAMPLE group, folded at first). With a sample loaded the display shows its waveform, the part that plays bright, the fades as ramps and START and END as lines: drag either line (it takes the nearer one; near the sample's ends it snaps to them). VOICE draws them on its phrase. The instrument's own shaping (DECAY, ATTACK, GATE) still works on each note on top. The fades run in the sample's own time: played an octave up, they pass in half the time. A cut inside the waveform always fades for at least 1 ms, so it never clicks. At their defaults (0 %, 100 %, 0 ms, 0 ms) the sample plays whole, exactly as before these existed. Presets leave them alone (a preset has no sample); songs keep them like any knob."))
+# The two pictures (docs/manual/make_sample_pictures.py, at twice the strip's scale), side by side.
+pics, col = [], (W - 0.3 * inch) / 2
+for name, caption in (("SAMPLE_KICK", "SF KICK with a one-shot: END at 62 %, FADE OUT 150 ms. The part that plays is bright."),
+                      ("SAMPLE_VOICE", "SF VOICE: START on the second word, END in the last. The slices (C3, C#3 ...) are cut from the part between.")):
+    img = os.path.join(ROOT, "docs", "snapshots", f"{name}.png")
+    if os.path.exists(img):
+        from PIL import Image as PI
+        iw, ih = PI.open(img).size
+        im = Image(img, width=col, height=col * ih / iw); im.hAlign = "LEFT"
+        pics.append([im, Spacer(1, 3), P(esc(caption), "smallgrey")])
+if pics:
+    t = Table([pics], colWidths=[col + 0.3 * inch, col])
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                           ("RIGHTPADDING", (0, 0), (0, 0), 0.3 * inch), ("RIGHTPADDING", (1, 0), (1, 0), 0), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    story.append(t)
 story.append(H2("FIRST SESSION CHECKS"))
 story += bullets(["SF CONTROL shows <b>BUS SHARED</b>. Play SF KICK: it shows <b>KICK REPORTING</b>.",
                   "SF KICK + SF BASS with POCKET DEPTH up and SHAPE right: the pump lands exactly on the kick.",
@@ -473,7 +489,8 @@ for group, mods in order:
             return "HOLD"
         played = lambda p: p["primary"] or p.get("perform")
         for label, rows in (("PERFORM", [p for p in sp if played(p)]),
-                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and p["id"] != "model"]),
+                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and not p.get("sample") and p["id"] != "model"]),
+                            ("SAMPLE", [p for p in sp if not played(p) and p.get("sample")]),
                             ("SETUP", [p for p in sp if not played(p) and p.get("setup")])):
             if not rows: continue
             story.append(H2(label))

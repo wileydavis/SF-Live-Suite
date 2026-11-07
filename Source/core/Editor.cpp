@@ -316,6 +316,7 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     auto name = [] (Group& g, const char* title, int bit, bool foldedAtFirst) { g.title = title; g.bit = bit; g.foldedAtFirst = foldedAtFirst; };
     name (perform, "PERFORM", 0, false);
     name (detail, "DETAIL", kFoldDetail, false);
+    name (sample, "SAMPLE", kFoldSample, true);
     name (motion, "MOTION", kFoldMotion, true);
     name (system, "SYSTEM", kFoldSystem, true);
     name (setup, "SETUP", kFoldSetup, true);
@@ -436,6 +437,7 @@ void SFEditor::build()
         Group* gr = i >= firstSys + SFProcessor::SYS_M1_SRC ? &motion
                   : i >= firstSys ? &system
                   : s.primary || s.perform ? &perform
+                  : s.inSample ? &sample
                   : s.setup ? &setup : &detail;
         SFCell::Look lk;
         lk.big = gr == &perform;
@@ -555,6 +557,7 @@ int SFEditor::layout()
         y = display.getBottom() + 8;
     }
     place (detail);
+    place (sample);
     place (motion);
     place (system);
     place (setup);
@@ -754,7 +757,10 @@ void SFEditor::mouseDown (const juce::MouseEvent& e)
 // The body's clicks (its own coordinates): the module's display, a group's title line.
 void SFEditor::bodyMouse (const juce::MouseEvent& e, bool down)
 {
-    if (display.contains (e.getPosition()))
+    // A drag that began on the display stays the display's when it leaves it (a marker pulled to
+    // the end of a sample, a knob pulled past the edge).
+    if (down) displayDrag = display.contains (e.getPosition());
+    if (displayDrag)
         proc.mod().displayMouse (e.position, display.toFloat(), down);
     if (down)
         if (auto* gr = groupAt (e.getPosition())) toggleFold (gr->bit);
@@ -792,6 +798,7 @@ void SFEditor::timerCallback()
         if (juce::String (t != nullptr ? t : "") != track || (t == nullptr) != (page < 0)) { build(); relayout(); }
     }
     if (proc.uiFold.load() != uiShown) relayout();          // a state load
+    else if (std::max (0, proc.mod().displayHeight()) != display.getHeight()) relayout();   // the display grew or shrank (a sample in or out)
     else if (ticks % 30 == 0 && std::min (kHeader + body.getHeight(), heightLimit()) != getHeight()) relayout();   // another screen
     if (presetButton.getButtonText() != presetText()) presetButton.setButtonText (presetText());
     repaint (0, 0, getWidth(), 26);

@@ -17,6 +17,10 @@ COMMON = {
     "gate": "Note length. 0 = clipped staccato, 50 % = as played, 100 % = held long (release up to 8x).",
     "tune": "Pitch offset in semitones.",
     "key_follow": "On: follows the KEY set on SF CONTROL (parts written in C play in the song's key). Off: ignores KEY.",
+    "smp_start": "Where the sample starts playing, from 0 % (its start) to 100 %. Drag the START line on the display or turn this. A note takes it as it is when it starts. Inside the sample it fades in for at least 1 ms, so a cut never clicks.",
+    "smp_end": "Where the sample stops, from START to 100 % (its end). Never before START (1 ms after it at least). Inside the sample it fades out for at least 1 ms.",
+    "smp_fade_in": "Raised-cosine fade after START, 0 to 2000 ms of the sample's own time (an octave up it passes in half the time). Longer than the part, the two fades are scaled to fit it.",
+    "smp_fade_out": "Raised-cosine fade before END, 0 to 2000 ms of the sample's own time. The instrument's own envelope still shapes the note on top.",
 }
 
 SYNTH = {
@@ -35,6 +39,7 @@ SYNTH = {
     "layer": "Blend of the LAYER MODEL under the main model. Use it to put a sub under a stab or an acid line on a bass.",
     "chord": "Notes played per key. MODEL uses the model's own chord (STAB DUB = minor 7, STAB DETROIT = minor 9, ORGAN = minor triad). NONE forces single notes. Or choose MIN7, MIN9, SUS4, MAJ7, MIN, 5TH, OCT.",
     "space": "Ensemble chorus amount, for the models that have one (strings, poly pad, stabs, hoover, organ).",
+    "smp_start": "Where the sample starts playing, from 0 % (its start) to 100 %. Drag the START line on the display or turn this. A SAMPLE note takes it as it is when the note starts (a legato slide plays on); GRANULAR's grains follow it as it moves. Inside the sample it fades in for at least 1 ms, so a cut never clicks.",
 }
 
 # ------------------------------------------------------------------ modules
@@ -57,11 +62,11 @@ MODULES["KICK"] = dict(
         ("KICK INDUSTRIAL", "Steep sweep, heavy drive and clip. Hard and compressed."),
         ("KICK MODULAR", "Triangle core with noise FM and a resonant low-pass sweep (DFAM-like)."),
         ("KICK DUB", "Soft, low, slow sweep, filtered dark."),
-        ("SAMPLE", "Plays the dropped one-shot. Its pitch and decay are analysed and reported for Pocket."),
+        ("SAMPLE", "Plays the dropped one-shot, from START to END. Its pitch and decay are analysed and reported for Pocket (a part cut shorter: its length)."),
     ],
     desc={
         "tune": "Kick pitch in semitones around the model's fundamental (about 44-55 Hz).",
-        "decay": "Body length, x0.25 to x4 of the model's decay. This is the kick's GATE. On SAMPLE it gates the sample: 0 = 10 ms, 90 % and up = the whole sample.",
+        "decay": "Body length, x0.25 to x4 of the model's decay. This is the kick's GATE. On SAMPLE it gates the sample: 0 = 10 ms, 90 % and up = all of it from START to END.",
         "punch": "Depth of the pitch sweep. More = harder transient, less = rounder.",
         "click": "Level of the noise/impulse click on the attack.",
         "drive": "Saturation on the kick, added to the model's own.",
@@ -97,11 +102,11 @@ MODULES["PERC"] = dict(
         ("SHAKER", "Band-passed noise with a soft attack."),
         ("METAL FM", "Inharmonic two-operator FM hit. Industrial."),
         ("MODAL", "Six tuned resonators struck by a noise burst. Wood, glass or metal depending on TONE."),
-        ("SAMPLE", "Plays the dropped one-shot, pitched by TUNE."),
+        ("SAMPLE", "Plays the dropped one-shot from START to END, pitched by TUNE."),
     ],
     desc={
         "tune": "Pitch in semitones (-24 to +24).",
-        "decay": "Length of each hit, x0.25 to x4. Closed to open. On SAMPLE it gates the sample: 0 = 10 ms, 90 % and up = the whole sample.",
+        "decay": "Length of each hit, x0.25 to x4. Closed to open. On SAMPLE it gates the sample: 0 = 10 ms, 90 % and up = all of it from START to END.",
         "tone": "Model-specific brightness: band-pass position on hats, oscillator spread on FM, resonator ratios on MODAL.",
         "accent": "How much velocity matters. 0 = all hits equal.",
         "drive": "Saturation on each hit.",
@@ -125,7 +130,7 @@ MODULES["RUMBLE"] = dict(
         ("SUB DRONE", "Continuous sine at the kick's pitch, ducked by the kick: swells between hits."),
         ("DISTORTED", "Reverb with heavy drive."),
         ("DUB BOOM", "Delay and reverb together, softer."),
-        ("SAMPLE", "Plays a dropped rumble one-shot on every kick."),
+        ("SAMPLE", "Plays a dropped rumble one-shot on every kick: up to 0.4 s of it, from START (END and the fades shape it)."),
     ],
     desc={
         "size": "Reverb size / delay feedback.",
@@ -171,7 +176,7 @@ for name, role_text, models in [
         ("STRING MACHINE", "Four-voice unison saws plus an octave, deep ensemble."),
         ("POLY PAD", "Saw + pulse + sub, slow filter envelope, chorus (Juno-like)."),
         ("WAVETABLE", "Morphs sine > saw > square > vocal with COLOR and a slow drift."),
-        ("GRANULAR", "Grains from the loaded sample (or a built-in chord bed). COLOR = grain size, DETUNE = scatter."),
+        ("GRANULAR", "Grains from the loaded sample's START..END (or a built-in chord bed). COLOR = grain size, DETUNE = scatter. Move START and END while a note holds and the grains follow."),
         ("DUB WASH", "Minor 7 chord, slow filter, chorus. The dub chord bed."),
         ("TAPE LOOP", "Soft triangle/saw with wow, flutter, saturation and hiss."),
         ("NOISE BED", "Noise through a resonant band-pass at the note: wind, air."),
@@ -186,7 +191,7 @@ for name, role_text, models in [
                  "For dub stabs: STAB DUB with GATE short and SF DELAY on a return.",
                  "CHORD overrides the model's chord; NONE gives single notes."],
         "PAD": ["GATE high keeps chords ringing; SLOW mode on CUTOFF gives long, even swells.",
-                "GRANULAR and SAMPLE use a dropped file. Field recordings work well in GRANULAR.",
+                "GRANULAR and SAMPLE use a dropped file. Field recordings work well in GRANULAR: set START and END around the part you want the grains from, and move them while a chord holds to wander through it.",
                 "POCKET DEPTH lets the pad breathe with the kick without a sidechain."],
     }[name]
     MODULES[name] = dict(group="INSTRUMENTS", summary=role_text + " Shared engine with BASS / LEAD / PAD: the same controls on every model.",
@@ -196,7 +201,7 @@ MODULES["VOICE"] = dict(
     group="INSTRUMENTS",
     summary="Spoken word and vocal phrases. Drop a phrase: it is sliced, and C3 plays slice 1, C#3 slice 2 and so on; keys below C3 play the whole phrase. Models treat it as radio, vocoder, robot or choir. Built-in dub echo. drosaka Voice stays separate.",
     use=[
-        "Drop a phrase on the window (or LOAD). Markers show the slices and their keys.",
+        "Drop a phrase on the window (or LOAD). Markers show the slices and their keys. Drag START and END on the phrase to slice only part of it.",
         "RADIO with SIGNAL low is a lost transmission; ride SIGNAL up to bring the voice in clear.",
         "ECHO is a send into a long dub echo (ECHO TIME, ECHO FDBK).",
         "With no phrase loaded, notes play a formant choir (TONE morphs the vowel).",
@@ -216,7 +221,9 @@ MODULES["VOICE"] = dict(
         "density": "Re-triggers the slice as ghost repeats (stutter fills).",
         "echo": "Send into the built-in dub echo.",
         "drive": "Saturation on the voice.",
-        "slice_mode": "AUTO (detected onsets), EQUAL 8, EQUAL 16, WHOLE (every key plays the whole phrase).",
+        "slice_mode": "AUTO (detected onsets), EQUAL 8, EQUAL 16, WHOLE (every key plays the whole phrase). Slices are cut from the part between START and END.",
+        "smp_start": "Where the phrase starts, 0-100 %. The slices are cut from START to END: AUTO's first slice starts at START (or at an onset within 40 ms after it), EQUAL 8 / 16 divide START..END, keys below C3 and WHOLE play START..END. Drag the START line on the phrase or turn this.",
+        "smp_end": "Where the phrase ends, from START to 100 %. The last slice ends here, fading out for at least 1 ms.",
         "tune": "Playback pitch (varispeed) in semitones.",
         "echo_time": "Echo time, synced (1 BAR to 1/16). Default 1/4 dotted.",
         "echo_fb": "Echo feedback.",

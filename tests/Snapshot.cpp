@@ -3,6 +3,8 @@
 //   SFSnapshot [DIR] [SCALE] [MODULE ...]     SCALE 2: double resolution (the manual's pictures)
 //   SFSNAP_DISPLAY=1: only each module's display panel (checking the panels at the strip's width)
 //   SFSNAP_GLIDE=1: a glide on its way (SLOW 8 BAR, the first knob turned up two bars before)
+//   SFSNAP_SAMPLE=<file>: the file dropped on each module that takes files (the samplers' strip)
+//   SFSNAP_SET=id=value,id=value: parameters set (in their own units) before the run
 #include "core/Processor.h"
 #include "core/Registry.h"
 #include "core/E16Map.h"
@@ -62,6 +64,11 @@ int main (int argc, char** argv)
         Head h; p.setPlayHead (&h);
         p.enableAllBuses();
         p.prepareToPlay (48000.0, 256);
+        if (const auto smp = juce::SystemStats::getEnvironmentVariable ("SFSNAP_SAMPLE", {}); smp.isNotEmpty() && p.mod().acceptsFiles())
+            p.mod().loadFiles (juce::StringArray (smp));
+        for (const auto& kv : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("SFSNAP_SET", {}), ",", ""))
+            if (auto* prm = p.apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)))
+                prm->setValueNotifyingHost (prm->convertTo0to1 ((float) kv.fromFirstOccurrenceOf ("=", false, false).getDoubleValue()));
         juce::AudioBuffer<float> b (std::max (p.getTotalNumInputChannels(), p.getTotalNumOutputChannels()), 256);
         for (int k = 0; k < 400; ++k)
         {

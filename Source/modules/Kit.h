@@ -18,6 +18,28 @@ inline void applyGain (juce::AudioBuffer<float>& b, float g0, float g1)
 }
 inline float levelDb (const Ctx& c, int i, float& g0) { g0 = dbToGain (c.v0 (i)); return dbToGain (c.v (i)); }
 inline ParamSpec levelParam (float def = 0.0f) { return knob ("level", "LEVEL", -36.0f, 6.0f, def, "dB", -9.0f); }
+// A sampler's region of its sample (SampleRegion): START, END and the fades at them. Appended to every
+// sampler's parameters, in the editor's SAMPLE group; with the sample, not presets (a preset carries
+// no sample: choosing one leaves the part of yours that plays alone). Songs keep them, as any knob.
+inline std::vector<ParamSpec> sampleRegionParams()
+{
+    return { pct ("smp_start", "START", 0.0f).noPreset().sampleGroup(),
+             pct ("smp_end", "END", 1.0f).noPreset().sampleGroup(),
+             knob ("smp_fade_in", "FADE IN", 0.0f, 2000.0f, 0.0f, "ms", 200.0f).noPreset().sampleGroup(),
+             knob ("smp_fade_out", "FADE OUT", 0.0f, 2000.0f, 0.0f, "ms", 200.0f).noPreset().sampleGroup() };
+}
+// first: the module's index of START (END, FADE IN, FADE OUT follow it).
+inline SampleRegion regionFrom (const Ctx& c, int first, const SampleData& s)
+{
+    return SampleRegion::of (s, c.v (first), c.v (first + 1), c.v (first + 2), c.v (first + 3));
+}
+inline std::vector<ParamSpec> withRegion (std::vector<ParamSpec> v)
+{
+    const auto r = sampleRegionParams();
+    v.insert (v.end(), r.begin(), r.end());
+    return v;
+}
+
 // DRY: off on a return track (wet only), on as an insert. Routing, so songs and presets leave it alone.
 inline ParamSpec dryParam() { auto p = toggle ("dry", "DRY", true).noPreset().forget(); p.song = false; return p; }
 // DRY on / off: a 5 ms ramp counted in samples, so it is the same however the chunks fall.
@@ -99,6 +121,93 @@ inline float keySnap (float hz, int keyRoot)
     if (d >= 6.0f) d -= 12.0f;
     return d;
 }
+
+// A sample on a module's display (message thread): its waveform, the part that plays bright and the
+// rest dim, the fades as ramps over it, START and END as lines with a tab at the top. A press takes
+// the nearer of the two lines and the pointer moves it (near either end of the sample it snaps
+// there: the whole again). first: the module's index of START (END, FADE IN, FADE OUT follow).
+// The strip sits at the bottom of the display, under the module's own part (own pixels high):
+// displayHeight() adds kHeight while a sample is loaded. Until the editor has made that room the
+// display is the module's own part alone and the strip is not there (frameIn: empty).
+struct SampleStrip
+{
+    static constexpr int kHeight = 50;              // with a 4 px gap above its frame
+    int dragging = -1;                              // 0: START, 1: END (between a press and its release)
+
+    static juce::Rectangle<float> frameIn (juce::Rectangle<float> display, int own)
+    {
+        if (display.getHeight() < (float) (own + kHeight) - 0.5f) return {};
+        return display.withTrimmedTop (display.getHeight() - (float) kHeight + 4.0f);
+    }
+    static juce::Rectangle<float> wave (juce::Rectangle<float> frame) { return frame.reduced (8.0f, 0.0f).withTrimmedTop (18.0f).withTrimmedBottom (5.0f); }
+    static SampleRegion regionOf (const SampleData& s, const Module& m, int first)
+    {
+        if (! m.getParam) return SampleRegion::whole (s);
+        return SampleRegion::of (s, m.getParam (first), m.getParam (first + 1), m.getParam (first + 2), m.getParam (first + 3));
+    }
+    // "0.12 - 0.85 S": the part that plays, in the sample's own seconds.
+    static juce::String times (const SampleData& s, const SampleRegion& reg)
+    {
+        return juce::String (reg.start / s.sr, 2) + " - " + juce::String (reg.end / s.sr, 2) + " S";
+    }
+    // The waveform, the region and its fades in w (no frame): also VOICE's phrase.
+    static void drawRegion (juce::Graphics& g, juce::Rectangle<float> w, const SampleData& s, const SampleRegion& reg)
+    {
+        const int n = s.length(), cols = std::max (1, (int) w.getWidth());
+        if (n <= 0 || s.overview.empty() || w.getHeight() < 2.0f) return;
+        const float cy = w.getCentreY(), half = w.getHeight() * 0.5f;
+        const size_t parts = s.overview.size();
+        for (int x = 0; x < cols; ++x)
+        {
+            const size_t a = (size_t) x * parts / (size_t) cols, b = std::max (a + 1, (size_t) (x + 1) * parts / (size_t) cols);
+            float pk = 0.0f;
+            for (size_t k = a; k < b && k < parts; ++k) pk = std::max (pk, s.overview[k]);
+            const double pos = ((double) x + 0.5) / cols * n;
+            g.setColour (pos >= reg.start && pos < reg.end ? ui::kDim : ui::kFaint);
+            const float h = std::max (0.5f, pk * half);
+            g.drawVerticalLine ((int) w.getX() + x, cy - h, cy + h);
+        }
+        auto xAt = [&] (double pos) { return w.getX() + (float) (pos / n) * w.getWidth(); };
+        g.setColour (ui::kText);
+        if (reg.fadeIn > 0.0) g.drawLine (xAt (reg.start), w.getBottom(), xAt (reg.start + reg.fadeIn), w.getY(), 1.0f);
+        if (reg.fadeOut > 0.0) g.drawLine (xAt (reg.end - reg.fadeOut), w.getY(), xAt (reg.end), w.getBottom(), 1.0f);
+        for (const double p : { reg.start, reg.end })
+        {
+            const float x = juce::jlimit (w.getX(), w.getRight() - 1.0f, xAt (p));
+            g.drawLine (x, w.getY() - 3.0f, x, w.getBottom(), 1.5f);
+            g.fillRect (x - 2.0f, w.getY() - 4.0f, 4.0f, 4.0f);
+        }
+    }
+    void paint (juce::Graphics& g, juce::Rectangle<float> frame, const SampleData& s, const Module& m, int first) const
+    {
+        if (frame.isEmpty()) return;
+        const auto reg = regionOf (s, m, first);
+        ui::frame (g, frame, "SAMPLE " + s.name.toUpperCase());
+        ui::label (g, times (s, reg), frame.reduced (8.0f, 2.0f).removeFromTop (14.0f), ui::kFaint, 10.0f, juce::Justification::centredRight);
+        drawRegion (g, wave (frame), s, reg);
+    }
+    // A press (down) or a drag at p, over the waveform w. True if it took the event.
+    bool mouse (juce::Point<float> p, juce::Rectangle<float> w, bool down, Module& m, int first)
+    {
+        if (down) dragging = -1;
+        if (! m.getParam || ! m.setParam || w.getWidth() <= 1.0f) return false;
+        const float a = m.getParam (first), b = m.getParam (first + 1);
+        if (down)
+        {
+            if (! w.expanded (4.0f, 6.0f).contains (p)) return false;
+            const float xa = w.getX() + a * w.getWidth(), xb = w.getX() + b * w.getWidth();
+            dragging = std::abs (p.x - xa) <= std::abs (p.x - xb) ? 0 : 1;
+        }
+        if (dragging < 0) return false;
+        float f = juce::jlimit (0.0f, 1.0f, (p.x - w.getX()) / w.getWidth());
+        if (f < 0.004f) f = 0.0f;
+        if (f > 0.996f) f = 1.0f;
+        f = dragging == 0 ? std::min (f, b - 0.002f) : std::max (f, a + 0.002f);
+        m.setParam (first + dragging, juce::jlimit (0.0f, 1.0f, f));
+        return true;
+    }
+    void up() { dragging = -1; }
+};
 
 // Voice-steal helper: index of the quietest / oldest voice.
 template <typename V, size_t N>

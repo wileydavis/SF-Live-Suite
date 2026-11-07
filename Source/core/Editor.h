@@ -9,6 +9,7 @@
 //            is played (DECK's PLAY and CUE, CONTROL's PANIC)
 //   DISPLAY  the module's own panel
 //   DETAIL   the sound's other controls, MODEL first
+//   SAMPLE   a sampler's START, END, FADE IN, FADE OUT                   folded at first
 //   MOTION   M1 / M2 SOURCE, RATE, TARGET, DEPTH                         folded at first
 //   SYSTEM   SLOW, MACRO SRC, MACRO AMT                                  folded at first
 //   SETUP    how the plugin sits in the set (ALLOC, KEY FOLLOW, DRY ...)  folded at first
@@ -58,7 +59,7 @@ public:
 
     // The strip: 4 columns of 70 (the E16's 4 x 4), an 8 pixel margin.
     static constexpr int kW = 296, kMargin = 8, kCols = 4, kColW = 70, kHeader = 56, kTitleH = 16;
-    enum Fold { kFoldDetail = 1, kFoldMotion = 2, kFoldSystem = 4, kFoldSetup = 8 };
+    enum Fold { kFoldDetail = 1, kFoldMotion = 2, kFoldSystem = 4, kFoldSetup = 8, kFoldSample = 16 };
 
     // What the strip shows, for tests: the E16 page (-1: no grid), the track the grid is for, every
     // shown parameter's place ("E16 <encoder 1-16>", "E16 <encoder> PRESS", or the group's title), and
@@ -88,7 +89,7 @@ private:
         void paint (juce::Graphics& g) override { ed.paintBody (g); }
         void mouseDown (const juce::MouseEvent& e) override { ed.bodyMouse (e, true); }
         void mouseDrag (const juce::MouseEvent& e) override { ed.bodyMouse (e, false); }
-        void mouseUp (const juce::MouseEvent&) override { ed.proc.mod().displayMouseUp(); }
+        void mouseUp (const juce::MouseEvent&) override { ed.displayDrag = false; ed.proc.mod().displayMouseUp(); }
         void mouseMove (const juce::MouseEvent& e) override;
     };
     struct Group
@@ -126,12 +127,13 @@ private:
     SFProcessor& proc;
     SFLookAndFeel lnf;
     std::vector<std::unique_ptr<SFCell>> cells;
-    Group perform, detail, motion, system, setup;
-    std::array<Group*, 5> groups { &perform, &detail, &motion, &system, &setup };
+    Group perform, detail, sample, motion, system, setup;
+    std::array<Group*, 6> groups { &perform, &detail, &sample, &motion, &system, &setup };
     std::array<GridCell, 16> grid {};
     int page = -1, uiShown = 0, ticks = 0;
     juce::String track, note;
     juce::Rectangle<int> panel, display;
+    bool displayDrag = false;           // a press on the display: its drag is the display's wherever it goes
     uint32_t trackSeq = 0;
     juce::TextButton storeButton { "STORE" }, loadButton { "LOAD" }, presetButton { "PRESET" };
     juce::Array<juce::File> userFiles;

@@ -629,8 +629,8 @@ static void dumpSpecs()
             const juce::String maxText = s.type == PType::Float ? prm->getText (1.0f, 64) : juce::String();
             const char* type = s.type == PType::Float ? "knob" : s.type == PType::Choice ? "menu" : s.type == PType::Toggle ? "toggle" : "momentary";
             const bool slows = s.glidesWithSlow() && (int) k < p.numModuleParams();
-            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"perform\": %s, \"setup\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
-                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", s.perform ? "true" : "false", s.setup ? "true" : "false", slows ? "true" : "false",
+            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"perform\": %s, \"setup\": %s, \"sample\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
+                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", s.perform ? "true" : "false", s.setup ? "true" : "false", s.inSample ? "true" : "false", slows ? "true" : "false",
                          minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
         }
         std::printf ("]}%s\n", m + 1 < ids.size() ? "," : "");
@@ -1009,6 +1009,7 @@ static int renderModule (int argc, char** argv)
 
 #include "QualityTests.h"
 #include "RequestTests.h"
+#include "SampleRegionTests.h"
 
 // --capture IN.wav [IN2.wav] OUT.wav: SF TERROIR's import on real recordings, through the plugin's own
 // path (the worker thread, the place as stored in the set). Prints what the status line would and a
@@ -1257,12 +1258,13 @@ int main (int argc, char** argv)
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
                      testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
-                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); }
-    else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); }
+                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); }
+    else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
     else if (std::string (argv[1]) == "--authority2") { testStateAuthority(); }
     else if (std::string (argv[1]) == "--tempo") { testTerroirTempo(); }
     else if (std::string (argv[1]) == "--reach") { testStripReach(); }
+    else if (std::string (argv[1]) == "--region") { testSampleRegion(); }
     else if (std::string (argv[1]) == "--nov6") { testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); }
     else if (std::string (argv[1]) == "--perf") { testSlowAndMacro(); testDensity(); testRegressions(); }
     else if (std::string (argv[1]) == "--models") { testModels(); }

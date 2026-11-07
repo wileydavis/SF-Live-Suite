@@ -59,7 +59,9 @@ The manual's chapter 7, **The show template**, is a complete show set built on t
 
 **Presets:** the PRESET button in every header. 191 factory presets; SAVE USER PRESET writes to `~/Music/SF Live Suite/Presets/<MODULE>/`.
 
-**The plugin windows** are narrow strips (296 pixels wide), so several sit side by side. From the top: the header; the plugin's page of the E16 scene as the E16 shows it (its own encoders lit where they sit on the E16, in the scene's ring colours, the others dark; presses under their knobs); PERFORM (the rest of the performance row); the display; DETAIL (MODEL first); and, folded, MOTION, SYSTEM (SLOW, MACRO) and SETUP (ALLOC, KEY FOLLOW, DRY ...), each with its settings on its title line. Click a title line to open or fold a group; the plugin keeps it with the set. The window is never taller than your screen: when the open groups don't fit, the strip scrolls under the header (the thin bar at the right, or the wheel, which then scrolls and turns no knob). A plugin the scene has on several tracks (LEAD, PERC, ENERGY) finds its page by its track's name, so use the VST3 for those.
+**Samples:** drop a file on KICK, PERC, RUMBLE, BASS, LEAD or PAD (MODEL: SAMPLE, or PAD's GRANULAR) or a phrase on VOICE, or use LOAD; it is stored inside the Live set. Set the part that plays as you would an Ableton clip's: drag the START and END lines on the display (or turn them in the SAMPLE group), and FADE IN / FADE OUT shape its ends. The instrument's own envelope (DECAY, ATTACK, GATE) still shapes each note on top. VOICE slices that part; PAD's GRANULAR takes its grains from it, and follows START and END while a chord holds.
+
+**The plugin windows** are narrow strips (296 pixels wide), so several sit side by side. From the top: the header; the plugin's page of the E16 scene as the E16 shows it (its own encoders lit where they sit on the E16, in the scene's ring colours, the others dark; presses under their knobs); PERFORM (the rest of the performance row); the display; DETAIL (MODEL first); and, folded, SAMPLE (the samplers' START, END and fades), MOTION, SYSTEM (SLOW, MACRO) and SETUP (ALLOC, KEY FOLLOW, DRY ...), each with its settings on its title line. Click a title line to open or fold a group; the plugin keeps it with the set. The window is never taller than your screen: when the open groups don't fit, the strip scrolls under the header (the thin bar at the right, or the wheel, which then scrolls and turns no knob). A plugin the scene has on several tracks (LEAD, PERC, ENERGY) finds its page by its track's name, so use the VST3 for those.
 
 ## Sound quality (measured offline, every build)
 
@@ -129,6 +131,13 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 6. **KEY and PANIC.** Set KEY on SF CONTROL: BASS, LEAD and PAD transpose (notes already held follow), KICK and RUMBLE retune to the root. Push SF DELAY into feedback and hold PANIC: everything goes quiet within 5 ms and stays quiet until you let go.
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
+9. **A sample's part.** Drop a one-shot on SF KICK (MODEL: SAMPLE): its waveform appears under OUTPUT. Drag END in and turn FADE OUT up (the SAMPLE group): the kick gets shorter and ends without a click. On SF PAD's GRANULAR with a field recording, hold a chord and drag START: the texture wanders through the file.
+
+### Changes in the third Nov 6 update
+
+- **START, END, FADE IN and FADE OUT on every sampler** (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE), in a new SAMPLE group (folded) and on the display: with a sample loaded its waveform appears under the display (VOICE: on the phrase), the part that plays bright, the fades as ramps, START and END as lines you drag. The fades run in the sample's own time (an octave up, twice as fast), and a cut inside the waveform always fades for at least 1 ms, so it never clicks. DECAY's gate on KICK and PERC measures the part, and KICK tells the pockets its shorter length. VOICE slices the part (AUTO from START; EQUAL 8 / 16 divide it). PAD's GRANULAR takes its grains from it, live.
+- **Nothing in a set changes:** at their defaults (0 %, 100 %, 0 ms, 0 ms) every sample plays as before, to the bit. The four are appended to each sampler's parameters, so the E16 addresses stay where they are; songs keep them; presets leave them alone (a preset has no sample of its own).
+- **A drag that starts on a plugin's display stays with it** when the pointer leaves the display (ALLOC's knobs too).
 
 ### Changes in the second Nov 6 update
 
