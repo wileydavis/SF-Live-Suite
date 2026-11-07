@@ -296,7 +296,7 @@ story += bullets(["Start GLUE, TONE and LOWEND gently: the set doesn't need ever
 story.append(H2("THE OXI ONE"))
 story.append(P("Port A carries the drums, port B everything pitched and SF CONTROL. Every sequencer has its own channel, and SF SHOW.als listens to each on its own track (Live lists port A as OXI ONE MKII (Port 1), port B as (Port 2)), never All Ins / All Channels."))
 story.append(table([["SEQUENCER", "MODE", "OUTPUT", "TRACK"],
-    ["1 DRUMS", "Multitrack: lane 1-4 on ch 1-4", "port A", "KICK, CLOSED, OPEN, CLAP (lanes 5-8 spare)"],
+    ["1 DRUMS", "Multitrack: a track per drum, the kick on the bottom row", "1A-4A", "KICK, CLOSED, OPEN, CLAP"],
     ["2 BASS", "Mono", "port B ch 1", "BASS"],
     ["3 ACID", "Mono", "port B ch 2", "ACID"],
     ["4 STAB", "Mono to start; Chord or Poly for whole chords", "port B ch 3", "STAB"],
@@ -308,7 +308,7 @@ story.append(Spacer(1, 6))
 story += bullets(["KICK lane on C1: with KEY TRACK on, any other note transposes the kick (C1 = TUNE), so C1 is right either way. PERC plays any note.",
                   "RUMBLE needs no lane: SOURCE KICK BUS follows SF KICK.",
                   "KEY OFF on SF CONTROL to start with: the ONE's notes set the pitch, and KICK and RUMBLE are tuned per song with TUNE. Turn KEY on for songs that should change key without reprogramming the ONE (mind the low register, chapter 1).",
-                  "One ONE project per track, with a pattern per section: SPARSE, MAIN, VARIATION, EXIT, each a copy of the startup project SF START (controllers/oxi-one: every sequencer as above, no notes). Sequencer 8 sends that track's Program Change on port B ch 16, so loading the project recalls the matching SF song. Program Change stays off on the musical sequencers.",
+                  "One ONE project per track, with a pattern per section: SPARSE, MAIN, VARIATION, EXIT, each a copy of the startup project SF START (controllers/oxi-one: every sequencer as above, four scenes of simple patterns). Sequencer 8 sends that track's Program Change on port B ch 16, so loading the project recalls the matching SF song. Program Change stays off on the musical sequencers.",
                   "When patterns change is set on the ONE (its launch and arranger settings): Live's launch quantization doesn't reach it."])
 
 story.append(H2("CLOCK, MIDI AND LATENCY"))

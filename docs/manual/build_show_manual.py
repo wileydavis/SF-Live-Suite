@@ -119,7 +119,7 @@ class OxiMap(Flowable):
         label(c, (xs + sw + xt) / 2, top + 6, "OUTPUT", 6.2)
         yrow = lambda r: top - (r + 1) * RH + 2                  # bottom of row r's box
         bh = RH - 4
-        box(c, xs, yrow(3), sw, 4 * RH - 4, "1  DRUMS", ("MULTITRACK", "LANES 1-4 PLAY THE KIT", "LANES 5-8 SPARE"))
+        box(c, xs, yrow(3), sw, 4 * RH - 4, "1  DRUMS", ("MULTITRACK", "A TRACK PER DRUM", "KICK ON THE BOTTOM ROW"))
         for i, (name, mode) in enumerate(self.SEQ):
             box(c, xs, yrow(4 + i), sw, bh, name, (mode,), title_size=7.0, sub_size=5.6)
         for r, (track, plugin, out) in enumerate(self.ROWS):
@@ -509,7 +509,7 @@ story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     [3.0 * inch, 0.9 * inch, 0.9 * inch, W - 4.8 * inch]))
 story.append(H2T("PROJECTS AND PATTERNS"))
 story += bullets(["<b>One ONE project per track</b> (per piece of music), with a pattern per section: SPARSE, MAIN, VARIATION, EXIT.",
-                  "<b>Every project starts as a copy of SF START</b>, the startup project: every sequencer set as in the table above, no notes (controllers/oxi-one has its card). Save, an empty slot, Duplic proj here; then sequencer 8's Program Change.",
+                  "<b>Every project starts as a copy of SF START</b>, the startup project: every sequencer set as above, and four scenes of simple patterns in columns 1-4, SPARSE, MAIN, VARIATION, EXIT (controllers/oxi-one: SFSTART.oxipro and its card). Save, an empty slot, Duplic proj here; then sequencer 8's Program Change, the song's number: PC n calls SONG n. check_project.py checks the copy.",
                   "<b>Sequencer 8 carries the song.</b> The ONE sends a Program Change (and bank) per pattern: give sequencer 8's patterns the track's song number, output 16B. Loading the project recalls the matching SF song on the bar (chapter 6). Program Change stays off on the musical sequencers.",
                   "<b>When patterns change is set on the ONE</b> (its launch and arranger settings): Live's launch quantization doesn't reach it.",
                   "<b>KEY on SF CONTROL starts OFF:</b> the ONE's notes set the pitch, and KICK and RUMBLE are tuned per song with TUNE. Turn KEY on for songs that should change key without reprogramming the ONE.",
