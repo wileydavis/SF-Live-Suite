@@ -14,10 +14,6 @@ import xml.etree.ElementTree as ET
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SET = os.path.join(ROOT, "controllers", "live", "SF SHOW.als")
-sys.dont_write_bytecode = True
-sys.path.insert(0, os.path.join(ROOT, "controllers", "e16"))
-import layout  # noqa: E402  (every address of the scene: the set must map them all)
-ADDRESSES = len(layout.addresses())
 CHECK = os.environ.get("CHECK_SET", os.path.join(ROOT, "controllers", "live", "check_set.py"))   # CHECK_SET: test another copy
 fails = 0
 
@@ -90,7 +86,7 @@ def removed(root):
 
 with tempfile.TemporaryDirectory() as tmp:
     code, out = run(SET)
-    check(code == 0 and f"{ADDRESSES} of {ADDRESSES}" in out, f"SF SHOW.als: exit {code}, all {ADDRESSES} addresses mapped")
+    check(code == 0 and "108 of 108" in out, f"SF SHOW.als: exit {code}, every address mapped")
     for name, change, words in (("twice", twice, "MAPPED TWICE"), ("low top", low_top, "max 0.500"),
                                 ("high bottom", high_bottom, "min 0.2"), ("relative", relative, "MODE"),
                                 ("removed", removed, "MISSING")):

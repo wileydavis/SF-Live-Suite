@@ -14,8 +14,7 @@ Addresses
             order for good (new parameters are only ever appended), so an address never moves. One
             plugin on a channel: base 20, so its performance row is always 20-27.
   Mixer   = 100 volume, 101 send A, 102 send B. On the group channels 14 and 15, 100-102 are the
-            volumes of their tracks. A volume knob's MUTE press is the note with the volume's number
-            (01 KICK: note 100 on channel 1; LOW, DRUMS, MUSIC: notes 100-102 on channel 14).
+            volumes of their tracks.
   Turns send CC. A HOLD press sends the same number as a CC (127 on press, 0 on release); a TOGGLE
   press sends it as a note (Live flips a switch on every Note On).
 """
@@ -218,17 +217,6 @@ class Press:
         return f"{self.name} ({self.mode})"
 
 
-class Mute(Press):
-    """A volume knob's press that mutes its track and, pressed again, unmutes it: Live's track
-    activator, on the note with the volume's number and channel. TOGGLE: Live flips the activator on
-    every Note On, so the E16 can never think a track is muted while Live has it on."""
-    def __init__(self, track):
-        self.mode, self.name = "TOGGLE", "MUTE"
-        self.channel, self.number = MIXER[(track, "volume")]
-        self.target = f"{track} > mixer > activator"
-        self.track, self.module, self.pid, self.mixer, self.max_value = track, None, None, "activator", None
-
-
 class Swap:
     """Swap Destination: a quick press flips the encoder to its second destination, a turn of its own
     (the ring takes the second colour, the screen shows a bar under the value); another press flips it
@@ -330,14 +318,12 @@ PAGES = [
 ]
 
 # Presses. A knob is easily pressed while it is turned, so a press must be harmless when it happens by
-# accident: a throw, a roll, a freeze, a drop or one track muted is a musical mistake the set plays
-# through (another press brings the track back), and a swap only flips the knob (SLOW ALL never moves
-# the sound, only how the next moves go). What would stop the set goes on a computer key instead
-# (KEYS), never on a press: LIVE BUS's volume has no MUTE.
+# accident: a throw, a roll, a freeze or a drop is a musical mistake the set plays through, and a swap
+# only flips the knob (SLOW ALL never moves the sound, only how the next moves go). What would stop
+# the set goes on a computer key instead (KEYS), never on a press.
 PRESSES_ALL = {
     1: Swap(P("CONTROL", "slow_all", "SLOW ALL", "SLOW")),
     4: Press("BUILD", "drop", "HOLD"),
-    5: Mute("01 KICK"), 6: Mute("10 LOW"), 7: Mute("20 DRUMS"), 8: Mute("30 MUSIC"),
 }
 PRESSES_PAGE = {
     ("SPACE", 9): Press("DUB", "throw", "HOLD"),

@@ -528,8 +528,6 @@ class Builder:
                     value = t.find("DeviceChain/Mixer/Volume")
                 elif item.mixer == "send A":
                     value = t.find("DeviceChain/Mixer/Sends")[0].find("Send")
-                elif item.mixer == "activator":                  # a MUTE press: a note flips it
-                    value = t.find("DeviceChain/Mixer/Speaker")
                 else:
                     raise SystemExit(f"no mixer control {item.mixer}")
                 if item.max_value is not None:

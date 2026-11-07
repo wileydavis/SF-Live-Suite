@@ -505,7 +505,7 @@ story += bullets(["<b>One ONE project per track</b> (per piece of music), with a
                   "<b>Sequencer 8 carries the song.</b> The ONE sends a Program Change (and bank) per pattern: give sequencer 8's patterns the track's song number, output 16B. Loading the project recalls the matching SF song on the bar (chapter 6). Program Change stays off on the musical sequencers.",
                   "<b>When patterns change is set on the ONE</b> (its launch and arranger settings): Live's launch quantization doesn't reach it.",
                   "<b>KEY on SF CONTROL starts OFF:</b> the ONE's notes set the pitch, and KICK and RUMBLE are tuned per song with TUNE. Turn KEY on for songs that should change key without reprogramming the ONE.",
-                  "<b>Taking the kick out:</b> mute its lane on the ONE. Pulling the KICK fader down, or pressing it (MUTE), leaves it playing on the bus: Live mutes after the plugin, so Pocket and RUMBLE keep pumping to a silent kick (which can be the point)."])
+                  "<b>Taking the kick out:</b> mute its lane on the ONE. Pulling the KICK fader down leaves it playing on the bus, so Pocket and RUMBLE keep pumping to a silent kick (which can be the point)."])
 story.append(PageBreak())
 
 # ---------------- 4
@@ -524,14 +524,14 @@ story.append(Spacer(1, 8))
 story += bullets(["<b>1-3, the group ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together).",
                   "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns green): turn it to set how long your next moves take, OFF (at once) to 128 BAR. Press again: LOW ENERGY. Knobs already travelling keep going.",
                   "<b>4, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page. The drop lands on the next bar line (chapter 7).",
-                  "<b>5-8, the volumes:</b> KICK, LOW, DRUMS, MUSIC. Each is mapped with a maximum of 0 dB, so a full turn never runs past the soundcheck balance. <b>Press one: MUTE</b>, on every page: its track goes silent (Live's track activator); press again, it is back.",
+                  "<b>5-8, the volumes:</b> KICK, LOW, DRUMS, MUSIC. Each is mapped with a maximum of 0 dB, so a full turn never runs past the soundcheck balance.",
                   "<b>On an instrument page</b> 13 is DENSITY, 14 FILTER and 16 LEVEL, and 12 is GATE wherever there is one: the hand learns one layout. The rest is the plugin's own performance row."])
 story.append(H2T("RINGS, PAGES, PRESSES"))
 story += bullets(["<b>Rings:</b> light blue is a volume, white is everything else, green is knob 1 on SLOW ALL or a knob travelling (knob 1 itself never shows a glide: it swaps, so it always shows the value of the side it is on). Live sends every value back, so the rings follow song recalls and mouse moves.",
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>Changing pages sends nothing.</b> A knob on two pages (LOW ENERGY is on all twelve) sends the same address from both: two ways to one mapping.",
-                  "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE, MUTE), so the E16 can never think FREEZE is on, or a track muted, while Live has it otherwise.",
-                  "Every press is one the set plays through if it happens by accident (a throw, a roll, a freeze, a drop, one track muted). What would stop the set is on a computer key: LIVE BUS has no MUTE.",
+                  "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off.",
+                  "Every press is one the set plays through if it happens by accident (a throw, a roll, a freeze, a drop). What would stop the set is on a computer key.",
                   "<b>On screen, the same grid.</b> Every SF plugin's window starts with its page of this scene: its own encoders lit where they sit on the E16, in these colours, the rest dark, its presses under their knobs. Several windows side by side read like the E16 itself. LEAD, PERC and ENERGY are on several tracks: their windows find their encoders by the track's name (VST3)."])
 story.append(CondPageBreak(1.7 * inch))
 def press_row(where, i, p):
@@ -546,7 +546,7 @@ story.append(table([["WHERE", "KNOB", "PRESS", "MESSAGE", "LIVE TARGET"]] +
 story.append(H2T("ADDRESSES"))
 story += bullets(["<b>Channel = track:</b> 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB, 10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 the groups (LOW, DRUMS, MUSIC and DRUMS' REPEAT), 15 LIVE BUS and BRIDGE, 16 CONTROL.",
                   "<b>CC = block base + the parameter's place in its plugin.</b> One plugin on a channel: base 20, so its performance row is CC 20-27. Channel 14: LOW ENERGY 20, DRUMS ENERGY 30, MUSIC ENERGY 40, REPEAT 50. Channel 15: BUILD 20. Channel 16: CONTROL 20.",
-                  "<b>Mixer:</b> CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC volumes; channel 15: 100 LIVE BUS, 101 BRIDGE. A volume knob's MUTE press is the note with its number: note 100 on channel 1 (KICK), notes 100-102 on channel 14 (LOW, DRUMS, MUSIC).",
+                  "<b>Mixer:</b> CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC volumes; channel 15: 100 LIVE BUS, 101 BRIDGE.",
                   "The plugins never reorder their parameters, so an address never moves. Every address is in the appendix."])
 story.append(H2T("LOAD THE SCENE"))
 story += numbered(["OXI App &gt; Scenes. If no computer folder is assigned yet, assign one.",

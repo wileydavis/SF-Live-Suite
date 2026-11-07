@@ -43,8 +43,7 @@ already mapped. Open it, finish it in five steps (section 2), save it as your te
   so every mapped parameter is in view.
 - **E16:** every address in `controllers/e16/sf-show-map.csv` is mapped, the presses and knob 1's
   second destination (SLOW ALL on SF CONTROL) included; the E16 scene carries them all. Every volume has
-  Max 0 dB; DUB FEEDBACK is mapped 0-70 %. Knobs 5-8's presses mute 01 KICK, 10 LOW, 20 DRUMS and
-  30 MUSIC (their activators).
+  Max 0 dB; DUB FEEDBACK is mapped 0-70 %.
 - Every MIDI track starts on MIDI From No Input, so nothing plays until section 2 points it at its
   part. Cue Out 3/4. Tempo 120, 4/4, eight empty scenes. Colours: groups white, instruments light
   grey, the rest grey; red is 92 PA, dark red 93 REC and 94 ROOM.
@@ -101,10 +100,9 @@ For DECK's headphone cue, add an audio track: Audio From 41 DECK, CUE; out to th
 
 1. Live opens the set without a message and lists no SF plugin as missing. A missing plugin: the
    suite isn't installed, or VST3 is off.
-2. Cmd-M: the MIDI Mappings list shows the E16 mappings (112). Turn a few knobs on different pages:
-   the parameter named in `sf-show-map.csv` moves, and a volume stops at 0 dB. Press knobs 5-8: each
-   mutes its track (KICK, LOW, DRUMS, MUSIC: the activator goes grey); press again: back.
-   `python3 controllers/live/check_set.py "SF SHOW.als"` says the same from the file: 112 of 112.
+2. Cmd-M: the MIDI Mappings list shows the E16 mappings (108). Turn a few knobs on different pages:
+   the parameter named in `sf-show-map.csv` moves, and a volume stops at 0 dB.
+   `python3 controllers/live/check_set.py "SF SHOW.als"` says the same from the file: 108 of 108.
 3. Play the ONE: each instrument plays only its own part; the LIVE BUS, Main and 92 PA meters move;
    93 REC, armed, records the set. Cue a track: it reaches the headphones and not the PA. 94 ROOM's
    SF CAPTURE shows the room on IN L and IN R; armed, ROOM records it.

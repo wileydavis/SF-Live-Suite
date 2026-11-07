@@ -8,7 +8,6 @@ CHANNEL,MESSAGE,NUMBER,KIND,LIVE TARGET,LIVE MAPPING,RANGE,ON THE E16
 1,CC,26,TURN,01 KICK > SF KICK > DENSITY,absolute,,KICK 13
 1,CC,27,TURN,01 KICK > SF KICK > LEVEL,absolute,,KICK 16
 1,CC,100,TURN,01 KICK > mixer > volume,absolute,Max 0 dB,"every page, encoder 5"
-1,NOTE,100 (E6),TOGGLE,01 KICK > mixer > activator,press: every Note On flips it,,"every page, encoder 5"
 2,CC,20,TURN,11 BASS > SF BASS > CUTOFF,absolute,,BASS 9
 2,CC,21,TURN,11 BASS > SF BASS > RES,absolute,,BASS 10
 2,CC,22,TURN,11 BASS > SF BASS > ENV AMT,absolute,,BASS 11
@@ -97,9 +96,6 @@ CHANNEL,MESSAGE,NUMBER,KIND,LIVE TARGET,LIVE MAPPING,RANGE,ON THE E16
 14,CC,100,TURN,10 LOW > mixer > volume,absolute,Max 0 dB,"every page, encoder 6"
 14,CC,101,TURN,20 DRUMS > mixer > volume,absolute,Max 0 dB,"every page, encoder 7"
 14,CC,102,TURN,30 MUSIC > mixer > volume,absolute,Max 0 dB,"every page, encoder 8"
-14,NOTE,100 (E6),TOGGLE,10 LOW > mixer > activator,press: every Note On flips it,,"every page, encoder 6"
-14,NOTE,101 (F6),TOGGLE,20 DRUMS > mixer > activator,press: every Note On flips it,,"every page, encoder 7"
-14,NOTE,102 (F#6),TOGGLE,30 MUSIC > mixer > activator,press: every Note On flips it,,"every page, encoder 8"
 15,CC,20,TURN,90 LIVE BUS > SF BUILD > BUILD,absolute,,"every page, encoder 4"
 15,CC,21,HOLD,90 LIVE BUS > SF BUILD > DROP,"press: 127 on press, 0 on release",,"every page, encoder 4"
 15,CC,100,TURN,90 LIVE BUS > mixer > volume,absolute,Max 0 dB,PERFORM 15
