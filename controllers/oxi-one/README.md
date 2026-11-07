@@ -62,22 +62,24 @@ depend on it.
    (**Seq 8**, **Save**, double-tap slot 1 on its row). Lesson 6 tests whether your ONE counts
    programs from 0 or 1.
 
-## THE FILE FROM NOV 7 (SFSHOW)
+## THE FILE FROM NOV 7 (SFSHOW), BEFORE AND AFTER
 
-Read against the table, as far as the file can be read:
+Two saves of the same project, before and after the changes this card asks for. Read against the
+table:
 
-| SEQ | IN THE FILE | CHANGE |
+| SEQ | BEFORE | AFTER |
 |---|---|---|
-| 1 | Multitrack; notes on steps 1-8 | clear the notes; lane channels can't be read: check 1A-4A |
-| 2 | Mono, 1B; an off-beat bass line | clear the notes |
-| 3, 4, 6 | Mono, 2B, 3B, 5B | none |
-| 5 | Chord, 4B | Mono (Chord also works with SF PAD) |
-| 7 | Multitrack, no channel | Mono, 6B |
-| 8 | Multitrack, channel byte 8A | Mono, 16B, the PC |
+| 1 | Multitrack, Out ALL; a beat | Multitrack, Out USB; the same beat |
+| 2 | Mono 1B, Out ALL; an off-beat bass line | Mono 1B, Out USB; a note on all 16 steps |
+| 3, 4, 6 | Mono 2B, 3B, 5B, Out ALL | the same, Out USB |
+| 5 | Chord 4B, Out ALL | Mono 4B, Out USB |
+| 7 | Multitrack, no channel | Mono 6B, Out USB |
+| 8 | Multitrack, channel byte 8A | Mono 16B, Out USB; PC 1 (the reading below) |
 
-Out (USB) and the Program Change can't be read yet: check them on the ONE. Saved after these
-changes, it is SF START. Sent back, the two files together show where Out, PC and the lane channels
-are stored; after that, a read-only check of any project against this table is possible.
+The beat on sequencer 1: lane 1 on the beats, lane 4 on the off-beats, lane 5 on every eighth. Its
+lane channels read (below) 1A, 6B, 4A, 3A, 2A for lanes 1-5: the kick to KICK, the off-beats to OPEN,
+the eighths to CLOSED, lane 3 to CLAP and lane 2 to STRIKE. That routes every part to its track, in
+another lane order than the table's (1-4: KICK, CLOSED, OPEN, CLAP).
 
 ## THE FILE FORMAT, AS FAR AS IT IS READ
 
@@ -93,7 +95,19 @@ spec.
 - A pattern starts with type, version and a u16 length; its CRC sits at the length rounded up to 4.
 - Mode (first byte): 0 Mono, 1 Poly, 2 Chord, 3 Multitrack (the MkI numbering; sure for 0 and 3).
   Channel, Mono: +0x0CB9; Chord: 0x100 earlier; 0-15 is port A ch 1-16, 16-31 port B.
-- Not found: Out, Program Change, the multitrack lanes' channels and notes, clock and sync.
+- **Out** (from the second save, where exactly these bytes changed when Out went to USB on all eight):
+  the byte after the channel, Mono +0x0CBE, Multitrack +0x2A31. 0 ALL (the default), 2 USB.
+- **Mono steps:** 128 records of 24 bytes from +0x04. Byte 0 the note (FF none, 0 the root), byte 1
+  the velocity (75 by default), byte 3 the gate (50).
+- **Multitrack steps:** 128 records of 81 bytes from +0x04. Byte 0 the lanes that play (bit 0 lane
+  1), then per lane: the velocity at +9 to +16 (75), the gate at +17 to +24 (50).
+- **Program Change, probably:** the header, 6 bytes per sequencer from 0x2103, the PC at 0x2104 + 6
+  × (seq - 1): 0 OFF, n PC n. Only one byte of the header changed between the saves, in sequencer 8's
+  place, to 1: unconfirmed until a ONE shows sequencer 8's PC as 1.
+- **Lane channels, probably:** +0x288C, one byte per lane, 1-based (1 is 1A, 17 is 1B), 0 the
+  sequencer's own. +0x2894 holds 1 to 8 in every multitrack (lane numbers, or notes). Unconfirmed.
+- Tempo, probably: 0x10 reads 1320 in both saves.
+- Not found: clock and sync (the ONE's config, not the project's).
 
 No script writes a project: a record with a correct CRC and a wrong field would look valid to the
 ONE. Only once a writer reproduces device-saved files byte for byte, and then in a spare slot with
