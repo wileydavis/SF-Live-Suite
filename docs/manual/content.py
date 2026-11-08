@@ -307,7 +307,7 @@ MODULES["CONTROL"] = dict(
     use=[
         "Put it on its own MIDI track receiving the OXI One.",
         "Program Change on channel 16 selects the song. AU: in any Live version. VST3: Live 12.2 and later deliver it as a program change (SF CONTROL lists SONG 01-16); older versions don't.",
-        "Every plugin changes on the same bar line, whatever order Live processes the tracks in. A change sent within 30 ms after a bar line (on the downbeat) counts for that bar; later in the bar, for the next one.",
+        "Every plugin changes on the same bar line, whatever order Live processes the tracks in. A Program Change up to a sixteenth after a bar line counts for that bar (a sequencer sends it on its downbeat, and one clocked by Live plays a little after Live's: the OXI One 40 ms on Nov 7), a turn of SONG up to 30 ms after it; later in the bar, for the next one.",
         "To save a song: set every plugin and press STORE ALL. It goes into the song in force (SONG).",
         "To save into another song, choose it in STORE TO first, then press STORE ALL. That song isn't recalled, so nothing you hear changes; it becomes the song in force (SONG follows) and STORE TO goes back to ACTIVE SONG. If a song change is waiting for its bar, that change still lands and stays the song in force.",
         "The display shows macro levels, the song, the key, whether the bus is shared, SF KICK is reporting and SF ALLOC is running, and the E16 RINGS port.",

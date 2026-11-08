@@ -116,13 +116,13 @@ public:
         // where they were asked for (a plugin that sees one just after a loop wrapped can tell
         // whether it came before or after the wrap).
         bool published = false;
-        auto publishSong = [&] (int s, int offset)
+        auto publishSong = [&] (int s, int offset, bool fromMidi = false)
         {
             // The key the song brings switches on the same bar in every plugin (-2: no change).
             const float k = getSongValue ? getSongValue (s, KEY) : NAN;
             d.songKey = std::isnan (k) ? -2 : (int) std::lround (k) - 1;
             d.songFromPpq = c.ppqAt (offset);
-            d.songAtPpq = songTarget (c, c.ppqAt (offset));
+            d.songAtPpq = songTarget (c, c.ppqAt (offset), fromMidi ? kMidiWindowBeats : kHandWindowSec * c.bpm / 60.0);
             d.song = s;
             d.songSeq.fetch_add (1);
             published = true;
@@ -137,7 +137,7 @@ public:
                 if (m.isProgramChange() && m.getChannel() == c.ci (PCCH) + 1)
                 {
                     const int s = juce::jlimit (0, kSongs - 1, m.getProgramChangeNumber());
-                    publishSong (s, juce::jlimit (0, std::max (0, c.n - 1), meta.samplePosition));
+                    publishSong (s, juce::jlimit (0, std::max (0, c.n - 1), meta.samplePosition), true);
                     pcSong = s;
                 }
             }
@@ -287,17 +287,22 @@ private:
     }
     std::atomic<int> pcSong { -1 }, programRequest { -1 }, storeMirror { -1 }, mirroredSong { -1 }, songParamNow { -1 };
 
-    // The bar line a song change lands on. Stopped: at once (-1). Within 30 ms after a bar line
-    // (a Program Change sent on the downbeat, plus MIDI and buffer latency): that bar, and plugins
-    // that see it a block late catch up at once. Later in the bar: the next bar line.
-    static double songTarget (const Ctx& c, double reqPpq)
+    // The bar line a song change lands on. Stopped: at once (-1). Within `window` beats after a bar
+    // line: that bar, and plugins that see it a block late catch up at once. Later in the bar: the
+    // next bar line. A Program Change from MIDI: a sixteenth. A sequencer sends it on its downbeat,
+    // and one clocked by Live plays after Live's [Nov 7]: the OXI One's notes came 40 ms after
+    // Live's beat, past the 30 ms this window was, so every song change from it landed a bar late.
+    // The SONG knob, its menu, automation, a host program: 30 ms (a hand a little late on the one
+    // waits for the next bar rather than landing in the middle of this one).
+    static constexpr double kMidiWindowBeats = 0.25, kHandWindowSec = 0.030;
+    static double songTarget (const Ctx& c, double reqPpq, double windowBeats)
     {
         if (! c.playing) return -1.0;
         const double bpb = c.beatsPerBar;
         double since = std::fmod (reqPpq - c.barPhase, bpb);
         if (since < 0.0) since += bpb;
         const double barStart = reqPpq - since;
-        return since * c.samplesPerBeat() < 0.030 * c.sr ? barStart : barStart + bpb;
+        return since < windowBeats ? barStart : barStart + bpb;
     }
     int lastSongParam = -1, storeTo = -1;
     bool storeWas = false, panicWas = false, storeHeld = false, storeKeepSong = false;

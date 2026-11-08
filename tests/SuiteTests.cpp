@@ -1257,7 +1257,7 @@ int main (int argc, char** argv)
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
+                     testThirdReview(); testDrop(); testSongWindow(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
                      testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
@@ -1288,6 +1288,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--second") { testSecondReview(); }
     else if (std::string (argv[1]) == "--third") { testThirdReview(); }
     else if (std::string (argv[1]) == "--drop") { testDrop(); }
+    else if (std::string (argv[1]) == "--songwindow") { testSongWindow(); }
     else if (std::string (argv[1]) == "--dropweight") { testDropWeight(); }
     else if (std::string (argv[1]) == "--authority") { testControlAuthority(); testRecallHistory(); }
     else if (std::string (argv[1]) == "--history") { testRecallHistory(); }

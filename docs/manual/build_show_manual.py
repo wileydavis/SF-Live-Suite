@@ -463,7 +463,7 @@ story.append(table([["PORT (SETTINGS &gt; TEMPO &amp; MIDI)", "TRACK", "SYNC", "
     [3.2 * inch, 0.9 * inch, 0.9 * inch, W - 5.0 * inch], mono_first=False))
 story.append(Spacer(1, 4))
 story += bullets(["Takeover Mode: Value Scaling. Audio: 48 kHz, buffer 256. These live in Live's preferences, not in any set: nothing in SF SHOW.als can set them.",
-                  "<b>MIDI Clock Sync Delay</b> on the ONE's Port 1 output (its row unfolded with the triangle at its left): <b>0</b>. The ONE's notes come back to Live a little late (the clock goes out, the notes come back, buffers both ways: on Nov 7, 40 ms), and nothing needs them on the beat. BUILD lands its drop on the kick it hears (LAND ON KICK; its KICK readout shows how late the kick reaches it), a song change lands on Live's bar line ahead of the ONE's first note, and Pocket follows SF KICK. On Nov 7, -70 ms there moved the kick not at all.",
+                  "<b>MIDI Clock Sync Delay</b> on the ONE's Port 1 output (its row unfolded with the triangle at its left): <b>0</b>. The ONE's notes come back to Live a little late (the clock goes out, the notes come back, buffers both ways: on Nov 7, 40 ms), and nothing needs them on the beat. BUILD lands its drop on the kick it hears (LAND ON KICK; its KICK readout shows how late the kick reaches it), SF CONTROL takes the ONE's Program Change up to a sixteenth after the bar line as on the bar, and Pocket follows SF KICK. On Nov 7, -70 ms there moved the kick not at all.",
                   "Before Live 12.4 the tab is called Link, Tempo &amp; MIDI."])
 story.append(H2T("OPEN IT, CHECK, SAVE"))
 story += numbered(["<b>MIDI From</b> is set on every instrument, as in the table above (chapter 3 shows the ONE's side). If your Live names the ONE differently, a track shows its port as missing: set it by the table. Never All Ins: every instrument would play every part.",
@@ -502,7 +502,7 @@ story.append(H2T("CLOCK AND PORTS"))
 story += bullets(["<b>Live is the clock master.</b> On the ONE: sync USB (stopped, Shift + Stop until the header shows USB, not INT); in its config (Shift + Back), Start Stop Msgs Ignore No, MIDI Transport Msgs Send Off, MIDI Thru off, Auto Sync on (it starts with Live). Never send clock both ways.",
                   "<b>Live sends its clock only while it plays.</b> Start and stop from Live, never with the ONE's Play: started on its own, the ONE runs at its own tempo and ignores Live's.",
                   "<b>Audio:</b> 48 kHz, buffer 256 (Pocket needs 512 or less), launch quantization 1 bar, record quantization off.",
-                  "<b>The ONE plays a little after Live's beat,</b> and nothing needs it on the beat: BUILD lands its drop on the kick it hears (its KICK readout shows how late), song changes land on Live's bar line ahead of the ONE's notes, Pocket follows SF KICK. MIDI Clock Sync Delay stays at 0. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump sounds off."])
+                  "<b>The ONE plays a little after Live's beat,</b> and nothing needs it on the beat: BUILD lands its drop on the kick it hears (its KICK readout shows how late), SF CONTROL takes the ONE's Program Change up to a sixteenth late as on the bar, Pocket follows SF KICK. MIDI Clock Sync Delay stays at 0. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump sounds off."])
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     ["OXI ONE MKII (Port 1), in: the ONE's port A", "on", "off", "off"], ["OXI ONE MKII (Port 2), in: its port B", "on", "off", "off"],
     ["OXI ONE MKII (Port 1), out: the clock", "off", "on", "off"],
@@ -601,7 +601,7 @@ story.append(H2T("A SONG CHANGE"))
 story.append(SongFlow())
 story.append(Spacer(1, 6))
 story += bullets(["SF CONTROL decides the bar line once and sends it with the song, so every plugin lands on the same bar whatever order Live processes the tracks in.",
-                  "A change sent within 30 ms after a bar line (a Program Change on the downbeat) counts for that bar; later in the bar, for the next one. Every plugin's header shows WAIT BAR in green until it lands.",
+                  "A Program Change up to a sixteenth after a bar line counts for that bar (the ONE sends it on its downbeat, a little after Live's), a turn of SONG up to 30 ms after it; later in the bar, for the next one. Every plugin's header shows WAIT BAR in green until it lands.",
                   "Turning SONG on SF CONTROL does the same as a Program Change. A plugin with nothing stored in that song stays as it is.",
                   "<b>SLOW ALL</b> on SF CONTROL makes a recall glide: at 8 or 16 BAR every SF knob the song stores travels to it over 8 or 16 bars; at OFF it lands on the bar. Menus and switches (a MODEL, an ECHO SPACE) land on the bar either way (GLIDES, chapter 7, has the list)."])
 story.append(H2T("SAVING A SONG"))

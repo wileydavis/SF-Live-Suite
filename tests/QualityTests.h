@@ -2599,6 +2599,47 @@ static void testDrop()
     resetBus();
 }
 
+// The bar line a song change lands on [Nov 7]. A Program Change from MIDI comes from a sequencer's
+// downbeat, and one clocked by Live plays after Live's: the OXI One's came 40 ms after it, past the
+// 30 ms SF CONTROL took as "on the bar", so every song change from the ONE landed a bar late. Now a
+// Program Change within a sixteenth after a bar line lands on that bar; the SONG knob keeps 30 ms
+// (a hand a little late on the one waits for the next bar). 120 BPM, bar lines every 4 beats.
+static void testSongWindow()
+{
+    std::printf ("-- song changes: the bar line a request lands on\n");
+    const double bpm = 120.0;
+    struct Case { const char* what; bool pc; double afterMs, want; };
+    const Case cases[] = {
+        { "Program Change 40 ms after bar line 8 (the ONE, Nov 7)", true, 40.0, 8.0 },
+        { "Program Change 110 ms after it", true, 110.0, 8.0 },
+        { "Program Change 140 ms after it (past a sixteenth)", true, 140.0, 12.0 },
+        { "Program Change 20 ms before it", true, -20.0, 8.0 },
+        { "SONG turned 20 ms after it", false, 20.0, 8.0 },
+        { "SONG turned 40 ms after it", false, 40.0, 12.0 },
+    };
+    for (const auto& k : cases)
+    {
+        resetBus();
+        Rig2 ctl ("CONTROL");
+        ctl.head.bpm = bpm;
+        auto& d = Bus::get().d();
+        const double at = 8.0 + k.afterMs * 0.001 * bpm / 60.0;
+        auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+        // Up to the request, a block that starts on it (the knob: read at a block's start), on to beat 10.
+        while (ctl.ppq + kBlock * ctl.bps() <= at) ctl.step (kBlock, quiet);
+        const int lead = (int) std::floor ((at - ctl.ppq) / ctl.bps());
+        if (! k.pc && lead > 0) ctl.step (lead, quiet);
+        const uint32_t seq = d.songSeq.load();
+        if (k.pc) ctl.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { m.addEvent (juce::MidiMessage::programChange (16, 2), lead); });
+        else { ctl.set ("song", 2.0f); ctl.step (kBlock, quiet); }
+        const bool published = d.songSeq.load() != seq && d.song.load() == 2;
+        const double lands = d.songAtPpq.load();
+        std::printf ("   %-58s lands on beat %4.1f (want %4.1f)\n", k.what, lands, k.want);
+        CHECK (published && std::abs (lands - k.want) < 1e-6, "%s: published %d, lands on %.3f, want %.1f", k.what, (int) published, lands, k.want);
+    }
+    resetBus();
+}
+
 // The drop's weight. A groove of SF plugins at their defaults (KICK; RUMBLE on the kick bus; a rolling
 // BASS; closed hats on the eighths, open hats on the off-beats, a clap on 2 and 4; a held PAD chord),
 // summed as Live sums them (delay-compensated), through the LIVE BUS chain (BUILD > GLUE > TONE >

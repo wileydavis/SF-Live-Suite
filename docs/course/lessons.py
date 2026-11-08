@@ -82,7 +82,7 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       path=["Live", "Settings", "Tempo & MIDI"],
       table=[["OXI ONE MKII (Port 1), in", "Track **on**"], ["OXI ONE MKII (Port 2), in", "Track **on**"], ["OXI ONE MKII (Port 1), out", "Sync **on**, delay **0 ms**"],
              ["OXI E16 (Port 1), in and out", "Remote **on**"], ["Every other port", "all **off**"]],
-      why="Sync on one port only: two clocks confuse the ONE. Its notes reach Live a little after the beat (40 ms on Nov 7) and nothing needs them on it: SF BUILD lands the drop on the kick it hears (its KICK readout), song changes land ahead of the ONE's notes. On Nov 7, -70 ms of clock delay moved the kick not at all. A second Remote port would double every E16 message.", wait=15),
+      why="Sync on one port only: two clocks confuse the ONE. Its notes reach Live a little after the beat (40 ms on Nov 7) and nothing needs them on it: SF BUILD lands the drop on the kick it hears (its KICK readout), and SF CONTROL takes the ONE's song change up to a sixteenth late as on the bar. On Nov 7, -70 ms of clock delay moved the kick not at all. A second Remote port would double every E16 message.", wait=15),
     S("LAPTOP", "Takeover: Value Scaling",
       ["Same tab: **Takeover Mode › Value Scaling**."],
       "Same tab, further down: set Takeover Mode to Value Scaling. When a song changes, the knobs and Live disagree for a moment. "
