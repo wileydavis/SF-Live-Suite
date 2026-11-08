@@ -321,7 +321,7 @@ story.append(Spacer(1, 6))
 story += bullets(["Live is the clock master. On the ONE: sync USB (stopped, Shift + Stop until the header shows USB, not INT); in its config, Start Stop Msgs Ignore No, MIDI Transport Msgs Send Off, MIDI Thru off, Auto Sync on (it starts with Live). Never send clock both ways.",
                   "Live sends its clock only while it plays: start and stop from Live. Started with its own Play, the ONE runs at its own tempo and ignores Live's.",
                   "Audio: 48 kHz, buffer 256 (Pocket needs 512 or less), Delay Compensation on, <b>Reduced Latency When Monitoring off</b> (it skips compensation on monitored tracks, so returns and Pocket drift), launch quantization 1 bar, record quantization off.",
-                  "Calibrate once: record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences. Leave POCKET OFFSET at 0 unless the pump is still off after that.",
+                  "Calibrate once: record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences (Tempo &amp; MIDI, the ONE's output row unfolded; about -70 ms on the first rig measured). Every kick should land on Live's beat: BUILD's drop and song changes count on it. Leave POCKET OFFSET at 0 unless the pump is still off after that.",
                   "Every Pocket stage in a chain adds its 512-sample lookahead to the total latency (compensated, but it adds up): no SF TAP or SF DUCK on tracks that already hold SF instruments."])
 
 story.append(H2("THE E16"))

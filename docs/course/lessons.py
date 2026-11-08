@@ -72,19 +72,22 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       path=["Live", "Settings", "Audio"],
       why="Pocket, the ducking that keeps every part out of the kick's way, needs a buffer of 512 or less.", wait=8),
     S("LAPTOP", "MIDI ports",
-      ["Turn on only what the table shows; everything else in the list off.", "Live calls the ONE's ports **OXI ONE MKII (Port 1)** and **(Port 2)**: the ONE's A and B."],
-      "Now the Link, Tempo and MIDI tab. The One shows up as two ports, Port 1 and Port 2: on the One they're A, and B. Turn Track on "
-      "for both of its inputs. On Port 1's output, turn Sync on, and on nothing else: that's the clock the One follows. For the E16, turn Remote "
+      ["Turn on only what the table shows; everything else in the list off.", "Live calls the ONE's ports **OXI ONE MKII (Port 1)** and **(Port 2)**: the ONE's A and B.",
+       "Unfold the **OXI ONE MKII (Port 1)** output row (the triangle at its left): **MIDI Clock Sync Delay -70 ms**."],
+      "Now the Tempo and MIDI tab. The One shows up as two ports, Port 1 and Port 2: on the One they're A, and B. Turn Track on "
+      "for both of its inputs. On Port 1's output, turn Sync on, and on nothing else: that's the clock the One follows. Then unfold "
+      "that output row with the little triangle at its left, and set MIDI Clock Sync Delay to minus seventy milliseconds. The One's "
+      "notes come back to Live late, and this sends the clock early to make up for it. For the E16, turn Remote "
       "on for its Port 1, input and output, and leave its ports two and three off.",
-      path=["Live", "Settings", "Link, Tempo & MIDI"],
-      table=[["OXI ONE MKII (Port 1), in", "Track **on**"], ["OXI ONE MKII (Port 2), in", "Track **on**"], ["OXI ONE MKII (Port 1), out", "Sync **on**"],
+      path=["Live", "Settings", "Tempo & MIDI"],
+      table=[["OXI ONE MKII (Port 1), in", "Track **on**"], ["OXI ONE MKII (Port 2), in", "Track **on**"], ["OXI ONE MKII (Port 1), out", "Sync **on**, delay **-70 ms**"],
              ["OXI E16 (Port 1), in and out", "Remote **on**"], ["Every other port", "all **off**"]],
-      why="Sync on one port only: two clocks confuse the ONE. A second Remote port would double every E16 message: a FREEZE press would flip twice.", wait=12),
+      why="Without the clock delay the ONE plays about 70 ms behind Live's beat: a drop opens before the kick, and a song change lands a bar late. Sync on one port only: two clocks confuse the ONE. A second Remote port would double every E16 message.", wait=15),
     S("LAPTOP", "Takeover: Value Scaling",
       ["Same tab: **Takeover Mode › Value Scaling**."],
       "Same tab, further down: set Takeover Mode to Value Scaling. When a song changes, the knobs and Live disagree for a moment. "
       "With value scaling, your next turn moves the sound smoothly from where it is, instead of jumping.",
-      path=["Link, Tempo & MIDI", "Takeover Mode", "Value Scaling"], wait=5),
+      path=["Tempo & MIDI", "Takeover Mode", "Value Scaling"], wait=5),
     S("LAPTOP", "Open SF SHOW, keep it as yours",
       ["Open **SF SHOW.als** from the repository: controllers/live.", "**File › Save Live Set As…** into a folder of your own. Name it **FIRST SET**."],
       "Open SF SHOW from the repository's controllers, live folder. Every track, every plugin, the routing, which track listens "

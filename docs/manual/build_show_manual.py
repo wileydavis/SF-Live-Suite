@@ -455,14 +455,16 @@ story += bullets(["Main is the set, after SF LIMIT: exporting it gives the relea
                   "Pull 90 LIVE BUS down and the live instruments and their effects go while BRIDGE and DECK play on. Turn the interface's output down and the room goes quiet while REC keeps recording.",
                   "94 ROOM is the room mics, a stereo pair. Armed, it records them with the set. Its SF CAPTURE never passes them (the set never hears the mics): it only plays SF TERROIR's sweep, to a speaker on the headphone out, when you capture the room (chapter 8)."])
 story.append(H2T("LIVE'S OWN SETTINGS, ONCE PER COMPUTER"))
-story.append(table([["PORT (SETTINGS &gt; LINK, TEMPO &amp; MIDI)", "TRACK", "SYNC", "REMOTE"],
+story.append(table([["PORT (SETTINGS &gt; TEMPO &amp; MIDI)", "TRACK", "SYNC", "REMOTE"],
     ["OXI ONE MKII (Port 1) and (Port 2), input", "on", "off", "off"],
     ["OXI ONE MKII (Port 1), output", "off", "on", "off"],
     ["OXI E16 (Port 1), input and output", "off", "off", "on"],
     ["every other port", "off", "off", "off"]],
     [3.2 * inch, 0.9 * inch, 0.9 * inch, W - 5.0 * inch], mono_first=False))
 story.append(Spacer(1, 4))
-story += bullets(["Takeover Mode: Value Scaling. Audio: 48 kHz, buffer 256. These live in Live's preferences, not in any set: nothing in SF SHOW.als can set them."])
+story += bullets(["Takeover Mode: Value Scaling. Audio: 48 kHz, buffer 256. These live in Live's preferences, not in any set: nothing in SF SHOW.als can set them.",
+                  "<b>MIDI Clock Sync Delay</b> on the ONE's Port 1 output (unfold its row: the triangle at its left). The ONE's notes come back to Live late: the clock goes out, the notes come back, buffers both ways. On Nov 7 every kick landed 78 ms after Live's beat (44.1 kHz, buffer 256): about -70 ms. Unset, a drop opens before the kick, and a song change from the ONE lands a bar late.",
+                  "Before Live 12.4 the tab is called Link, Tempo &amp; MIDI."])
 story.append(H2T("OPEN IT, CHECK, SAVE"))
 story += numbered(["<b>MIDI From</b> is set on every instrument, as in the table above (chapter 3 shows the ONE's side). If your Live names the ONE differently, a track shows its port as missing: set it by the table. Never All Ins: every instrument would play every part.",
                    "<b>Inputs and outputs</b>, set for the PA on 1/2 and headphones on 3/4. 92 PA to the pair that feeds the PA (1/2 in the set). Cue Out, on the Main track, to the headphones (3/4), and 94 ROOM there too. Main to a pair that goes nowhere (5/6). Check all three before any sound reaches a PA: the PA pair carries 92 PA and nothing else. The room mics on inputs 1 and 2 (1: the mic on your left as you face the speaker), and in Live's Settings &gt; Audio &gt; Input Config, 1/2 as a stereo pair: 94 ROOM's input.",
@@ -500,7 +502,7 @@ story.append(H2T("CLOCK AND PORTS"))
 story += bullets(["<b>Live is the clock master.</b> On the ONE: sync USB (stopped, Shift + Stop until the header shows USB, not INT); in its config (Shift + Back), Start Stop Msgs Ignore No, MIDI Transport Msgs Send Off, MIDI Thru off, Auto Sync on (it starts with Live). Never send clock both ways.",
                   "<b>Live sends its clock only while it plays.</b> Start and stop from Live, never with the ONE's Play: started on its own, the ONE runs at its own tempo and ignores Live's.",
                   "<b>Audio:</b> 48 kHz, buffer 256 (Pocket needs 512 or less), launch quantization 1 bar, record quantization off.",
-                  "<b>Calibrate once:</b> record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump is still off after that."])
+                  "<b>Calibrate once:</b> record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences (about -70 ms on the first rig measured). Every kick should land on Live's beat: BUILD's drop and song changes count on it. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump is still off after that."])
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     ["OXI ONE MKII (Port 1), in: the ONE's port A", "on", "off", "off"], ["OXI ONE MKII (Port 2), in: its port B", "on", "off", "off"],
     ["OXI ONE MKII (Port 1), out: the clock", "off", "on", "off"],

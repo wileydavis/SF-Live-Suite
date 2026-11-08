@@ -72,7 +72,7 @@ headphone out and records the place (the operator's manual, chapter 8, CAPTURING
 
 - Install the suite and turn VST3 on in Live (Settings > Plug-Ins > Use VST3 Plug-In System Folders).
   The set uses the VST3s: SF ALLOC lists its sources by track name only in VST3.
-- Live's MIDI ports (Settings > Link, Tempo & MIDI), once per computer:
+- Live's MIDI ports (Settings > Tempo & MIDI; before Live 12.4, Link, Tempo & MIDI), once per computer:
 
   | PORT | TRACK | SYNC | REMOTE |
   |---|---|---|---|
@@ -83,6 +83,11 @@ headphone out and records the place (the operator's manual, chapter 8, CAPTURING
   | every other port | off | off | off |
 
   Takeover Mode: **Value Scaling**. Audio: 48 kHz, buffer 256.
+
+  **MIDI Clock Sync Delay**, on the ONE's Port 1 output (unfold its row: the triangle at its left):
+  the ONE's notes come back to Live late (the clock goes out, the notes come back, buffers both
+  ways). On Nov 7 the kick landed 78 ms after Live's beat at 44.1 kHz, buffer 256: about -70 ms.
+  Without it, a drop opens before the kick and a song change from the ONE lands a bar late.
 - Live's preferences live outside any set: nothing in this file can set them.
 - The OXI One's own setup (sync, its config, the startup project): `controllers/oxi-one`. Live sends
   its clock only while it plays: start and stop from Live.

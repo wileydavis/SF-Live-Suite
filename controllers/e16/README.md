@@ -63,7 +63,7 @@ and turn it, Cmd-M off, save.
 - Knob speed: every SF SHOW turn follows the scene's acceleration setting.
 - Stay in SF SHOW for the whole show.
 
-## 3. LIVE SETTINGS (Settings > Link, Tempo & MIDI)
+## 3. LIVE SETTINGS (Settings > Tempo & MIDI; before Live 12.4, Link, Tempo & MIDI)
 
 | PORT | TRACK | SYNC | REMOTE |
 |---|---|---|---|
