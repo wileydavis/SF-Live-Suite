@@ -69,13 +69,17 @@ ModulePtr makeISOLATOR() { return std::make_unique<IsolatorModule>(); }
 // DROP lands on the next bar line (a jump back while it waits lands it at once); the build stays
 // off until BUILD is turned back below 5 %, so the knob can be returned without re-building.
 //   GAP        the mix goes silent for this long before the drop's bar line (pressed later than
-//              that: from the next 1/16; the drop stays on the bar).
+//              that: from the next 1/16; the drop stays on the bar). The build lets go 10 ms before
+//              the bar line (kEarly), the gap's silence with it: a kick that reaches the bus a little
+//              early (MIDI from outside, its clock) keeps its attack, and none is high-passed.
 //   TAIL       the riser's noise and reverb wash ring on for this long when the build ends (from
 //              the gap, or from the drop without one) instead of stopping dead; whatever reaches
 //              into the drop sits DROP DUCK lower.
 //   DROP DUCK  for DUCK TIME after the drop every SF part with POCKET (and SF DELAY / REVERB
 //   DUCK TIME  returns) ducks this much harder, full band, to each kick: the kick lands on top.
-//              Published on the SF BUS when DROP is pressed; needs SF KICK reporting.
+//              Published on the SF BUS when DROP is pressed; needs SF KICK reporting. Off (0 dB)
+//              by default [Nov 7]: it takes the bass, rumble and pads from around the drop's kicks,
+//              and the drop hits with less weight than a kick brought back by hand.
 class BuildModule : public Module
 {
 public:
@@ -92,7 +96,7 @@ public:
                  levelParam().prim(),
                  choice ("gap", "GAP", { "OFF", "1/16", "1/8", "1/4", "1/2", "1 BAR" }, 0).prim(),
                  choice ("tail", "TAIL", { "CUT", "1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BARS" }, 2),
-                 knob ("drop_duck", "DROP DUCK", 0.0f, 12.0f, 6.0f, "dB"),
+                 knob ("drop_duck", "DROP DUCK", 0.0f, 12.0f, 0.0f, "dB"),
                  choice ("duck_time", "DUCK TIME", { "1/4", "1/2", "1 BAR", "2 BARS", "4 BARS" }, 2) };
     }
     // Lengths in beats (1/16 = a sixteenth note); bar-long choices follow the time signature.
@@ -133,7 +137,7 @@ public:
         const float duckGain = dbToGain (-c.v (DROPDUCK));
         const float downStep = 1.0f / (0.003f * (float) sr), upStep = 1.0f / (0.00025f * (float) sr);
         const float duckStep = 1.0f / (0.005f * (float) sr);
-        const double tol = 1e-3 * bps;
+        const double tol = 1e-3 * bps, early = kEarly * c.bpm / 60.0;
         fdn.set (0.9f, 6.0f, 0.3f, 0.4f, false);
         for (int i = 0; i < c.n; ++i)
         {
@@ -143,7 +147,7 @@ public:
                 // The build ends where the silence starts (or on the bar): its tail takes over, and
                 // nothing new reaches the wash or the noise.
                 if (! inGap && gapAt < dropAt && q >= gapAt - tol) { startTail (c, spb, noise); inGap = true; bz = 0.0f; }
-                if (q >= dropAt - tol)
+                if (q >= dropAt - early - tol)
                 {
                     if (! inGap) startTail (c, spb, noise);
                     armed = inGap = false;
@@ -249,6 +253,7 @@ private:
         tailDuck = tailDuckTarget = 1.0f;
     }
 
+    static constexpr double kEarly = 0.010;          // seconds before the bar line the build lets go
     double sr = 48000.0;
     Svf hp[2][2], nbp;
     Fdn fdn;

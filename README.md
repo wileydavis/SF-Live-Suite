@@ -133,6 +133,11 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
 9. **A sample's part.** Drop a one-shot on SF KICK (MODEL: SAMPLE): its waveform appears under OUTPUT. Drag END in and turn FADE OUT up (the SAMPLE group): the kick gets shorter and ends without a click. On SF PAD's GRANULAR with a field recording, hold a chord and drag START: the texture wanders through the file.
 
+### Changes in the Nov 7 update
+
+- **SF BUILD's drop hits with the kick's full weight.** DROP DUCK is off by default (it dipped the bass, rumble and pads around the drop's kicks: measured offline, 1.6 dB off the first kick's peak at the Main), and the build lets go 10 ms before the bar line, the gap's silence with it: a kick that reaches Live a little early used to lose its attack to the gap (5 ms early: -1.8 dB over its first 20 ms), or go through the build's high-pass with no gap.
+- **In a set of your own:** BUILD keeps the DROP DUCK it was saved with (6 dB before today), and songs store it. Set it to 0 and STORE ALL in each song, or keep it where you like it. SF SHOW.als is rebuilt with it off.
+
 ### Changes in the third Nov 6 update
 
 - **START, END, FADE IN and FADE OUT on every sampler** (KICK, PERC, RUMBLE, BASS, LEAD, PAD, VOICE), in a new SAMPLE group (folded) and on the display: with a sample loaded its waveform appears under the display (VOICE: on the phrase), the part that plays bright, the fades as ramps, START and END as lines you drag. The fades run in the sample's own time (an octave up, twice as fast), and a cut inside the waveform always fades for at least 1 ms, so it never clicks. DECAY's gate on KICK and PERC measures the part, and KICK tells the pockets its shorter length. VOICE slices the part (AUTO from START; EQUAL 8 / 16 divide it). PAD's GRANULAR takes its grains from it, live.

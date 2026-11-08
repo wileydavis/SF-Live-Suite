@@ -1288,6 +1288,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--second") { testSecondReview(); }
     else if (std::string (argv[1]) == "--third") { testThirdReview(); }
     else if (std::string (argv[1]) == "--drop") { testDrop(); }
+    else if (std::string (argv[1]) == "--dropweight") { testDropWeight(); }
     else if (std::string (argv[1]) == "--authority") { testControlAuthority(); testRecallHistory(); }
     else if (std::string (argv[1]) == "--history") { testRecallHistory(); }
     else if (std::string (argv[1]) == "--modelchange") { testModelChange(); }

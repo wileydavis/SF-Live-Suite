@@ -2235,7 +2235,7 @@ static void testDrop()
     // 1. GAP 1/4: silent for the beat before the bar line, the mix back in full on it.
     {
         const auto o = render ([] (Rig2& r) { r.set ("build", 0.5f); r.set ("gap", 3.0f); r.set ("tail", 0.0f); }, 1.3, 99.0, 8.0);
-        const double pre = db (o, 2.0, 2.95), gap = db (o, 3.02, 3.99), post = db (o, 4.05, 7.9);
+        const double pre = db (o, 2.0, 2.95), gap = db (o, 3.02, 3.97), post = db (o, 4.05, 7.9);
         std::printf ("   GAP 1/4: before %.1f dB, in the gap %.1f dB, after the drop %.2f dB (input %.2f)\n", pre, gap, post, sineDb);
         CHECK (pre > -30.0 && gap < -120.0 && std::abs (post - sineDb) < 0.3, "GAP 1/4 (before %.1f, gap %.1f, after %.2f dB)", pre, gap, post);
         CHECK (std::fabs (o[(size_t) std::ceil (4.0 * spb) + 2]) > 1e-4f || std::fabs (o[(size_t) std::ceil (4.0 * spb) + 30]) > 1e-4f, "nothing on the drop's bar line");
@@ -2243,7 +2243,7 @@ static void testDrop()
     // 2. DROP pressed inside the gap's beat: the gap starts on the next sixteenth; the drop stays on the bar.
     {
         const auto o = render ([] (Rig2& r) { r.set ("build", 0.5f); r.set ("gap", 3.0f); r.set ("tail", 0.0f); }, 3.6, 99.0, 6.0);
-        const double before = db (o, 3.62, 3.74), gap = db (o, 3.77, 3.99), post = db (o, 4.05, 5.9);
+        const double before = db (o, 3.62, 3.74), gap = db (o, 3.77, 3.97), post = db (o, 4.05, 5.9);
         std::printf ("   GAP 1/4 pressed at beat 3.6: until 3.75 %.1f dB, 3.75-4 %.1f dB, after the drop %.2f dB\n", before, gap, post);
         CHECK (before > -30.0 && gap < -120.0 && std::abs (post - sineDb) < 0.3, "late GAP (%.1f / %.1f / %.2f dB)", before, gap, post);
     }
@@ -2251,7 +2251,7 @@ static void testDrop()
     //    of the build comes back on the drop (input stops at the gap).
     {
         const auto o = render ([] (Rig2& r) { r.set ("build", 1.0f); r.set ("noise", 1.0f); r.set ("space", 1.0f); r.set ("gap", 4.0f); r.set ("tail", 3.0f); }, 0.5, 2.0, 6.0);
-        const double ring = db (o, 2.05, 2.5), after = db (o, 3.05, 3.99), drop = db (o, 4.0, 5.5);
+        const double ring = db (o, 2.05, 2.5), after = db (o, 3.05, 3.97), drop = db (o, 4.0, 5.5);
         std::printf ("   TAIL 1/4 in GAP 1/2: first half beat of the gap %.1f dB, its second beat %.1f dB, after the drop %.1f dB\n", ring, after, drop);
         CHECK (ring > -60.0 && after < -120.0 && drop < -120.0, "TAIL into the gap (%.1f / %.1f / %.1f dB)", ring, after, drop);
     }
@@ -2259,7 +2259,7 @@ static void testDrop()
     {
         const auto o = render ([] (Rig2& r) { r.set ("build", 1.0f); r.set ("noise", 1.0f); r.set ("space", 0.5f); r.set ("gap", 1.0f); r.set ("tail", 5.0f); r.set ("drop_duck", 6.0f); },
                                0.5, 3.75, 9.0);
-        const double before = db (o, 3.80, 3.99), after = db (o, 4.01, 4.20), late = db (o, 5.0, 6.0), gone = db (o, 7.8, 8.9);
+        const double before = db (o, 3.80, 3.97), after = db (o, 4.01, 4.20), late = db (o, 5.0, 6.0), gone = db (o, 7.8, 8.9);
         std::printf ("   TAIL 1 BAR past a GAP 1/16: tail before the bar %.1f dB, after %.1f dB (%.1f dB lower), a beat on %.1f dB, after its bar %.1f dB\n",
                      before, after, before - after, late, gone);
         CHECK (std::abs (before - after - 6.0) < 1.5 && late > -90.0 && gone < -120.0, "TAIL into the drop (%.1f / %.1f / %.1f / %.1f dB)", before, after, late, gone);
@@ -2267,9 +2267,52 @@ static void testDrop()
     // 5. TAIL CUT without a gap: the riser stops within 5 ms of the bar line (no click: a fade).
     {
         const auto o = render ([] (Rig2& r) { r.set ("build", 1.0f); r.set ("noise", 1.0f); r.set ("tail", 0.0f); }, 0.5, 0.0, 6.0);
-        const double riser = db (o, 3.5, 3.99), after = db (o, 4.011, 5.0);
+        const double riser = db (o, 3.5, 3.97), after = db (o, 4.0, 5.0);
         std::printf ("   TAIL CUT, no gap: riser %.1f dB, from 5 ms after the bar %.1f dB\n", riser, after);
         CHECK (riser > -40.0 && after < -120.0, "TAIL CUT (%.1f / %.1f dB)", riser, after);
+    }
+    // 5a. A kick that reaches the bus early keeps its attack [Nov 7]: the build lets go 10 ms before
+    //     the bar line. GAP 1/4, BUILD 100 %: a 40 ms burst (80 Hz, 0.5) starting 8 ms before the bar
+    //     comes out whole and unfiltered (it lost its first 8 ms to the gap's silence, and was
+    //     high-passed with no gap); 12 ms before the bar the gap still holds.
+    for (const int gap : { 3, 0 })
+    {
+        const double burstAt = 4.0 - 0.008 * bpm / 60.0, burstEnd = burstAt + 0.040 * bpm / 60.0;
+        resetBus();
+        Rig2 r ("BUILD");
+        r.head.bpm = bpm;
+        r.set ("build", 1.0f); r.set ("noise", 0.0f); r.set ("space", 0.0f); r.set ("width", 0.0f); r.set ("gap", (float) gap); r.set ("tail", 0.0f);
+        std::vector<float> out, in;
+        int64_t t = 0;
+        bool pressed = false;
+        while (r.ppq < 5.0)
+        {
+            const double q0 = r.ppq;
+            if (! pressed && q0 >= 1.3) { r.set ("drop", 1.0f); pressed = true; } else r.set ("drop", 0.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    const double q = q0 + i * r.bps();
+                    const float v = q >= burstAt && q < burstEnd ? 0.5f * (float) std::sin (6.283185307 * 80.0 * (double) (t + i) / kSr) : 0.0f;
+                    b.setSample (0, i, v); b.setSample (1, i, v); in.push_back (v);
+                }
+            });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+            t += kBlock;
+        }
+        auto e = [&] (const std::vector<float>& x, double b0, double b1)
+        {
+            double sum = 0.0; int n = 0;
+            for (size_t i = (size_t) (b0 * spb); i < (size_t) (b1 * spb) && i < x.size(); ++i) { sum += (double) x[i] * x[i]; ++n; }
+            return 10.0 * std::log10 (sum / std::max (1, n) + 1e-30);
+        };
+        float firstPeak = 0.0f;
+        for (size_t i = (size_t) (burstAt * spb); i < (size_t) ((burstAt + 0.004 * bpm / 60.0) * spb); ++i) firstPeak = std::max (firstPeak, std::fabs (out[i]));
+        const double whole = e (out, burstAt, burstEnd) - e (in, burstAt, burstEnd);
+        std::printf ("   GAP %s, a burst 8 ms before the bar: its first 4 ms peak %.3f (input 0.5 sine), the whole burst %+.2f dB\n",
+                     gap ? "1/4" : "OFF", firstPeak, whole);
+        CHECK (firstPeak > 0.2f && std::abs (whole) < 0.5, "an early kick through the drop (GAP %s): first 4 ms peak %.3f, whole %+.2f dB", gap ? "1/4" : "OFF", firstPeak, whole);
     }
     // 5b. An Arrangement loop that wraps while a drop waits (GAP 1/4, DROP at 1.3): the drop lands
     //     on the wrap and the mix is back. In a loop with no bar line in it ([1, 4)) the bar the
@@ -2300,7 +2343,7 @@ static void testDrop()
             for (size_t i = 0; i < o.size(); ++i) if (at[i] >= b0 && at[i] < b1) { e += (double) o[i] * o[i]; ++n; }
             return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
         };
-        const double gap = lvl (3.02, 3.98), back = lvl (100.0 + loopStart + 0.05, 100.0 + 2.9), next = lvl (200.0 + loopStart + 0.05, 200.0 + loopStart + 0.9);
+        const double gap = lvl (3.02, 3.97), back = lvl (100.0 + loopStart + 0.05, 100.0 + 2.9), next = lvl (200.0 + loopStart + 0.05, 200.0 + loopStart + 0.9);
         std::printf ("   DROP waiting as a [%.0f, 4) loop wraps: gap %.1f dB, after the wrap %.2f dB, a loop later %.2f dB (input %.2f)\n", loopStart, gap, back, next, sineDb);
         CHECK (gap < -120.0 && std::abs (back - sineDb) < 0.3 && std::abs (next - sineDb) < 0.3, "drop across a loop wrap ([%.0f, 4): gap %.1f, after %.2f, later %.2f dB)", loopStart, gap, back, next);
     }
@@ -2409,6 +2452,185 @@ static void testDrop()
         CHECK (other8 < -4.5f && other8 > -7.0f && kick8 > -0.5f, "DROP DUCK on TAP (OTHER %.1f, KICK %.1f dB)", other8, kick8);
         Bus::testClock = nullptr;
     }
+    resetBus();
+}
+
+// The drop's weight. A groove of SF plugins at their defaults (KICK; RUMBLE on the kick bus; a rolling
+// BASS; closed hats on the eighths, open hats on the off-beats, a clap on 2 and 4; a held PAD chord),
+// summed as Live sums them (delay-compensated), through the LIVE BUS chain (BUILD > GLUE > TONE >
+// LOWEND) and the Main's LIMIT. A 16-beat build (BUILD 0 to 100 %) and DROP on the bar (beat 32),
+// against the same groove with no build: each beat's level around the drop, and how much of the
+// kick's low end (under 150 Hz) and peak the drop's first bars keep after each stage. Simulated clock.
+static void testDropWeight()
+{
+    std::printf ("-- the drop's weight: a groove > BUILD > GLUE > TONE > LOWEND > LIMIT\n");
+    const double bpm = 120.0;
+    static double clock = 40000.0;
+    Bus::testClock = [] { return clock; };
+    enum { STEADY, DROP, DUCK6, TAIL_CUT, GAP16, BY_HAND, KICK_FADER, HIS, HIS_NO_DUCK, VARIANTS };
+    const char* names[] = { "no build", "DROP, defaults (DROP DUCK off)", "DROP, DROP DUCK 6 dB (the default before Nov 7)", "DROP, TAIL CUT",
+                            "DROP, GAP 1/16", "no DROP: BUILD back to 0 by hand on the bar", "no build: the kick's fader down 2 bars, up on the bar",
+                            "DROP, Nov 7 set: GAP 1 BAR, NOISE 0, SPACE 83 %, DUCK 6 dB", "DROP, Nov 7 set, DROP DUCK 0" };
+    const char* taps[] = { "sources", "BUILD", "GLUE", "LOWEND", "LIMIT" };
+    constexpr int T = 5;
+    struct Run { std::vector<float> o[T]; std::vector<double> at[T]; };
+    auto render = [&] (int v, double earlyMs = 0.0, bool busInTime = false)
+    {
+        resetBus();
+        Rig2 kick ("KICK"), rumble ("RUMBLE"), bass ("BASS"), closed ("PERC"), open ("PERC"), clap ("PERC"), pad ("PAD");
+        Rig2 build ("BUILD"), glue ("GLUE"), tone ("TONE"), low ("LOWEND"), lim ("LIMIT");
+        Rig2* src[] = { &kick, &rumble, &bass, &closed, &open, &clap, &pad };
+        constexpr int S = 7;
+        for (auto* r : src) r->head.bpm = bpm;
+        for (auto* r : { &build, &glue, &tone, &low, &lim }) r->head.bpm = bpm;
+        open.set ("decay", 0.8f); clap.set ("model", 5.0f);
+        if (v == DUCK6 || v == HIS) build.set ("drop_duck", 6.0f);
+        if (v == TAIL_CUT) build.set ("tail", 0.0f);
+        if (v == GAP16) build.set ("gap", 1.0f);
+        if (v == HIS || v == HIS_NO_DUCK) { build.set ("gap", 5.0f); build.set ("noise", 0.0f); build.set ("space", 0.8255f); }
+        int ls[S], lmax = 0;
+        for (int k = 0; k < S; ++k) { ls[k] = src[k]->p->getLatencySamples(); lmax = std::max (lmax, ls[k]); }
+        int lat[T] = { lmax, 0, 0, 0, 0 };
+        lat[1] = lat[0] + build.p->getLatencySamples(); lat[2] = lat[1] + glue.p->getLatencySamples();
+        lat[3] = lat[2] + tone.p->getLatencySamples() + low.p->getLatencySamples(); lat[4] = lat[3] + lim.p->getLatencySamples();
+        const size_t L = (size_t) lmax + 1;
+        std::vector<std::vector<float>> dl ((size_t) S, std::vector<float> (L * 2, 0.0f));   // per source, L and R interleaved
+        size_t w = 0;
+        juce::AudioBuffer<float> sum (2, kBlock);
+        Run run;
+        bool pressed = false;
+        while (kick.ppq < 44.0)
+        {
+            const double q0 = kick.ppq, bps = kick.bps();
+            float knob = 0.0f;
+            if (v != STEADY && v != KICK_FADER) knob = (float) juce::jlimit (0.0, 1.0, (q0 - 16.0) / 16.0);
+            if (v == BY_HAND && q0 >= 32.0) knob = 0.0f;
+            build.set ("build", knob);
+            if (v != STEADY && v != BY_HAND && v != KICK_FADER && ! pressed && q0 >= 30.0) { build.set ("drop", 1.0f); pressed = true; }
+            else build.set ("drop", 0.0f);
+            // The kick's notes `earlyMs` ahead of the grid (a ONE that plays early); 0: on it.
+            const double shift = earlyMs * 0.001 * bpm / 60.0;
+            kick.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { gridNotes (m, q0 + shift, bps, n, 1.0, 0.25, 36, 127); });
+            rumble.step (kBlock, nullptr);
+            auto sixteenths = [&] (juce::MidiBuffer& m, int n, int note, const std::function<int (int)>& velAt)   // velAt(sixteenth 0-15 in the bar): 0 = none
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    const double q = q0 + i * bps, prev = q - bps;
+                    if (std::floor (q * 4.0 + 1e-9) == std::floor (prev * 4.0 + 1e-9) && ! (i == 0 && q0 == 0.0)) continue;
+                    const int pos = (int) std::floor (q * 4.0 + 1e-9) % 16;
+                    m.addEvent (juce::MidiMessage::noteOff (1, note), i);
+                    if (const int vel = velAt (pos)) m.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) vel), i);
+                }
+            };
+            bass.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { sixteenths (m, n, 36, [] (int p) { return p % 4 == 0 ? 0 : p % 4 == 1 ? 20 : p % 4 == 2 ? 35 : 55; }); });
+            closed.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { sixteenths (m, n, 60, [] (int p) { return p % 2 == 0 ? 100 : 0; }); });
+            open.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { sixteenths (m, n, 60, [] (int p) { return p % 4 == 2 ? 100 : 0; }); });
+            clap.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { sixteenths (m, n, 60, [] (int p) { return p == 4 || p == 12 ? 110 : 0; }); });
+            pad.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n)
+            { if (q0 == 0.0 && n > 0) for (int note : { 60, 63, 67 }) m.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 90), 0); });
+            // Live's delay compensation: each source delayed to the slowest one, then summed.
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const size_t at = (w + (size_t) i) % L;
+                float sl = 0.0f, sr2 = 0.0f;
+                for (int k = 0; k < S; ++k)
+                {
+                    const bool faderDown = k == 0 && v == KICK_FADER && q0 + i * bps >= 24.0 && q0 + i * bps < 32.0;
+                    dl[(size_t) k][at * 2] = faderDown ? 0.0f : src[k]->buf.getSample (0, i);
+                    dl[(size_t) k][at * 2 + 1] = faderDown ? 0.0f : src[k]->buf.getSample (std::min (1, src[k]->buf.getNumChannels() - 1), i);
+                    const size_t rd = (at + L - (size_t) (lmax - ls[k])) % L;
+                    sl += dl[(size_t) k][rd * 2]; sr2 += dl[(size_t) k][rd * 2 + 1];
+                }
+                sum.setSample (0, i, sl); sum.setSample (1, i, sr2);
+            }
+            w = (w + kBlock) % L;
+            auto feed = [] (const juce::AudioBuffer<float>& from) { return [&from] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            { for (int ch = 0; ch < 2; ++ch) b.copyFrom (ch, 0, from, ch, 0, n); }; };
+            // busInTime: the LIVE BUS's plugins get the song position of the audio reaching them (the
+            // sources' delay compensation taken off), as a host that compensates the position does.
+            if (busInTime) { build.ppq = q0 - lmax * bps; }
+            build.step (kBlock, feed (sum)); glue.step (kBlock, feed (build.buf)); tone.step (kBlock, feed (glue.buf));
+            low.step (kBlock, feed (tone.buf)); lim.step (kBlock, feed (low.buf));
+            const juce::AudioBuffer<float>* outs[T] = { &sum, &build.buf, &glue.buf, &low.buf, &lim.buf };
+            for (int t = 0; t < T; ++t)
+                for (int i = 0; i < kBlock; ++i) { run.o[t].push_back (0.5f * (outs[t]->getSample (0, i) + outs[t]->getSample (1, i))); run.at[t].push_back (q0 + (i - lat[t]) * bps); }
+            clock += kBlock / kSr;
+        }
+        return run;
+    };
+    // The low band: two 2-pole low-passes at 150 Hz (Q 0.707); energy over the half beat after a kick.
+    auto lowDb = [&] (const Run& r, int t, double b0)
+    {
+        double s1 = 0, s2 = 0, s3 = 0, s4 = 0;
+        const double f = 2.0 * std::sin (3.14159265 * 150.0 / kSr), q = 1.0 / 0.7071;
+        double e = 0.0; int n = 0;
+        for (size_t i = 0; i < r.o[t].size(); ++i)
+        {
+            double x = r.o[t][i];
+            s2 += f * s1; const double h1 = x - s2 - q * s1; s1 += f * h1; x = s2;
+            s4 += f * s3; const double h2 = x - s4 - q * s3; s3 += f * h2; x = s4;
+            if (r.at[t][i] >= b0 && r.at[t][i] < b0 + 0.5) { e += x * x; ++n; }
+        }
+        return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
+    };
+    auto peakDb = [&] (const Run& r, int t, double b0)
+    {
+        float p = 0.0f;
+        for (size_t i = 0; i < r.o[t].size(); ++i) if (r.at[t][i] >= b0 && r.at[t][i] < b0 + 0.08) p = std::max (p, std::fabs (r.o[t][i]));
+        return gainToDb (p);
+    };
+    auto beatDb = [&] (const Run& r, int t, double b0)
+    {
+        double e = 0.0; int n = 0;
+        for (size_t i = 0; i < r.o[t].size(); ++i) if (r.at[t][i] >= b0 && r.at[t][i] < b0 + 1.0) { e += (double) r.o[t][i] * r.o[t][i]; ++n; }
+        return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
+    };
+    std::vector<Run> runs;
+    for (int v = 0; v < VARIANTS; ++v) runs.push_back (render (v));
+    // The kick's first 20 ms on the drop (GAP 1 BAR, DROP DUCK off), against the same kick with no build:
+    // a kick that reaches the LIVE BUS ahead of the bar line, with the bus's position in time with
+    // its audio and ahead of it by the sources' compensation.
+    for (const bool inTime : { true, false })
+        for (const double early : { 0.0, 2.0, 5.0, 10.0 })
+        {
+            const auto st = render (STEADY, early, inTime), dr = render (HIS_NO_DUCK, early, inTime);
+            auto first = [&] (const Run& r, int t)
+            {
+                double e = 0.0; float pk = 0.0f;
+                const double from = 32.0 - early * 0.001 * bpm / 60.0, to = from + 0.020 * bpm / 60.0;
+                for (size_t i = 0; i < r.o[t].size(); ++i)
+                    if (r.at[t][i] >= from - 0.002 && r.at[t][i] < to) { e += (double) r.o[t][i] * r.o[t][i]; pk = std::max (pk, std::fabs (r.o[t][i])); }
+                return std::make_pair (10.0 * std::log10 (e + 1e-30), (double) gainToDb (pk));
+            };
+            const auto a = first (st, 1), b = first (dr, 1), c = first (st, 4), dd = first (dr, 4);
+            std::printf ("   kick %4.1f ms early, bus position %s: the drop's first 20 ms after BUILD %+5.1f dB (peak %+5.1f), after LIMIT %+5.1f dB (peak %+5.1f)\n",
+                         early, inTime ? "in time with its audio" : "ahead of its audio   ", b.first - a.first, b.second - a.second, dd.first - c.first, dd.second - c.second);
+        }
+    std::printf ("   each beat's level (RMS) at the LIMIT's output, beats 28-35, the drop on 32:\n");
+    for (int v = 0; v < VARIANTS; ++v)
+    {
+        std::printf ("     %-54s", names[v]);
+        for (int b = 28; b < 36; ++b) std::printf (" %6.1f", beatDb (runs[(size_t) v], 4, (double) b));
+        std::printf ("  | the drop against the beat before %+5.1f dB\n", beatDb (runs[(size_t) v], 4, 32.0) - beatDb (runs[(size_t) v], 4, 31.0));
+    }
+    auto avg = [&] (const std::function<double (const Run&, int, double)>& f, int v, int t, double from, double to)
+    {
+        double s = 0.0; int n = 0;
+        for (double b = from; b < to - 1e-9; b += 1.0) { s += f (runs[(size_t) v], t, b) - f (runs[STEADY], t, b); ++n; }
+        return s / n;
+    };
+    std::printf ("   against no build (dB): the drop's first kick, the rest of its bar, the next bar: level, low band, kick peak\n");
+    for (int v = 1; v < VARIANTS; ++v)
+    {
+        std::printf ("     %s\n", names[v]);
+        for (int t = 0; t < T; ++t)
+            std::printf ("       after %-7s  %+5.1f %+5.1f %+5.1f | %+5.1f %+5.1f %+5.1f | %+5.1f %+5.1f %+5.1f\n", taps[t],
+                         avg (beatDb, v, t, 32.0, 33.0), avg (lowDb, v, t, 32.0, 33.0), avg (peakDb, v, t, 32.0, 33.0),
+                         avg (beatDb, v, t, 33.0, 36.0), avg (lowDb, v, t, 33.0, 36.0), avg (peakDb, v, t, 33.0, 36.0),
+                         avg (beatDb, v, t, 36.0, 40.0), avg (lowDb, v, t, 36.0, 40.0), avg (peakDb, v, t, 36.0, 40.0));
+    }
+    Bus::testClock = nullptr;
     resetBus();
 }
 

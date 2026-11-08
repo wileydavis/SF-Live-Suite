@@ -622,7 +622,7 @@ story.append(table([["PHASE", "WHAT CARRIES IT", "WHERE"],
     ["BUILD", "BUILD up over 8-16 bars; hats and clap DENSITY up; SPACE DUCK down so the tail fills the bar.", "Knob 4, HATS, SPACE"],
     ["PEAK", "The drop; ENERGY knobs right of centre; acid or stab carries the hook; dub throws on the offbeats.", "Press 4, PERFORM, ACID, SPACE"],
     ["BREAKDOWN", "Kick lane muted on the ONE; LOW down; FREEZE a return; VOICE up.", "The ONE, rows 1-2, SPACE, VOICE"],
-    ["RETURN", "Kick back on the one with DROP DUCK clearing the way; a song change lands here.", "Press 4, the ONE"],
+    ["RETURN", "Kick back on the one; a song change lands here.", "Press 4, the ONE"],
     ["CLOSE", "ENERGY knobs left; parts out one by one; the last bars on a frozen reverb or BRIDGE.", "Rows 1-2, SPACE, PERFORM 16"]],
     [0.9 * inch, 3.75 * inch, W - 4.65 * inch], mono_first=True))
 story.append(P("A starting plan, not a rule: hypnotic sets hold a phase far longer than feels safe.", "smallgrey"))
@@ -632,16 +632,17 @@ story.append(DropTimeline())
 story.append(Spacer(1, 6))
 story += bullets(["<b>GAP</b> (OFF to 1 BAR): everything through BUILD goes silent for that long before the bar line, the whole LIVE BUS with its returns (BRIDGE and DECK play on). Press DROP later than that and the gap starts on the next 1/16.",
                   "<b>TAIL</b> (CUT to 2 BARS): the riser's noise and the wash ring on after the build stops, fading out. Shorter than the GAP, it dies away in the silence; longer, it carries into the drop, DROP DUCK lower.",
-                  "<b>DROP DUCK</b> (0-12 dB) and <b>DUCK TIME</b> (1/4 to 4 BARS): after the drop every SF part with Pocket dips under each kick, whatever its POCKET DEPTH: bass, lead, pad, voice, rumble, both returns. The first kicks land on top of everything that comes back. A roll into the drop doesn't duck; the duck starts with the first kick on the bar.",
+                  "<b>DROP DUCK</b> (0-12 dB, off by default) and <b>DUCK TIME</b> (1/4 to 4 BARS): after the drop every SF part with Pocket dips under each kick, whatever its POCKET DEPTH: bass, lead, pad, voice, rumble, both returns. The first kicks stand alone on top of everything that comes back, with less weight than a kick brought back by hand: the bass and rumble around them are gone. A roll into the drop doesn't duck; the duck starts with the first kick on the bar.",
+                  "The build lets go 10 ms before the bar line, the gap's silence with it, so a kick that reaches Live a little early keeps its attack.",
                   "After a drop the build stays off until knob 4 is back below 5 % (display: RETURN KNOB). Bring it down in your own time: nothing re-builds."])
 story.append(table([["RECIPE", "GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHAT IT DOES"],
-    ["HARD STOP", "1/4", "CUT", "6 dB", "1 BAR", "A beat of true silence, then everything on the one."],
-    ["BREATH", "1/2", "1/4", "6 dB", "1 BAR", "The riser rings into the silence and dies before the kick."],
+    ["HARD STOP", "1/4", "CUT", "OFF", "-", "A beat of true silence, then everything on the one."],
+    ["BREATH", "1/2", "1/4", "OFF", "-", "The riser rings into the silence and dies before the kick."],
     ["CARRY", "OFF", "1 BAR", "6 dB", "1 BAR", "No silence: the wash runs under the first bar, ducked."],
     ["LONG FALL", "1 BAR", "1/2", "9 dB", "2 BARS", "A full bar of air; the new section breathes for two bars."],
-    ["SNAP", "OFF", "CUT", "0 dB", "-", "The build snaps off on the bar line; nothing else changes."]],
+    ["SNAP", "OFF", "CUT", "OFF", "-", "The build snaps off on the bar line; nothing else changes."]],
     [0.95 * inch, 0.45 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch, W - 3.4 * inch]))
-story.append(P("Defaults: GAP OFF, TAIL 1/8, DROP DUCK 6 dB, DUCK TIME 1 BAR. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
+story.append(P("Defaults: GAP OFF, TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
 story.append(H2T("ENERGY AND MACROS"))
 story += bullets(["The three ENERGY knobs are the fastest way to move a whole set: small moves, often. A negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
                   "Six macros on the MACROS page, each followed by the plugins that subscribe to it (MACRO SRC, MACRO AMT on each plugin). A starting plan:"])
