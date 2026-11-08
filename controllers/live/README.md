@@ -84,10 +84,12 @@ headphone out and records the place (the operator's manual, chapter 8, CAPTURING
 
   Takeover Mode: **Value Scaling**. Audio: 48 kHz, buffer 256.
 
-  **MIDI Clock Sync Delay**, on the ONE's Port 1 output (unfold its row: the triangle at its left):
-  the ONE's notes come back to Live late (the clock goes out, the notes come back, buffers both
-  ways). On Nov 7 the kick landed 78 ms after Live's beat at 44.1 kHz, buffer 256: about -70 ms.
-  Without it, a drop opens before the kick and a song change from the ONE lands a bar late.
+  **MIDI Clock Sync Delay** (the ONE's Port 1 output row, unfolded with the triangle at its left):
+  leave it at **0**. The ONE's notes come back to Live a little late (the clock goes out, the notes
+  come back, buffers both ways: on Nov 7 the kick came 40 ms after Live's beat), and nothing needs
+  them on the beat: SF BUILD lands its drop on the kick it hears (LAND ON KICK; its KICK readout
+  shows how late the kick reaches it), a song change lands on Live's bar line, ahead of the ONE's
+  first note, and Pocket follows SF KICK. On Nov 7, -70 ms there moved the kick not at all.
 - Live's preferences live outside any set: nothing in this file can set them.
 - The OXI One's own setup (sync, its config, the startup project): `controllers/oxi-one`. Live sends
   its clock only while it plays: start and stop from Live.

@@ -41,7 +41,8 @@ and turn it, Cmd-M off, save.
 - **CC = block base + the parameter's place in its SF plugin's own order**, counting from 0. One
   plugin on a channel: base 20, so its performance row (its first eight parameters) is CC 20-27.
   Channel 14: LOW ENERGY 20, DRUMS ENERGY 30, MUSIC ENERGY 40, REPEAT 50. Channel 15: BUILD 20
-  (its first ten parameters: DUCK TIME, the eleventh, has no address); 30-79 are kept for ISOLATOR,
+  (its first ten parameters: DUCK TIME and LAND ON, the eleventh and twelfth, have no address);
+  30-79 are kept for ISOLATOR,
   GLUE, TONE, LOWEND and LIMIT. Channel 16: CONTROL 20 (MACRO 1-6 are
   20-25).
 - **Mixer:** CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC

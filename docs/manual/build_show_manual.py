@@ -463,7 +463,7 @@ story.append(table([["PORT (SETTINGS &gt; TEMPO &amp; MIDI)", "TRACK", "SYNC", "
     [3.2 * inch, 0.9 * inch, 0.9 * inch, W - 5.0 * inch], mono_first=False))
 story.append(Spacer(1, 4))
 story += bullets(["Takeover Mode: Value Scaling. Audio: 48 kHz, buffer 256. These live in Live's preferences, not in any set: nothing in SF SHOW.als can set them.",
-                  "<b>MIDI Clock Sync Delay</b> on the ONE's Port 1 output (unfold its row: the triangle at its left). The ONE's notes come back to Live late: the clock goes out, the notes come back, buffers both ways. On Nov 7 every kick landed 78 ms after Live's beat (44.1 kHz, buffer 256): about -70 ms. Unset, a drop opens before the kick, and a song change from the ONE lands a bar late.",
+                  "<b>MIDI Clock Sync Delay</b> on the ONE's Port 1 output (its row unfolded with the triangle at its left): <b>0</b>. The ONE's notes come back to Live a little late (the clock goes out, the notes come back, buffers both ways: on Nov 7, 40 ms), and nothing needs them on the beat. BUILD lands its drop on the kick it hears (LAND ON KICK; its KICK readout shows how late the kick reaches it), a song change lands on Live's bar line ahead of the ONE's first note, and Pocket follows SF KICK. On Nov 7, -70 ms there moved the kick not at all.",
                   "Before Live 12.4 the tab is called Link, Tempo &amp; MIDI."])
 story.append(H2T("OPEN IT, CHECK, SAVE"))
 story += numbered(["<b>MIDI From</b> is set on every instrument, as in the table above (chapter 3 shows the ONE's side). If your Live names the ONE differently, a track shows its port as missing: set it by the table. Never All Ins: every instrument would play every part.",
@@ -502,7 +502,7 @@ story.append(H2T("CLOCK AND PORTS"))
 story += bullets(["<b>Live is the clock master.</b> On the ONE: sync USB (stopped, Shift + Stop until the header shows USB, not INT); in its config (Shift + Back), Start Stop Msgs Ignore No, MIDI Transport Msgs Send Off, MIDI Thru off, Auto Sync on (it starts with Live). Never send clock both ways.",
                   "<b>Live sends its clock only while it plays.</b> Start and stop from Live, never with the ONE's Play: started on its own, the ONE runs at its own tempo and ignores Live's.",
                   "<b>Audio:</b> 48 kHz, buffer 256 (Pocket needs 512 or less), launch quantization 1 bar, record quantization off.",
-                  "<b>Calibrate once:</b> record a plain quarter-note pattern from the ONE, compare it with Live's grid and set the ONE port's MIDI Clock Sync Delay in Live's preferences (about -70 ms on the first rig measured). Every kick should land on Live's beat: BUILD's drop and song changes count on it. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump is still off after that."])
+                  "<b>The ONE plays a little after Live's beat,</b> and nothing needs it on the beat: BUILD lands its drop on the kick it hears (its KICK readout shows how late), song changes land on Live's bar line ahead of the ONE's notes, Pocket follows SF KICK. MIDI Clock Sync Delay stays at 0. Leave POCKET OFFSET on SF CONTROL at 0 unless the pump sounds off."])
 story.append(table([["LIVE MIDI PORT", "TRACK", "SYNC", "REMOTE"],
     ["OXI ONE MKII (Port 1), in: the ONE's port A", "on", "off", "off"], ["OXI ONE MKII (Port 2), in: its port B", "on", "off", "off"],
     ["OXI ONE MKII (Port 1), out: the clock", "off", "on", "off"],
@@ -635,7 +635,7 @@ story.append(Spacer(1, 6))
 story += bullets(["<b>GAP</b> (OFF to 1 BAR): everything through BUILD goes silent for that long before the bar line, the whole LIVE BUS with its returns (BRIDGE and DECK play on). Press DROP later than that and the gap starts on the next 1/16.",
                   "<b>TAIL</b> (CUT to 2 BARS): the riser's noise and the wash ring on after the build stops, fading out. Shorter than the GAP, it dies away in the silence; longer, it carries into the drop, DROP DUCK lower.",
                   "<b>DROP DUCK</b> (0-12 dB, off by default) and <b>DUCK TIME</b> (1/4 to 4 BARS): after the drop every SF part with Pocket dips under each kick, whatever its POCKET DEPTH: bass, lead, pad, voice, rumble, both returns. The first kicks stand alone on top of everything that comes back, with less weight than a kick brought back by hand: the bass and rumble around them are gone. A roll into the drop doesn't duck; the duck starts with the first kick on the bar.",
-                  "The build lets go 10 ms before the bar line, the gap's silence with it, so a kick that reaches Live a little early keeps its attack.",
+                  "<b>LAND ON</b> (KICK or BAR LINE): KICK, the default, lands the drop where BUILD hears the kick. BUILD measures how late each kick reaches it against Live's beat (the readout under its bar: KICK +80 MS) and moves the gap and the drop by that much: the silence breaks 10 ms before the kick. On Nov 7 the kick reached BUILD 80 ms after Live's beat: the drop opened that early, and the bass, the pads and the last kick's tail came back before the kick, like any other beat. It needs four kicks that agree (KICK --: Live's bar line until then) and keeps the last value through a breakdown with no kick. BAR LINE: 10 ms before Live's bar line, whatever the kick does.",
                   "After a drop the build stays off until knob 4 is back below 5 % (display: RETURN KNOB). Bring it down in your own time: nothing re-builds."])
 story.append(table([["RECIPE", "GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHAT IT DOES"],
     ["HARD STOP", "1/4", "CUT", "OFF", "-", "A beat of true silence, then everything on the one."],
@@ -644,7 +644,7 @@ story.append(table([["RECIPE", "GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHAT IT
     ["LONG FALL", "1 BAR", "1/2", "9 dB", "2 BARS", "A full bar of air; the new section breathes for two bars."],
     ["SNAP", "OFF", "CUT", "OFF", "-", "The build snaps off on the bar line; nothing else changes."]],
     [0.95 * inch, 0.45 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch, W - 3.4 * inch]))
-story.append(P("Defaults: GAP OFF, TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
+story.append(P("Defaults: GAP OFF, TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR, LAND ON KICK. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
 story.append(H2T("ENERGY AND MACROS"))
 story += bullets(["The three ENERGY knobs are the fastest way to move a whole set: small moves, often. A negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
                   "Six macros on the MACROS page, each followed by the plugins that subscribe to it (MACRO SRC, MACRO AMT on each plugin). A starting plan:"])
@@ -748,7 +748,8 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["An instrument doesn't play", "MIDI From: its ONE port and channel, never All Ins. The ONE's sequencer output (1A, 2B ...) matches."],
     ["Every instrument plays every part", "A track's MIDI From is All Ins or All Channels."],
     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be SF KICK."],
-    ["Pump early or late", "Live buffer 512 or less; the ONE's MIDI Clock Sync Delay; then POCKET OFFSET by ear."],
+    ["Pump early or late", "Live buffer 512 or less; then POCKET OFFSET by ear. (The ONE's clock moves every part alike: not this.)"],
+    ["The drop opens before the kick", "SF BUILD: LAND ON KICK, and its readout shows a value (KICK --: four kicks haven't agreed yet; GAP silences the beat before)."],
     ["Songs don't change", "PC ENABLE on, PC CHANNEL 16, sequencer 8 on 16B. The VST3 needs Live 12.2 or later; otherwise use the AU."],
     ["E16 rings don't follow", "Remote on for E16 Port 1's output."],
     ["An E16 press does nothing", "An SF SHOW file from before 3 Nov is loaded (it had no presses): load the current one. A toggle that flips back: Remote is on for two E16 ports."],

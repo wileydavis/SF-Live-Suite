@@ -16,6 +16,7 @@
 #include "core/IrTools.h"
 #include "core/E16Glide.h"
 #include "core/E16Map.h"
+#include "core/HeardBeat.h"
 #include "core/Loudness.h"
 #include "core/Oversample.h"
 #include "core/Resample.h"
@@ -2452,6 +2453,149 @@ static void testDrop()
         CHECK (other8 < -4.5f && other8 > -7.0f && kick8 > -0.5f, "DROP DUCK on TAP (OTHER %.1f, KICK %.1f dB)", other8, kick8);
         Bus::testClock = nullptr;
     }
+    // 7. LAND ON KICK [Nov 7]: the gap and the drop follow the beat as BUILD hears it. On that day's
+    //    recordings the kick reached BUILD 80 ms after BUILD's beat (Live's position ahead of the
+    //    LIVE BUS's audio, the ONE after Live's beat): the gap ended, and the previous kick's tail,
+    //    the bass and the rest came back, 80 ms before the kick, and the drop hit like any other beat.
+    //    A groove arriving `late` ms after the beat (a kick, sweeping 160 > 50 Hz, on every beat; a
+    //    55 Hz bass under it; a hat on the off-beats), BUILD from beat 8, DROP at 13.3, GAP 1/4: the
+    //    gap ends 10 ms before the kick (Live's bar line on LAND ON BAR LINE), whatever `late` is;
+    //    silent until then; the kick whole. Held through a build with no kick; Live's bar line when
+    //    no beat was ever heard, or onsets that never keep to it (the input SFSnapshot plays: it
+    //    read KICK +138 MS before beats had to agree).
+    {
+        const double bps = bpm / 60.0 / kSr;
+        enum Case { HEARD, BAR_LINE, NO_KICK_IN_BUILD, NEVER_A_KICK, OFF_THE_BEAT };
+        auto run = [&] (double lateMs, Case cs, double& openMs, double& gapDb, double& wholeDb)
+        {
+            resetBus();
+            Rig2 r ("BUILD");
+            r.head.bpm = bpm;
+            r.set ("gap", 3.0f); r.set ("tail", 0.0f); r.set ("noise", 0.0f); r.set ("space", 0.0f); r.set ("width", 0.0f);
+            r.set ("land", cs == BAR_LINE ? 1.0f : 0.0f);
+            const double end = 18.0;
+            const size_t N = (size_t) (end * spb) + 1;
+            std::vector<float> in (N, 0.0f), out;
+            uint32_t seed = 1;
+            for (size_t i = 0; i < N; ++i)
+            {
+                double x = 0.1 * std::sin (6.283185307 * 55.0 * (double) i / kSr);
+                if (cs == OFF_THE_BEAT)     // bursts every 5888 samples, 3.9 to a beat: never in the same place
+                {
+                    in[i] = (float) (0.3 * std::sin (0.01 * (double) i) * ((i / 256) % 23 < 4 ? 1.0 : 0.2));
+                    continue;
+                }
+                for (int k = 0; k < 18; ++k)
+                {
+                    const bool kickHere = cs != NEVER_A_KICK && ! (cs == NO_KICK_IN_BUILD && k >= 9 && k < 16);
+                    const double tk = ((double) i - (k * spb + lateMs * 0.001 * kSr)) / kSr;
+                    if (kickHere && tk >= 0.0 && tk < 0.45)
+                        x += 0.5 * std::exp (-tk / 0.15) * std::sin (6.283185307 * (50.0 * tk + 110.0 * 0.03 * (1.0 - std::exp (-tk / 0.03))));
+                    const double th = ((double) i - ((k + 0.5) * spb + lateMs * 0.001 * kSr)) / kSr;
+                    if (th >= 0.0 && th < 0.06)
+                    {
+                        seed = seed * 1664525u + 1013904223u;
+                        x += 0.08 * std::exp (-th / 0.015) * ((double) (seed >> 8) / 8388608.0 - 1.0);
+                    }
+                }
+                in[i] = (float) x;
+            }
+            size_t at = 0;
+            bool pressed = false;
+            while (r.ppq < end - 0.1)
+            {
+                const double q0 = r.ppq;
+                r.set ("build", (float) juce::jlimit (0.0, 0.6, (q0 - 8.0) * 0.2));
+                if (! pressed && q0 >= 13.3) { r.set ("drop", 1.0f); pressed = true; } else r.set ("drop", 0.0f);
+                r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+                { for (int i = 0; i < n; ++i) { const float v = at + (size_t) i < N ? in[at + (size_t) i] : 0.0f; b.setSample (0, i, v); b.setSample (1, i, v); } });
+                for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+                at += kBlock;
+            }
+            const double heard = cs == BAR_LINE || cs == NEVER_A_KICK || cs == OFF_THE_BEAT ? 0.0 : lateMs;
+            const size_t gap0 = (size_t) ((15.0 * spb) + (heard + 6.0) * 0.001 * kSr);
+            size_t open = gap0;
+            while (open < out.size() && std::fabs (out[open]) < 1e-5f) ++open;
+            const double kickAt = 16.0 * spb + lateMs * 0.001 * kSr;
+            openMs = ((double) open - kickAt) / kSr * 1000.0;
+            double e = 0.0; int n = 0;
+            for (size_t i = gap0; i + 1 < open; ++i) { e += (double) out[i] * out[i]; ++n; }
+            gapDb = n > 0 ? 10.0 * std::log10 (e / n + 1e-30) : -999.0;
+            double eo = 0.0, ei = 0.0;
+            for (size_t i = (size_t) kickAt; i < (size_t) (kickAt + 0.040 * kSr) && i < out.size(); ++i) { eo += (double) out[i] * out[i]; ei += (double) in[i] * in[i]; }
+            wholeDb = 10.0 * std::log10 ((eo + 1e-30) / (ei + 1e-30));
+        };
+        for (const double late : { -20.0, 0.0, 40.0, 80.0, 120.0 })
+        {
+            double openMs, gapDb, wholeDb;
+            run (late, HEARD, openMs, gapDb, wholeDb);
+            std::printf ("   LAND ON KICK, the groove %+4.0f ms after the beat: the gap ends %+5.1f ms from the drop's kick, silent before (%.0f dB), the kick's first 40 ms %+.2f dB\n",
+                         late, openMs, gapDb, wholeDb);
+            CHECK (openMs > -12.5 && openMs < -7.5 && gapDb < -120.0 && std::abs (wholeDb) < 0.5,
+                   "LAND ON KICK, %+.0f ms: opens %+.1f ms from the kick, gap %.0f dB, kick %+.2f dB", late, openMs, gapDb, wholeDb);
+        }
+        {
+            double openMs, gapDb, wholeDb;
+            run (80.0, BAR_LINE, openMs, gapDb, wholeDb);
+            std::printf ("   LAND ON BAR LINE, the groove 80 ms late: the gap ends %+5.1f ms from the kick (Live's bar line less 10 ms)\n", openMs);
+            CHECK (std::abs (openMs - (-90.0)) < 1.0, "LAND ON BAR LINE: opens %+.1f ms from an 80 ms late kick (want -90)", openMs);
+            run (80.0, NO_KICK_IN_BUILD, openMs, gapDb, wholeDb);
+            std::printf ("   no kick from beat 9 (the build) to the drop, 80 ms late before: the gap ends %+5.1f ms from the kick back on the drop, the kick %+.2f dB\n", openMs, wholeDb);
+            CHECK (openMs > -12.5 && openMs < -7.5 && gapDb < -120.0 && std::abs (wholeDb) < 0.5, "no kick in the build: opens %+.1f ms, gap %.0f dB, kick %+.2f dB", openMs, gapDb, wholeDb);
+            run (80.0, NEVER_A_KICK, openMs, gapDb, wholeDb);
+            std::printf ("   never a kick (bass and hats only): the gap ends %+5.1f ms from the bar line\n", openMs + 80.0);
+            CHECK (std::abs (openMs + 80.0 - (-10.0)) < 1.0, "never a kick: opens %+.1f ms from the bar line (want -10)", openMs + 80.0);
+            run (80.0, OFF_THE_BEAT, openMs, gapDb, wholeDb);
+            std::printf ("   bursts that don't keep to the beat (3.9 to a beat): the gap ends %+5.1f ms from the bar line\n", openMs + 80.0);
+            CHECK (std::abs (openMs + 80.0 - (-10.0)) < 1.0, "bursts off the beat: opens %+.1f ms from the bar line (want -10)", openMs + 80.0);
+        }
+    }
+    // 8. The same with SF KICK, as on Nov 7: its notes 40 ms after the beat (the ONE), its audio
+    //    42 ms later again at BUILD (the LIVE BUS's position ahead of its audio), BUILD building from
+    //    beat 0 (only the beats SF KICK reports a kick on count), DROP at 9.3, GAP 1/4: the gap ends
+    //    10 ms before the kick on the drop's bar, 82 ms after Live's bar line, and the kick is whole.
+    {
+        static double simSec3 = 11000.0;
+        Bus::testClock = [] { return simSec3; };
+        resetBus();
+        Rig2 kick ("KICK"), build ("BUILD");
+        kick.head.bpm = build.head.bpm = bpm;
+        build.set ("gap", 3.0f); build.set ("tail", 0.0f); build.set ("noise", 0.0f); build.set ("space", 0.0f); build.set ("build", 0.6f);
+        const int pdc = (int) std::lround (0.042 * kSr);
+        const double lateBeats = 0.040 * bpm / 60.0;
+        std::vector<float> kickOut, out;
+        bool pressed = false;
+        while (kick.ppq < 13.0)
+        {
+            const double q0 = kick.ppq, bps = kick.bps();
+            if (! pressed && q0 >= 9.3) { build.set ("drop", 1.0f); pressed = true; } else build.set ("drop", 0.0f);
+            kick.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { gridNotes (m, q0 - lateBeats, bps, n, 1.0, 0.25, 36, 127); });
+            for (int i = 0; i < kBlock; ++i) kickOut.push_back (kick.buf.getSample (0, i));
+            build.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            {
+                const size_t base = kickOut.size() - (size_t) n;
+                for (int i = 0; i < n; ++i)
+                {
+                    const long src = (long) (base + (size_t) i) - pdc;
+                    const float v = src >= 0 ? kickOut[(size_t) src] : 0.0f;
+                    b.setSample (0, i, v); b.setSample (1, i, v);
+                }
+            });
+            for (int i = 0; i < kBlock; ++i) out.push_back (build.buf.getSample (0, i));
+            simSec3 += kBlock / kSr;
+        }
+        const double kickAt = 12.0 * spb + 0.040 * kSr + pdc;     // the drop's kick at BUILD: its note, plus the way there
+        size_t open = (size_t) (11.0 * spb + 0.090 * kSr);
+        while (open < out.size() && std::fabs (out[open]) < 1e-5f) ++open;
+        double eo = 0.0, ei = 0.0;
+        for (size_t i = (size_t) kickAt; i < (size_t) (kickAt + 0.040 * kSr) && i < out.size(); ++i) { eo += (double) out[i] * out[i]; ei += (double) kickOut[i - (size_t) pdc] * kickOut[i - (size_t) pdc]; }
+        const double openMs = ((double) open - kickAt) / kSr * 1000.0, whole = 10.0 * std::log10 ((eo + 1e-30) / (ei + 1e-30));
+        const double fromBar = ((double) open - 12.0 * spb) / kSr * 1000.0;
+        std::printf ("   SF KICK 40 ms after the beat, 42 ms more to BUILD, building throughout: the gap ends %+5.1f ms from the kick (%+.1f ms from Live's bar line), the kick's first 40 ms %+.2f dB\n",
+                     openMs, fromBar, whole);
+        CHECK (openMs > -12.5 && openMs < -7.5 && std::abs (whole) < 0.5, "SF KICK late: opens %+.1f ms from the kick, kick %+.2f dB", openMs, whole);
+        Bus::testClock = nullptr;
+    }
     resetBus();
 }
 
@@ -2474,7 +2618,7 @@ static void testDropWeight()
     const char* taps[] = { "sources", "BUILD", "GLUE", "LOWEND", "LIMIT" };
     constexpr int T = 5;
     struct Run { std::vector<float> o[T]; std::vector<double> at[T]; };
-    auto render = [&] (int v, double earlyMs = 0.0, bool busInTime = false)
+    auto render = [&] (int v, double earlyMs = 0.0, bool busInTime = false, int landOn = 0)
     {
         resetBus();
         Rig2 kick ("KICK"), rumble ("RUMBLE"), bass ("BASS"), closed ("PERC"), open ("PERC"), clap ("PERC"), pad ("PAD");
@@ -2488,6 +2632,7 @@ static void testDropWeight()
         if (v == TAIL_CUT) build.set ("tail", 0.0f);
         if (v == GAP16) build.set ("gap", 1.0f);
         if (v == HIS || v == HIS_NO_DUCK) { build.set ("gap", 5.0f); build.set ("noise", 0.0f); build.set ("space", 0.8255f); }
+        build.set ("land", (float) landOn);
         int ls[S], lmax = 0;
         for (int k = 0; k < S; ++k) { ls[k] = src[k]->p->getLatencySamples(); lmax = std::max (lmax, ls[k]); }
         int lat[T] = { lmax, 0, 0, 0, 0 };
@@ -2508,7 +2653,7 @@ static void testDropWeight()
             build.set ("build", knob);
             if (v != STEADY && v != BY_HAND && v != KICK_FADER && ! pressed && q0 >= 30.0) { build.set ("drop", 1.0f); pressed = true; }
             else build.set ("drop", 0.0f);
-            // The kick's notes `earlyMs` ahead of the grid (a ONE that plays early); 0: on it.
+            // Every part's notes `earlyMs` ahead of the grid (a ONE that plays early; negative: late); 0: on it.
             const double shift = earlyMs * 0.001 * bpm / 60.0;
             kick.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { gridNotes (m, q0 + shift, bps, n, 1.0, 0.25, 36, 127); });
             rumble.step (kBlock, nullptr);
@@ -2516,8 +2661,9 @@ static void testDropWeight()
             {
                 for (int i = 0; i < n; ++i)
                 {
-                    const double q = q0 + i * bps, prev = q - bps;
-                    if (std::floor (q * 4.0 + 1e-9) == std::floor (prev * 4.0 + 1e-9) && ! (i == 0 && q0 == 0.0)) continue;
+                    const double q = q0 + shift + i * bps, prev = q - bps;
+                    if (q < 0.0) continue;
+                    if (std::floor (q * 4.0 + 1e-9) == std::floor (prev * 4.0 + 1e-9) && ! (i == 0 && q0 + shift == 0.0)) continue;
                     const int pos = (int) std::floor (q * 4.0 + 1e-9) % 16;
                     m.addEvent (juce::MidiMessage::noteOff (1, note), i);
                     if (const int vel = velAt (pos)) m.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) vel), i);
@@ -2607,6 +2753,35 @@ static void testDropWeight()
             std::printf ("   kick %4.1f ms early, bus position %s: the drop's first 20 ms after BUILD %+5.1f dB (peak %+5.1f), after LIMIT %+5.1f dB (peak %+5.1f)\n",
                          early, inTime ? "in time with its audio" : "ahead of its audio   ", b.first - a.first, b.second - a.second, dd.first - c.first, dd.second - c.second);
         }
+    // The whole groove late (the ONE after Live's beat, Nov 7: 40 ms), the LIVE BUS's position ahead
+    // of its audio (as in Live): what comes out of LIMIT in the 70 ms before the drop's kick, and its
+    // first 20 ms, against the same moment with no build; LAND ON KICK against LAND ON BAR LINE.
+    for (const double late : { 0.0, 40.0, 80.0 })
+    {
+        const auto st = render (STEADY, -late, false);
+        for (const int landOn : { 0, 1 })
+        {
+            const auto dr = render (HIS_NO_DUCK, -late, false, landOn);
+            const double kickAt = 32.0 + late * 0.001 * bpm / 60.0, ms = 0.001 * bpm / 60.0;
+            auto win = [&] (const Run& r, double a, double b, float& pk)
+            {
+                double e = 0.0; int n = 0; pk = 0.0f;
+                for (size_t i = 0; i < r.o[4].size(); ++i)
+                    if (r.at[4][i] >= a && r.at[4][i] < b) { e += (double) r.o[4][i] * r.o[4][i]; ++n; pk = std::max (pk, std::fabs (r.o[4][i])); }
+                return 10.0 * std::log10 (e / std::max (1, n) + 1e-30);
+            };
+            float p0, p1, p2, p3;
+            const double preS = win (st, kickAt - 70 * ms, kickAt - 12 * ms, p0), preD = win (dr, kickAt - 70 * ms, kickAt - 12 * ms, p1);
+            const double hitS = win (st, kickAt - 2 * ms, kickAt + 20 * ms, p2), hitD = win (dr, kickAt - 2 * ms, kickAt + 20 * ms, p3);
+            // Where BUILD's gap ends, against the kick (BUILD's own output: no latency after it).
+            size_t i = 0;
+            while (i < dr.o[1].size() && dr.at[1][i] < kickAt - 200 * ms) ++i;
+            while (i < dr.o[1].size() && std::fabs (dr.o[1][i]) < 1e-5f) ++i;
+            const double openMs = i < dr.o[1].size() ? (dr.at[1][i] - kickAt) / ms : 999.0;
+            std::printf ("   the groove %2.0f ms late, LAND ON %-8s: the gap ends %+6.1f ms from the drop's kick; 70-12 ms before it %6.1f dB (no build %6.1f), its first 20 ms %+5.1f dB, peak %+5.1f dB against no build\n",
+                         late, landOn ? "BAR LINE" : "KICK", openMs, preD, preS, hitD - hitS, gainToDb (p3) - gainToDb (p2));
+        }
+    }
     std::printf ("   each beat's level (RMS) at the LIMIT's output, beats 28-35, the drop on 32:\n");
     for (int v = 0; v < VARIANTS; ++v)
     {

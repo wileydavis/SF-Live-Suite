@@ -73,16 +73,16 @@ L1 = L(1, "SET UP", "Live, the ONE and the E16 talking to each other. Once only:
       why="Pocket, the ducking that keeps every part out of the kick's way, needs a buffer of 512 or less.", wait=8),
     S("LAPTOP", "MIDI ports",
       ["Turn on only what the table shows; everything else in the list off.", "Live calls the ONE's ports **OXI ONE MKII (Port 1)** and **(Port 2)**: the ONE's A and B.",
-       "Unfold the **OXI ONE MKII (Port 1)** output row (the triangle at its left): **MIDI Clock Sync Delay -70 ms**."],
+       "Unfold the **OXI ONE MKII (Port 1)** output row (the triangle at its left): **MIDI Clock Sync Delay 0 ms**."],
       "Now the Tempo and MIDI tab. The One shows up as two ports, Port 1 and Port 2: on the One they're A, and B. Turn Track on "
       "for both of its inputs. On Port 1's output, turn Sync on, and on nothing else: that's the clock the One follows. Then unfold "
-      "that output row with the little triangle at its left, and set MIDI Clock Sync Delay to minus seventy milliseconds. The One's "
-      "notes come back to Live late, and this sends the clock early to make up for it. For the E16, turn Remote "
+      "that output row with the little triangle at its left, and check that MIDI Clock Sync Delay is zero. The One's notes come "
+      "back to Live a little late, and that's fine: SF Build hears where the kick lands and drops on it. For the E16, turn Remote "
       "on for its Port 1, input and output, and leave its ports two and three off.",
       path=["Live", "Settings", "Tempo & MIDI"],
-      table=[["OXI ONE MKII (Port 1), in", "Track **on**"], ["OXI ONE MKII (Port 2), in", "Track **on**"], ["OXI ONE MKII (Port 1), out", "Sync **on**, delay **-70 ms**"],
+      table=[["OXI ONE MKII (Port 1), in", "Track **on**"], ["OXI ONE MKII (Port 2), in", "Track **on**"], ["OXI ONE MKII (Port 1), out", "Sync **on**, delay **0 ms**"],
              ["OXI E16 (Port 1), in and out", "Remote **on**"], ["Every other port", "all **off**"]],
-      why="Without the clock delay the ONE plays about 70 ms behind Live's beat: a drop opens before the kick, and a song change lands a bar late. Sync on one port only: two clocks confuse the ONE. A second Remote port would double every E16 message.", wait=15),
+      why="Sync on one port only: two clocks confuse the ONE. Its notes reach Live a little after the beat (40 ms on Nov 7) and nothing needs them on it: SF BUILD lands the drop on the kick it hears (its KICK readout), song changes land ahead of the ONE's notes. On Nov 7, -70 ms of clock delay moved the kick not at all. A second Remote port would double every E16 message.", wait=15),
     S("LAPTOP", "Takeover: Value Scaling",
       ["Same tab: **Takeover Mode › Value Scaling**."],
       "Same tab, further down: set Takeover Mode to Value Scaling. When a song changes, the knobs and Live disagree for a moment. "

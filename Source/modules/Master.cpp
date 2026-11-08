@@ -2,7 +2,9 @@
 #include "Kit.h"
 #include "../core/Loudness.h"
 #include "../core/Oversample.h"
+#include "../core/HeardBeat.h"
 #include <complex>
+#include <limits>
 
 namespace sf
 {
@@ -83,7 +85,7 @@ ModulePtr makeISOLATOR() { return std::make_unique<IsolatorModule>(); }
 class BuildModule : public Module
 {
 public:
-    enum { BUILD, DROP, NOISE, SPACE, WIDTH, HPMAX, LEVEL, GAP, TAIL, DROPDUCK, DUCKTIME };
+    enum { BUILD, DROP, NOISE, SPACE, WIDTH, HPMAX, LEVEL, GAP, TAIL, DROPDUCK, DUCKTIME, LAND };
     std::string id() const override { return "BUILD"; }
     std::vector<ParamSpec> params() const override
     {
@@ -97,7 +99,10 @@ public:
                  choice ("gap", "GAP", { "OFF", "1/16", "1/8", "1/4", "1/2", "1 BAR" }, 0).prim(),
                  choice ("tail", "TAIL", { "CUT", "1/16", "1/8", "1/4", "1/2", "1 BAR", "2 BARS" }, 2),
                  knob ("drop_duck", "DROP DUCK", 0.0f, 12.0f, 0.0f, "dB"),
-                 choice ("duck_time", "DUCK TIME", { "1/4", "1/2", "1 BAR", "2 BARS", "4 BARS" }, 2) };
+                 choice ("duck_time", "DUCK TIME", { "1/4", "1/2", "1 BAR", "2 BARS", "4 BARS" }, 2),
+                 // KICK: the gap and the drop follow the beat as BUILD hears it (HeardBeat), not Live's
+                 // bar line [Nov 7]. Until it has heard four beats, and on BAR LINE, Live's bar line.
+                 choice ("land", "LAND ON", { "KICK", "BAR LINE" }, 0) };
     }
     // Lengths in beats (1/16 = a sixteenth note); bar-long choices follow the time signature.
     static double gapBeats (int i, double bpb)  { static const double b[] = { 0.0, 0.25, 0.5, 1.0, 2.0, -1.0 }; const double v = b[juce::jlimit (0, 5, i)]; return v < 0.0 ? bpb : v; }
@@ -105,10 +110,11 @@ public:
     static double duckBeats (int i, double bpb) { static const double b[] = { 1.0, 2.0, -1.0, -2.0, -4.0 }; const double v = b[juce::jlimit (0, 4, i)]; return v < 0.0 ? -v * bpb : v; }
 
     double tailSeconds() const override { return 8.0; }
-    void prepare (double rate, int) override { sr = rate; fdn.prepare (rate); armed = released = false; reset(); }
+    void prepare (double rate, int) override { sr = rate; fdn.prepare (rate); heard.prepare (rate); armed = released = false; reset(); }
     void reset() override
     {
         fdn.clear(); for (auto& h : hp) for (auto& f : h) f.reset(); nbp.reset();
+        heard.restart();
         armed = planned = inGap = tailOn = false;
         dryG = 1.0f; tailDuck = tailDuckTarget = 1.0f;
     }
@@ -119,7 +125,7 @@ public:
         // A jump back while a drop waits (an Arrangement loop wrapped, a relocate): the bar line
         // it was planned on may never come (a loop with no bar line in it), and a gap under way
         // would stay silent. It lands here, at once: on the bar line a loop wraps to, if it does.
-        if (armed && c.playing && c.ppq < lastEnd - 0.01) { dropAt = gapAt = c.ppq; planned = true; publish (c); }
+        if (armed && c.playing && c.ppq < lastEnd - 0.01) { dropAt = gapAt = c.ppq - heardBeats; planned = true; publish (c); }
         // One drop per press: DROP arms on the press (the E16 sends 127 on press, 0 on release),
         // never on a button still held from a drop that has landed. (Held through its bar line, the
         // RETURN KNOB latch cleared as soon as BUILD was down and the same press armed a second
@@ -139,11 +145,14 @@ public:
         const float duckStep = 1.0f / (0.005f * (float) sr);
         const double tol = 1e-3 * bps, early = kEarly * c.bpm / 60.0;
         fdn.set (0.9f, 6.0f, 0.3f, 0.4f, false);
+        if (! c.playing) heard.restart();
         for (int i = 0; i < c.n; ++i)
         {
+            // Where the beat reaches BUILD: what comes in, before anything here touches it.
+            if (c.playing) heard.tick (0.5f * (io.getSample (0, i) + io.getSample (1, i)), c.ppq + i * bps, bps);
             if (armed && planned)
             {
-                const double q = c.ppq + i * bps;
+                const double q = c.ppq + i * bps - heardBeats;     // the song position of what BUILD hears
                 // The build ends where the silence starts (or on the bar): its tail takes over, and
                 // nothing new reaches the wash or the noise.
                 if (! inGap && gapAt < dropAt && q >= gapAt - tol) { startTail (c, spb, noise); inGap = true; bz = 0.0f; }
@@ -200,7 +209,9 @@ public:
         }
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
+        countHeard (c);
         disp = bz; dispArmed = armed; dispGap = inGap; dispReleased = released;
+        dispHeardMs = heard.locked() ? (float) (heard.seconds() * 1000.0) : std::numeric_limits<float>::quiet_NaN();
     }
     int displayHeight() const override { return 60; }
     void paint (juce::Graphics& g, juce::Rectangle<float> r) override
@@ -210,25 +221,54 @@ public:
         ui::valueBar (g, in.removeFromLeft (in.getWidth() * 0.6f).withSizeKeepingCentre (in.getWidth() * 0.6f, 8), disp.load());
         const juce::String st = dispGap.load() ? "GAP" : dispArmed.load() ? "DROP ON BAR" : dispReleased.load() ? "RETURN KNOB" : "LIVE";
         ui::label (g, st, in, dispArmed.load() || dispGap.load() ? ui::kGreen : dispReleased.load() ? ui::kAmber : ui::kDim, 12.0f, juce::Justification::centredRight);
+        // How late the kick reaches BUILD against Live's beat (LAND ON KICK lands the drop there).
+        const float ms = dispHeardMs.load();
+        ui::label (g, std::isnan (ms) ? juce::String ("KICK --") : "KICK " + juce::String (ms >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (ms)) + " MS",
+                   r.reduced (12, 2).removeFromBottom (14), ui::kDim, 10.0f, juce::Justification::centredLeft);
     }
 private:
-    // The drop's bar line and the gap before it, from where the transport is now.
+    // The drop's bar line and the gap before it, from where the transport is now: in the song
+    // position of what BUILD hears (LAND ON KICK: Live's, less where the beat reaches BUILD).
     void plan (const Ctx& c, double spb)
     {
         planned = true;
-        if (! c.playing) { dropAt = gapAt = c.ppq; return; }
+        heardBeats = c.ci (LAND) == 0 && heard.locked() ? heard.seconds() * c.bpm / 60.0 : 0.0;
+        const double now = c.ppq - heardBeats;
+        if (! c.playing) { heardBeats = 0.0; dropAt = gapAt = c.ppq; return; }
         const double bpb = c.beatsPerBar;
-        double inBar = std::fmod (c.ppq - c.barPhase, bpb);
+        double inBar = std::fmod (now - c.barPhase, bpb);
         if (inBar < 0.0) inBar += bpb;
-        dropAt = inBar * spb < 1e-3 ? c.ppq - inBar : c.ppq + (bpb - inBar);
+        dropAt = inBar * spb < 1e-3 ? now - inBar : now + (bpb - inBar);
         gapAt = dropAt - gapBeats (c.ci (GAP), bpb);
-        if (gapAt < c.ppq)
+        if (gapAt < now)
         {
             // Pressed inside the gap: it starts on the next sixteenth instead (or not at all).
-            double g16 = std::ceil ((c.ppq - c.barPhase) / 0.25 - 1e-9) * 0.25 + c.barPhase;
+            double g16 = std::ceil ((now - c.barPhase) / 0.25 - 1e-9) * 0.25 + c.barPhase;
             gapAt = std::min (dropAt, g16);
         }
         publish (c);
+    }
+    // The beats that count towards where the beat lands: with SF KICK playing, a beat it played a
+    // kick on (reported for that beat, heard no earlier than played: not a roll's 16th before it);
+    // with none, a beat outside a build (no riser's rolls).
+    void countHeard (const Ctx& c)
+    {
+        HeardBeat::Candidate cs[HeardBeat::kMaxCand];
+        const int nc = heard.take (cs);
+        if (nc == 0) return;
+        const bool kickOn = c.bus->kickAlive();
+        KickHit hits[kKickRing];
+        const int nh = kickOn ? c.bus->recentKicks (hits, kKickRing) : 0;
+        const double bpsec = c.bpm / 60.0, now = Bus::nowSec();
+        for (int k = 0; k < nc; ++k)
+        {
+            const double on = cs[k].beat + cs[k].offsetBeats;
+            bool counts = ! kickOn && ! armed && ! inGap && bz < 0.05f;
+            for (int h = 0; h < nh && ! counts; ++h)
+                counts = hits[h].ppq >= cs[k].beat - 0.25 && hits[h].ppq < cs[k].beat + HeardBeat::kTo
+                         && on >= hits[h].ppq - 0.003 * bpsec && now - hits[h].wall < 4.0;
+            if (counts) heard.keep (cs[k].offsetBeats / bpsec - HeardBeat::kBias);
+        }
     }
     // DROP DUCK: every Pocket stage learns of the drop now, ahead of its bar line. The bar line
     // goes last: a stage that sees it sees the rest.
@@ -255,6 +295,8 @@ private:
 
     static constexpr double kEarly = 0.010;          // seconds before the bar line the build lets go
     double sr = 48000.0;
+    HeardBeat heard;
+    double heardBeats = 0.0;                         // where the beat reaches BUILD, for the drop under way
     Svf hp[2][2], nbp;
     Fdn fdn;
     Noise rng;
@@ -265,6 +307,7 @@ private:
     float tailBz = 0.0f, tailNoise = 0.0f, dryG = 1.0f, tailDuck = 1.0f, tailDuckTarget = 1.0f;
     std::atomic<float> disp { 0 };
     std::atomic<bool> dispArmed { false }, dispGap { false }, dispReleased { false };
+    std::atomic<float> dispHeardMs { std::numeric_limits<float>::quiet_NaN() };
 };
 ModulePtr makeBUILD() { return std::make_unique<BuildModule>(); }
 

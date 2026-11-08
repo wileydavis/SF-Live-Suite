@@ -98,7 +98,8 @@ def block_end(ch, base):
 
 def number(dest, pid):
     """The address number of an SF plugin parameter: block base + its place in the plugin. A parameter
-    past the end of its block has no address (BUILD's DUCK TIME, the 11th, would be ISOLATOR's 30)."""
+    past the end of its block has no address (BUILD's DUCK TIME and LAND ON, the 11th and 12th, would be
+    ISOLATOR's 30 and 31)."""
     track, module, ch, base = PLUGINS[dest]
     n = base + module_params(module).index(pid)
     assert n <= block_end(ch, base), f"{module} {pid}: number {n} is past its block on channel {ch} ({base}-{block_end(ch, base)})"
