@@ -4,6 +4,8 @@
 //   CYAN = the value of the control being touched.
 // GREEN is the E16's own (the scene's ring colour for SLOW ALL and a glide, as the hardware lights
 // it: a mint green, hue about 147 degrees), so a gliding knob on screen matches its ring. [Nov 6]
+// The E16 grid's rings take the E16's colours, by role (E16Map.h kE16Rings, layout.py RING_RGB):
+// they say what a knob does, as the E16 does, not a state. [Nov 8]
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <atomic>
 
@@ -76,10 +78,9 @@ inline void valueBar (juce::Graphics& g, juce::Rectangle<float> r, float v)
 // 16 LEDs round a black knurled cap. The first LED sits just left of the bottom; they fill clockwise,
 // up the left, over the top, down to the last just right of the bottom. Positions run along that
 // sweep in LEDs, 0..16: LED f lights over f..f+1 (the one at the end of a value lights partly, as
-// the E16's does). Ring colours are the scene's (controllers/e16/layout.py): white, light blue for a
-// volume, green for SLOW ALL and a glide.
+// the E16's does). Ring colours are the scene's (controllers/e16/layout.py, E16Map.h kE16Rings): white
+// (kLedWhite), red, light blue, pink, violet, and green (kGreen) for SLOW ALL and a glide.
 const juce::Colour kLedWhite { 0xffeef2ff };
-const juce::Colour kLedBlue  { 0xff8cc4ff };
 const juce::Colour kLedOff   { 0xff383838 };    // an unlit LED
 const juce::Colour kLedDark  { 0xff1f1f1f };    // an unlit LED of an encoder that isn't this plugin's
 

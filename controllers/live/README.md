@@ -103,6 +103,14 @@ headphone out and records the place (the operator's manual, chapter 8, CAPTURING
   shows how late the kick reaches it), and Pocket and the effects that cut on the beat (GATE, STRIP,
   ENERGY's chop, DUCK's GRID, REPEAT, DECK) follow SF KICK. On Nov 7, -70 ms there moved the kick
   not at all.
+- **Track focus (optional): SF E16**, a control surface in this folder. Copy the folder `SF_E16` into
+  `~/Music/Ableton/User Library/Remote Scripts/` (make Remote Scripts if it isn't there) and restart
+  Live. Settings > Tempo & MIDI, a free Control Surface slot: **SF E16**, Input **OXI E16 (Port 1)**,
+  Output **None**; leave the E16 rows above as they are. A PERF page then selects its track (page 6,
+  BAS: 6 BASS); NRG and MIX's pages leave the selection where it is. Settings > Plug-Ins:
+  **Multiple Plug-In Windows** and **Auto-Hide Plug-In Windows** on, then open each instrument's SF
+  window once: from then on a page brings up its track's windows and hides the others. How it works:
+  `controllers/e16/README.md`, TRACK FOCUS.
 - Live's preferences live outside any set: nothing in this file can set them.
 - The OXI One's own setup (sync, its config, the startup project): `controllers/oxi-one`. Live sends
   its clock only while it plays: start and stop from Live.

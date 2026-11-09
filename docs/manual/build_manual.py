@@ -73,10 +73,14 @@ story.append(P("Mind the low register. KEY moves parts up to 6 semitones either 
 story.append(H2("NOTHING CAN HURT THE PA"))
 story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Resonance is level-compensated. Feedback above 100 % saturates instead of exploding. Every output is clamped at +12 dBFS. A plugin that produces an invalid value, or sits at the clamp for 250 ms (a runaway), outputs silence, resets itself, shows <b>FAULT</b> in red and carries on. <b>PANIC</b> on SF CONTROL fades every SF plugin out over 5 ms and clears every voice, tail and delay line: for a runaway loop, a stuck note or a wrong recall. While held, everything stays silent (no input, no new notes; DECK keeps its place; every header shows PANIC in red); let go and it fades back in over 5 ms. A set never reopens with PANIC held. Grab any knob in the dark."))
 _cc_head = [H2("THE COLOUR CODE"), P("The plugins are black, white and grey. Colour only carries information:")]
+_RINGS = [E16.WHITE, E16.SHAPE, E16.LIGHT_BLUE, E16.GROUP, E16.SET, E16.GREEN]
+_RING_ROLES = ["an instrument's own sound (1-8)", "a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG", "a level or a send",
+               "a group's NRG", "NEXT SONG and BUILD", "SLOW ALL, and a knob while it glides"]
 cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, FAULT (the plugin reset itself), missing file, true peak at the ceiling."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
       [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall or a drop waiting for the bar, a value gliding (SLOW)."],
       [Swatch(CYAN), "CYAN", "The value of the control you are touching."],
-      [Swatch(LIGHT_BLUE), "LIGHT BLUE", "In the E16 grid: a volume (LEVEL), the ring colour the E16 shows. The grid's other rings are white, as on the E16, and SLOW ALL's green."]]
+      [RingSwatch(E16.RING_RGB[k] for k in _RINGS), "E16 RINGS", "In the E16 grid at the top of a window, each ring has its colour on the E16, by role: "
+       + ", ".join(f"{E16.RING_NAME[k]} {what}" for k, what in zip(_RINGS, _RING_ROLES)) + "."]]
 story.append(KeepTogether(_cc_head + [table(cc, [0.3 * inch, 0.8 * inch, W - 1.1 * inch])]))
 story.append(PageBreak())
 
@@ -193,7 +197,7 @@ lay = [["WHERE", "WHAT"], ["MIDI track", "SF CONTROL, input from the OXI One. Ma
        ["Stems", "SF TAP with ROLE set (no sound of its own), or SF STRIP to play them."]]
 story.append(table(lay, [1.3 * inch, W - 1.3 * inch]))
 story.append(H2("THE E16"))
-story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's parameter panel (the triangle in its title bar), click the parameter there and turn the E16 knob. A parameter that isn't listed: Configure, touch it in the plugin window, Configure off.",
+story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's parameter panel (the triangle in its title bar), click the parameter there and turn the E16 knob. A parameter that isn't listed: Configure, touch it in the plugin window, Configure off. Turn to a PERF page before you click a parameter: a PERF page sends TRACK FOCUS's CC as it comes up, and Cmd-M would map the selected parameter to it.",
                   "In Live's MIDI preferences turn <b>Remote</b> on for the E16's Port 1, input <i>and output</i> (Ports 2 and 3 off). Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
                   "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has two ready-made E16 scenes for the show template, PERF and MIX, and the show set with every address already mapped."])
 story.append(H2("SAMPLES"))
@@ -363,7 +367,8 @@ story.append(E16Grid(cells, note="KNOB N IS TRACK N'S SF ENERGY; 12-14 THE GROUP
 story.append(Spacer(1, 8))
 story += bullets(["The ENERGY knobs are a DJ filter per track and per group, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in. Each track's own ENERGY shapes that part; the group knobs move a whole section.",
                   "Each instrument's LEVEL belongs to its song; the volumes on MIX's LEVELS page are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix: every volume and send is mapped with a maximum of 0 dB.",
-                  "Rings by role, in the OXI App's colour numbers (layout.py holds them): white (34) an instrument's own sound, knobs 1-8; 63 a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; 50 a group's NRG; 9 NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL. A knob that is travelling (SLOW) turns green and walks with the sound until it arrives (GLIDE RINGS: SF CONTROL's E16 RINGS and the scenes' script; controllers/e16 README)."])
+                  "Rings by role, in the OXI App's colour numbers (layout.py holds them): white (34) an instrument's own sound, knobs 1-8; red (63) a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; pink (50) a group's NRG; violet (9) NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL. Each plugin's window draws its E16 knobs in the same colours. A knob that is travelling (SLOW) turns green and walks with the sound until it arrives (GLIDE RINGS: SF CONTROL's E16 RINGS and the scenes' script; controllers/e16 README).",
+                  "<b>TRACK FOCUS:</b> turn to a PERF track page and Live selects that track (page 6, BAS: 6 BASS), with the control surface SF E16 installed (controllers/live/SF_E16, into the User Library's Remote Scripts; Settings > Tempo & MIDI: SF E16, Input E16 Port 1, Output None). NRG and MIX's pages leave the selection where it is. With Auto-Hide Plug-In Windows on (Settings > Plug-Ins), the track's open plugin windows come up with its page. The page sends CC 119 on channel 16: keep it unmapped (check_set.py fails a set that maps it)."])
 
 story.append(H2("THE E16: PAGES"))
 rows = [["PAGE", "KNOBS 1-8", "KNOBS 9-16", "PRESSES"]]
@@ -387,7 +392,7 @@ story += bullets(["<b>Channel = track:</b> 1-11 the instrument tracks (1 KICK ..
                   "<b>CC = the knob's place + 11 in PERF</b> (a track's page: CC 12-23), <b>+ 43 in MIX</b>; a press its place + 27 in PERF, + 59 in MIX. A track's ENERGY is CC 28 (the groups on channel 14: 28, 29, 30).",
                   "<b>Mixer:</b> CC 102 volume, 103 send A, 104 send B, on the track's channel; channel 14: 102-104 the DRUMS, LOW and MUSIC volumes. A parameter on two pages (NEXT SONG, BUILD, SLOW ALL) sends the same address from both: two ways to one mapping. CC 6, 38 and 96-101 (data entry and RPN/NRPN) are never used. The appendix lists every address.",
                   "<b>Presses:</b> a hold is a CC, 127 on press and 0 on release, so the parameter is on while the knob is down. A toggle is a note: Live flips a switch on every Note On, so the E16 can never think FREEZE is on while Live has it off. A centre press is the knob's own CC with the value 64. The presses are in the scene files.",
-                  "<b>On the E16:</b> Auto Transmit off, for both scenes and globally (stored values sent on a page change would pull Live's faders to them), MIDI Thru off. Changing pages or scenes sends nothing.",
+                  "<b>On the E16:</b> Auto Transmit off, for both scenes and globally (stored values sent on a page change would pull Live's faders to them), MIDI Thru off. Changing pages or scenes sends no knob's value; a PERF track page sends its track's number (TRACK FOCUS, below).",
                   "<b>In Live:</b> E16 Port 1 Remote on, input and output; Ports 2 and 3 off (Port 1 is the one the E16 sends on, and a second Remote port could take a message twice: a toggle would flip twice). Takeover Mode: Value Scaling, so a knob that disagrees with Live after a recall moves the sound smoothly instead of jumping.",
                   "<b>Mapped once, kept:</b> MIDI mappings belong to the Live set. SF SHOW.als comes with every address mapped, every volume and send at Max 0 dB and DUB FEEDBACK at 0-70 %; save it as a template (File &gt; Save Live Set As Template) and new sets start mapped. In a set of your own, map once from the appendix and do the same.",
                   "<b>Map the E16 straight to the SF parameters, not through Instrument Rack macros.</b> A song recall changes the plugin's value underneath a macro: the macro doesn't follow, its ring shows the wrong value and the next turn jumps the sound back. Ranges go in Live's MIDI Mappings (Min and Max per mapping): give resonance and feedback the part of their travel that matters, and widen it when the music asks.",
@@ -446,7 +451,7 @@ story += bullets(["CONTROL shows BUS SHARED and KICK REPORTING; the pump lands o
                   "NEXT SONG (15) turned to another song changes nothing; its press (GO) lands the song on the next bar line, every track on the same bar, and a recalled knob is yours the moment you turn it.",
                   "The interface's output knob down: the speakers silent, REC still recording.",
                   "Every E16 hold press (DROP, THROW, ROLL) held for three seconds stays on for the whole hold and goes off on release.",
-                  "The shared E16 knobs don't jump: NEXT SONG turned on one page, then a step on another, moves a step. Changing pages or scenes sends nothing (Live's MIDI input indicator stays dark).",
+                  "The shared E16 knobs don't jump: NEXT SONG turned on one page, then a step on another, moves a step. Changing to NRG or a MIX page sends nothing (Live's MIDI input indicator stays dark); a PERF track page selects its track (with SF E16 installed).",
                   "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording.",
                   "With SF TERROIR in the set: a capture from ROOM into an empty slot ends SWEEP x3, 30 dB or more over the noise, and the PA stays silent through it."])
 story.append(PageBreak())

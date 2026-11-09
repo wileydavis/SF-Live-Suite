@@ -27,7 +27,6 @@ GREY = colors.HexColor("#6b6b6b")
 LIGHT = colors.HexColor("#d9d9d9")
 FAINT = colors.HexColor("#f2f2f2")
 RED, AMBER, GREEN, CYAN = colors.HexColor("#ff3b30"), colors.HexColor("#ffb000"), colors.HexColor("#4cf59b"), colors.HexColor("#00c8ff")   # GREEN: the E16's (Ui.h)
-LIGHT_BLUE = colors.HexColor("#8cc4ff")   # the E16 ring colour for a volume (Source/core/Ui.h kLedBlue)
 
 S = {
     "body": ParagraphStyle("body", fontName="Sans", fontSize=9.2, leading=13.2, textColor=INK, spaceAfter=6),
@@ -55,6 +54,25 @@ class Swatch(Flowable):
     def __init__(self, c): super().__init__(); self.c = c
     def wrap(self, aw, ah): return 10, 10
     def draw(self): self.canv.setFillColor(self.c); self.canv.rect(0, 0, 10, 10, stroke=0, fill=1)
+
+class RingSwatch(Flowable):
+    """Small squares, two to a row (a swatch column's width), in the order given (RGB numbers): the E16
+    ring colours. A light one (white) is outlined, so it shows on paper."""
+    S, G, N = 5, 1.5, 2
+    def __init__(self, rgbs): super().__init__(); self.rgbs = list(rgbs)
+    def wrap(self, aw, ah):
+        rows = (len(self.rgbs) + self.N - 1) // self.N
+        return self.N * self.S + (self.N - 1) * self.G, rows * self.S + (rows - 1) * self.G
+    def draw(self):
+        c = self.canv
+        _, h = self.wrap(0, 0)
+        for k, rgb in enumerate(self.rgbs):
+            r = k // self.N
+            x, y = (k % self.N) * (self.S + self.G), h - (r + 1) * self.S - r * self.G
+            col = colors.HexColor(rgb)
+            light = (col.red + col.green + col.blue) > 2.6
+            c.setFillColor(col); c.setStrokeColor(LIGHT); c.setLineWidth(0.5)
+            c.rect(x, y, self.S, self.S, stroke=1 if light else 0, fill=1)
 
 class RoutingDiagram(Flowable):
     """The show template's signal flow, drawn in the manual's own type: sources > LIVE BUS > Main >

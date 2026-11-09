@@ -1,7 +1,7 @@
-"""Tests the E16 scenes' GLIDE RINGS script as shipped (the minified code inside PERF.oxie16 and
-MIX.oxie16, each with its own knob map) against a mock of the E16's Lua API (1-based encoders and
-pages, 14-bit ring values, leds.reset hands a ring back to the firmware). Needs lupa (pip install
-lupa): Lua 5.4.
+"""Tests the E16 scenes' script (GLIDE RINGS and TRACK FOCUS) as shipped (the minified code inside
+PERF.oxie16 and MIX.oxie16, each with its own knob map and page tracks) against a mock of the E16's
+Lua API (1-based encoders and pages, 14-bit ring values, leds.reset hands a ring back to the firmware,
+midi.sendCC with a 0-based channel). Needs lupa (pip install lupa): Lua 5.4.
 
     python3 tests/glide_rings_test.py
 """
@@ -25,7 +25,7 @@ def check(ok, msg):
 
 
 MOCK = """
-E = {rings = {}, page = 1, rate = 0}
+E = {rings = {}, page = 1, rate = 0, sent = {}}
 leds = {
   updateByIndex = function(i, v, c)
     assert(math.type(i) == "integer" and i >= 1 and i <= 16, "led index " .. tostring(i))
@@ -39,23 +39,37 @@ controller = {getPage = function() return E.page end}
 page = {}
 system = {setUpdateRate = function(ms) E.rate = ms end}
 slots = {update = function() end, reset = function() end}
-midi = {}
+midi = {
+  sendCC = function(out, ch, cc, v)
+    for _, x in ipairs({out, ch, cc, v}) do assert(math.type(x) == "integer", "sendCC: integers") end
+    assert(out >= 0 and out <= 15 and ch >= 0 and ch <= 15 and cc >= 0 and cc <= 127 and v >= 0 and v <= 127, "sendCC range")
+    E.sent[#E.sent + 1] = {out, ch, cc, v}
+  end,
+}
 """
 
 
 class E16:
     """One scene's script running in a fresh Lua."""
-    def __init__(self, title):
+    def __init__(self, title, send=True):
         scene = json.load(open(os.path.join(ROOT, "controllers", "e16", title + ".oxie16")))
         code = scene["code"]["code"]
         check(code.count("\n") == 1 and code.endswith("\n"), f"{title}: the script is one line, {len(code)} bytes")
         self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(MOCK)
+        if not send:
+            self.lua.execute("midi = nil")             # firmware without the midi table
         self.lua.execute(code)
         self.G = self.lua.globals()
         self.E = self.G.E
         self.pages = [t for t, _ in dict(L.SCENES)[title]]
         self.G.page.onInit()
+
+    def sent(self):
+        """What the script sent since the last look: [(output, channel - 1, number, value)]."""
+        out = [tuple(m[k] for k in range(1, 5)) for m in self.E.sent.values()]
+        self.lua.execute("E.sent = {}")
+        return out
 
     def ring(self, i):
         r = self.E.rings[i]
@@ -147,7 +161,31 @@ check(show.ring(15) is None and show.ring(16) is None, "NEXT SONG and BUILD, not
 show.lua.execute("page.onInit()")
 check(show.rings() == {}, "the script reloaded: every ring back")
 
+# TRACK FOCUS: a PERF track page sends its track's number for SF E16 to select in Live; NRG and MIX's
+# pages send nothing, so the selection stays.
+F = (0, L.FOCUS[1] - 1, L.FOCUS[2])
+foc = E16(L.SHOW_SCENE)
+check(foc.sent() == [F + (1,)], f"PERF comes up on KCK: CC {L.FOCUS[2]} on channel {L.FOCUS[1]}, value 1 (1 KICK), to every output")
+got = []
+for title in foc.pages[:11]:
+    foc.goto(title)
+    got.append(foc.sent())
+check(got == [[F + (n,)] for n in range(1, 12)], f"track page n sends n once, n = 1-11 ({got})")
+check([L.PLUGINS[t][0].split(" ", 1)[0] for t in L.TRACKS] == [str(n) for n in range(1, 12)],
+      "page n's track is named n ... in Live (what SF E16 looks for)")
+foc.goto("NRG")
+check(foc.sent() == [], "NRG: nothing sent")
+foc.goto("BAS")
+foc.sent()
+foc.lua.execute("page.onInit()")
+check(foc.sent() == [F + (6,)], "the script reloaded on BAS: 6 again")
+old = E16(L.SHOW_SCENE, send=False)
+old.goto("CRD")
+old.move((chord[1], 4100))
+check(old.ring(2) == (4100, GREEN), "firmware without midi.sendCC: no focus, the rings work as before")
+
 mix = E16(L.MIX_SCENE)
+check(mix.sent() == [], "MIX comes up: nothing sent")
 check(mix.pages == ["LEVELS", "SPACE", "MACROS"], f"MIX: {mix.pages}")
 mix.move(*[(c, 500) for c in knobs("LEVELS") if c.number is not None])
 check(mix.rings() == {}, "LEVELS: volumes never go green")
@@ -168,6 +206,7 @@ check(all(mix.ring(i) is None for i in (8, 11, 12, 13, 14, 15, 16)), "knobs with
 mix.goto(4)
 mix.move(*[(c, 100) for c in macros if c is not None] + [(c, 100) for c in space[:8]])
 check(mix.rings() == {}, "an empty page (P.4): nothing")
+check(mix.sent() == [], "MIX's pages: no focus sent")
 
 print(("PASS" if fails == 0 else "FAIL") + f": {fails} failure(s)")
 sys.exit(1 if fails else 0)

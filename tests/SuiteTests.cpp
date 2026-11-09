@@ -1194,6 +1194,21 @@ static void testEditor()
     CHECK (grids >= 24, "grids: %d", grids);
     CHECK (worst <= 900, "every strip fits a laptop's screen at first: %d", worst);
 
+    // Ring colours: as the E16 lights them (kE16Rings, from layout.py), every one the scenes use; the
+    // glide green is the suite's own and white the plugins' LED white.
+    CHECK ((0xff000000u | e16::ringRGB (90)) == ui::kGreen.getARGB(), "ring 90 is the plugins' green");
+    CHECK ((0xff000000u | e16::ringRGB (34)) == ui::kLedWhite.getARGB() && e16::ringRGB (-1) == e16::ringRGB (34),
+           "ring 34 is the LED white, and so is a number the table doesn't have");
+    for (const auto& pg : kE16Pages)
+        for (const auto& c : pg.cells)
+            for (const auto* turn : { &c.turn, &c.second })
+                if (turn->name != nullptr)
+                {
+                    bool listed = false;
+                    for (const auto& r : kE16Rings) listed = listed || r.colour == turn->colour;
+                    CHECK (listed, "%s %s: ring colour %d has its RGB", pg.name, turn->name, turn->colour);
+                }
+
     // DELAY on A DUB: TIME, FEEDBACK... on MIX's SPACE 1-4, THROW and FREEZE their presses.
     {
         SFProcessor p (makeModule ("DELAY"));

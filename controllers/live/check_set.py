@@ -13,8 +13,10 @@ A target is found by track name (as in the show template: "1 KICK", "A DUB") and
 Each mapping's range is checked at both ends (an SF parameter from 0; a Live fader or send from its
 -70 dB floor; the top where the scene caps it), and its mode: absolute, as the scene sends (with
 --relative-shared, for a scene built with that option, the turns on more than one page are left to
-you: map them relative, Twos Complement). Exit status: 0 when every address is right; 1 when one is
-missing, on the wrong target, mapped twice, or has the wrong range or mode.
+you: map them relative, Twos Complement). Nothing may be mapped to TRACK FOCUS's address (CC 119 on
+channel 16, sent on every PERF page change: Cmd-M takes it if a target is selected while you turn a
+page). Exit status: 0 when every address is right; 1 when one is missing, on the wrong target, mapped
+twice, or has the wrong range or mode, or something is mapped to TRACK FOCUS.
 """
 import argparse
 import gzip
@@ -132,11 +134,14 @@ def main():
             modes.append(f"{label}  {track} > {g}: relative (mode {mode}); the scene sends absolute")
     e16_channels = {a[1] for a in want}
     extra = [f"{a[0]:4s} {a[2]:3d} ch {a[1]:2d}  {t} > {g}" for a, rows in sorted(by_addr.items(), key=str)
-             if a[0] != "KEY" and a not in want and a[1] in e16_channels for t, g, *_ in rows]
+             if a[0] != "KEY" and a not in want and a != L.FOCUS and a[1] in e16_channels for t, g, *_ in rows]
+    focus = [f"{t} > {g}" for t, g, *_ in by_addr.get(L.FOCUS, [])]
     keys = [(a[1], t, g) for a, rows in by_addr.items() if a[0] == "KEY" for t, g, *_ in rows]
     print(f"{a.set}: {len(want) - len(missing)} of {len(want)} E16 addresses mapped")
     for title, rows in (("MISSING (map with Cmd-M)", missing), ("ON THE WRONG TARGET", wrong), ("MAPPED TWICE", twice),
-                        ("RANGE", ranges), ("MODE", modes), ("OTHER MAPPINGS ON E16 CHANNELS (yours: not checked)", extra)):
+                        ("RANGE", ranges), ("MODE", modes),
+                        (f"MAPPED TO TRACK FOCUS, CC {L.FOCUS[2]} ch {L.FOCUS[1]} (every PERF page change would move it: delete the mapping)", focus),
+                        ("OTHER MAPPINGS ON E16 CHANNELS (yours: not checked)", extra)):
         if rows:
             print(f"\n{title}:")
             for r in rows:
@@ -145,7 +150,7 @@ def main():
         print("\nCOMPUTER KEYS (yours: not checked):")
         for k, t, g in sorted(keys):
             print(f"  {k!r}: {t} > {g}")
-    bad = missing or wrong or twice or ranges or modes
+    bad = missing or wrong or twice or ranges or modes or focus
     print("\n" + ("Something to fix: see above." if bad else "Every E16 address is mapped to its target, with its range and mode."))
     return 1 if bad else 0
 

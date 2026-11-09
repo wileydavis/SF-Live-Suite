@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests controllers/live/check_set.py, the mapping check for a Live set: SF SHOW.als passes; a copy
 with one fault each (an address mapped twice, a range that tops out low, a range that starts high, a
-turn mapped relative, a mapping taken away) fails with exit status 1 and names the fault.
+turn mapped relative, a mapping taken away, a mapping on TRACK FOCUS's address) fails with exit status 1
+and names the fault.
 
     python3 tests/check_set_test.py
 """
@@ -84,6 +85,13 @@ def relative(root):
     v["ControllerMapMode"].set("Value", "3")
 
 
+def on_focus(root):
+    # KICK PUNCH taken by TRACK FOCUS's CC, as Cmd-M would if a page were turned with PUNCH selected.
+    _, v, _, _ = by_address(root, PUNCH.channel, PUNCH.number)
+    v["Channel"].set("Value", str(L.FOCUS[1] - 1))
+    v["NoteOrController"].set("Value", str(L.FOCUS[2]))
+
+
 def removed(root):
     k, _, owner, _ = by_address(root, TUNE.channel, TUNE.number)
     owner.remove(k)
@@ -95,7 +103,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(code == 0 and f"{n} of {n}" in out, f"SF SHOW.als: exit {code}, every address mapped ({n})")
     for name, change, words in (("twice", twice, "MAPPED TWICE"), ("low top", low_top, "max 0.500"),
                                 ("high bottom", high_bottom, "min 0.2"), ("relative", relative, "MODE"),
-                                ("removed", removed, "MISSING")):
+                                ("removed", removed, "MISSING"), ("on focus", on_focus, "MAPPED TO TRACK FOCUS")):
         code, out = run(mutated(name.replace(" ", "_"), change))
         check(code == 1 and words in out, f"{name}: exit {code}, says {words!r}")
     code, out = run(mutated("relative_shared", relative), "--relative-shared")

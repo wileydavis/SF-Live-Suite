@@ -3576,6 +3576,9 @@ static void testRecallHistory()
         if (variant == 2) { r.set ("level", 3.0f); want = 3.0f; }
         if (variant == 3) { recallSong (r, 2); want = -12.0f; }
         settle (r, variant == 4 ? 94 : 2);                                         // SLOW: 0.5 s into the 2 s glide
+        // MOTION is a free-running 1/16 sine: at one instant it can sit within 1 dB of the knob's value
+        // (it did once, under ASAN, Nov 8). Save when it has the sound off it, as the check below asks.
+        for (int k = 0; variant == 5 && k < 64 && std::abs (r.p->currentValue (lvl) - want) <= 1.0f; ++k) r.step (kBlock, nullptr);
         const float heardBefore = r.p->currentValue (lvl);
         float enc = NAN, first = NAN, later = NAN;
         saved (r, enc, first, later);

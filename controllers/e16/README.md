@@ -6,12 +6,13 @@ set (already mapped: `controllers/live`), save it as your template: nothing is r
 
 | FILE | WHAT |
 |---|---|
-| `PERF.oxie16` | Scene 1: 12 pages, every turn set (name, ring colour, channel, CC), every press, knob 1's second destination, and the GLIDE RINGS script. Its names and colours are the ones you set in the App on Nov 8. |
+| `PERF.oxie16` | Scene 1: 12 pages, every turn set (name, ring colour, channel, CC), every press, knob 1's second destination, and the script (GLIDE RINGS, TRACK FOCUS). Its names and colours are the ones you set in the App on Nov 8. |
 | `MIX.oxie16` | Scene 2: LEVELS, SPACE and MACROS; pages 4-12 are left empty (their knobs send nothing). |
 | `sf-show-map.csv` | Every address of both scenes once: channel, CC or note, the Live target, the mapping range, the scene, where it sits on the E16. Map Live from this. |
 | `layout.py` | The layout. One source for the scenes, the map, the show set's mappings, the ONE's channels and the manuals' E16 tables. |
-| `glide_rings.lua` | The scenes' script: travelling knobs show green, walking with the sound (GLIDE RINGS below). |
-| `make_scene.py` | Rebuilds both scenes, the map and the plugins' copy of it (`Source/core/E16Map.h`: the knobs GLIDE RINGS reports, and every page as each plugin's window draws it at its top): `python3 make_scene.py`. |
+| `glide_rings.lua` | The scenes' script: travelling knobs show green, walking with the sound (GLIDE RINGS below), and a PERF page tells Live its track (TRACK FOCUS below). |
+| `make_scene.py` | Rebuilds both scenes, the map and the plugins' copy of it (`Source/core/E16Map.h`: the knobs GLIDE RINGS reports, and every page as each plugin's window draws it at its top, rings in the E16's colours): `python3 make_scene.py`. |
+| `../live/SF_E16` | Live's side of TRACK FOCUS: a control surface that selects the track a PERF page names. |
 
 **Since Nov 8** (load both scenes, with the new SF SHOW.als and SF START): one number per track. A
 track's number is its MIDI channel on the E16 and on the OXI One, and its page in PERF: 1 KICK,
@@ -70,11 +71,17 @@ sends and the song and build, on every page. Rows 1 and 2:
 | RING | WHAT |
 |---|---|
 | white (34) | the instrument's own sound: a track's knobs 1-8 |
-| 63 | a track's GATE or DECAY, DENSITY and FILTER (9-11), and its NRG knob |
+| red (63) | a track's GATE or DECAY, DENSITY and FILTER (9-11), and its NRG knob |
 | light blue (18) | a level: LEVEL, the sends, every volume on MIX |
-| 50 | a group's NRG knob (DRM, LOW, MUS) |
-| 9 | NEXT SONG and BUILD (15, 16) |
+| pink (50) | a group's NRG knob (DRM, LOW, MUS) |
+| violet (9) | NEXT SONG and BUILD (15, 16) |
 | green (90) | knob 1 on SLOW ALL, and any knob while it travels (GLIDE RINGS) |
+
+Each plugin's window draws its E16 knobs at its top with the same ring colours (`layout.py`
+RING_RGB, written into `Source/core/E16Map.h`). White, light blue, pink and green are as other E16
+owners have seen them on the hardware; red and violet are where the App's palette puts 63 and 9,
+not yet held up against an E16. If yours lights either differently, change its RGB (and its name in
+RING_NAME) in `layout.py`, run `make_scene.py` and rebuild.
 
 **Presses:** on every PERF page, knob 1's press swaps it to SLOW ALL (below), 15's is **GO** (the
 song NEXT SONG picked lands on the next bar line) and 16's is **DROP**. On NRG, every ENERGY knob's
@@ -101,7 +108,7 @@ channel (port A): `controllers/oxi-one`.
 | 13 | B SPACE | | | CC 102 (16) | | SPACE 5-8: CC 48-51; THROW CC 64, FREEZE note 65 (F3) |
 | 14 | DRUMS, LOW, MUSIC | | CC 28, 29, 30 (12-14) | CC 102, 103, 104 (12-14) | | DRUMS' REPEAT, MACROS 9-10: CC 52, 53; ROLL CC 68 |
 | 15 | LIVE BUS | | | | | BUILD CC 27, DROP CC 43 (PERF 16) |
-| 16 | CONTROL | | | | | SLOW ALL CC 12 (knob 1's swap; MACROS 7), NEXT SONG CC 26 and GO CC 42 (PERF 15), MACRO 1-6 CC 44-49 (MACROS 1-6) |
+| 16 | CONTROL | | | | | SLOW ALL CC 12 (knob 1's swap; MACROS 7), NEXT SONG CC 26 and GO CC 42 (PERF 15), MACRO 1-6 CC 44-49 (MACROS 1-6); TRACK FOCUS CC 119 (the script, as a PERF page comes up: its track's number; for SF E16, never mapped) |
 
 - **The rule:** in PERF a knob sends its place + 11 and a press its place + 27; in MIX a knob its
   place + 43 and a press its place + 59; always on the channel of the track it works on. A track's
@@ -128,7 +135,8 @@ channel (port A): `controllers/oxi-one`.
   entry, page change or preset load would pull Live's faders to whatever the E16 last held.
 - **MIDI Thru off** (incoming MIDI passed to the outputs).
 - Knob speed: every turn follows its scene's acceleration setting.
-- PERF is the show; MIX is for setting levels and the returns. Changing scenes sends nothing.
+- PERF is the show; MIX is for setting levels and the returns. Changing scenes sends nothing to a
+  knob's address; a PERF page that comes up sends its track's number for TRACK FOCUS (below).
 
 ## 3. LIVE SETTINGS (Settings > Tempo & MIDI; before Live 12.4, Link, Tempo & MIDI)
 
@@ -145,6 +153,8 @@ channel (port A): `controllers/oxi-one`.
   ALLOC slot changes, and the knobs hold the new values.
 - **Takeover Mode: Value Scaling.** A knob that disagrees with Live (after a song recall, say) moves
   the parameter smoothly into agreement instead of jumping.
+- **Control Surface (optional, for TRACK FOCUS): SF E16**, Input OXI E16 (Port 1), Output None.
+  Install it first (TRACK FOCUS, below).
 
 ## 4. MAP LIVE, ONCE
 
@@ -157,7 +167,9 @@ README has Live's own settings, set once per computer). Map by hand only in a se
 2. Unfold every SF plugin's parameter panel (the triangle in its title bar). A parameter that isn't
    listed: Configure, touch it in the plugin window, Configure off.
 3. **Cmd-M.** Page by page on the E16: click the target in Live (`sf-show-map.csv` names it), turn
-   the knob. NEXT SONG, BUILD and SLOW ALL need mapping only once.
+   the knob. NEXT SONG, BUILD and SLOW ALL need mapping only once. **Before you turn to another PERF
+   page, click an empty spot** so no target is selected: a PERF page sends TRACK FOCUS's CC as it comes
+   up, and Cmd-M would map the selected target to it (`check_set.py` finds one that was).
 4. In the Mapping Browser: every volume and send **Max 0 dB**; DUB FEEDBACK 0-70 %.
 5. Cmd-M off. Save. Then **File > Save Live Set As Template** (or as the Default Set): MIDI mappings
    belong to the Live set, so a new set made from it starts mapped.
@@ -218,6 +230,39 @@ knob walking.
 - Message format and timing: `Source/core/E16Glide.h`. Tests: `SFTests --rings` (the plugins and SF
   CONTROL), `python3 tests/glide_rings_test.py` (the script as shipped in both scenes, on a mock of the
   E16's Lua).
+
+## TRACK FOCUS
+
+Turn to a PERF track page and Live selects that track: page 6 (BAS) selects 6 BASS, as a click on
+its name would. NRG and MIX's pages leave the selection where it is, so you can turn to NRG and
+still see the track you came from. With Live's Auto-Hide Plug-In Windows on, the selected track's
+open plugin windows come up with its page and the others hide: the page you play is the window you
+see.
+
+- **How:** when a page comes up (and when the scene loads), the scene's script sends **CC 119 on
+  channel 16** with the page's track number, to every output, as the knobs send. **SF E16**, a
+  control surface for Live (`controllers/live/SF_E16`), takes that CC and selects the first track
+  whose name starts with the number. The numbers are the set's own (one
+  number per track), so a renamed track still works while its name starts with its number.
+- **Install, once per computer:** copy the folder `controllers/live/SF_E16` into
+  `~/Music/Ableton/User Library/Remote Scripts/` (make Remote Scripts if it isn't there) and restart
+  Live. Settings > Tempo & MIDI, a free Control Surface slot: **SF E16**, Input **OXI E16 (Port 1)**,
+  Output **None**. Leave the E16's Remote switches as in chapter 3. Then Settings > Plug-Ins:
+  **Multiple Plug-In Windows** and **Auto-Hide Plug-In Windows** on, and open each instrument's SF
+  window once (Live hides and shows windows that are open; it doesn't open them).
+- **Nothing depends on it.** Without SF E16 the CC reaches Live on a Remote port with nothing mapped
+  to it and does nothing; an E16 firmware without the script's MIDI out skips it (the rings still
+  work). Mapping by hand: in Cmd-M, a page change with a target selected maps that target to CC 119
+  (chapter 4, step 3); `check_set.py` fails a set with anything mapped there.
+- A track inside a folded group: selected all the same; if Live won't select a hidden track, SF E16
+  unfolds its group first.
+- **Not yet tried in Live** (Nov 8): the script and SF E16 are tested here against stand-ins for the
+  E16's Lua and for Live's control-surface framework. When Live loads SF E16, its Log.txt says
+  `SF E16: E16 pages select their tracks`. If a page doesn't select its track: check the Control
+  Surface row, then that the scenes in the E16 are the ones from this folder (the script carries the
+  numbers).
+- Tests: `python3 tests/glide_rings_test.py` (the script: each PERF page sends its number, NRG and
+  MIX nothing), `python3 tests/sf_e16_test.py` (SF E16 on the show set's tracks, folded groups).
 
 ## SF TERROIR ON B SPACE
 

@@ -181,8 +181,8 @@ inline constexpr E16Knob kE16Knobs[] = {
 // The scenes page by page, as the plugins draw them (the editor's E16 grid): each page's scene, name
 // and 16 encoders. A turn: its E16 abbreviation, its name, the Live track and the SF
 // plugins it lands on (several: stand-ins with the same parameter in the same place), the
-// parameter's index (-1: a Live mixer control), the ring's colour (the App's colour number: 34 white,
-// 18 light blue, 90 green, ...)
+// parameter's index (-1: a Live mixer control), the ring's colour (the App's colour number; how it
+// looks: kE16Rings, below)
 // and the top of Live's mapping. second: the turn its press swaps to; press: what the press sends.
 struct E16Turn { const char* abbr; const char* name; const char* track; const char* modules; int param, colour; float max; };
 struct E16Press { const char* name; const char* track; const char* modules; int param, mode; };
@@ -460,5 +460,17 @@ inline constexpr E16Page kE16Pages[] = {
         { { nullptr, nullptr, nullptr, nullptr, -1, 0, -1.0000f }, { nullptr, nullptr, nullptr, nullptr, -1, 0, -1.0000f }, { nullptr, nullptr, nullptr, -1, 0 } },
         { { nullptr, nullptr, nullptr, nullptr, -1, 0, -1.0000f }, { nullptr, nullptr, nullptr, nullptr, -1, 0, -1.0000f }, { nullptr, nullptr, nullptr, -1, 0 } },
     } },
+};
+
+// How each ring colour the scenes use looks, as the plugins draw it: the App's colour number and
+// its RGB (layout.py RING_RGB). White first: the colour of a number not listed.
+struct E16Ring { int colour; unsigned rgb; const char* name; };
+inline constexpr E16Ring kE16Rings[] = {
+    { 34, 0xEEF2FF, "white" },
+    { 9, 0xA894FF, "violet" },
+    { 18, 0x8CC4FF, "light blue" },
+    { 50, 0xFF80C8, "pink" },
+    { 63, 0xFF3F5F, "red" },
+    { 90, 0x4CF59B, "green" },
 };
 }

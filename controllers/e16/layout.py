@@ -117,6 +117,11 @@ PRESS = {SHOW_SCENE: 27, MIX_SCENE: 59}
 ENERGY = 28
 SENDS = {"volume": 102, "send A": 103, "send B": 104}
 RESERVED_CC = {6, 38, 96, 97, 98, 99, 100, 101} | set(range(120, 128))
+# Track focus [Nov 8]: when a page comes up, the scenes' script sends FOCUS with the number of the
+# page's track (a PERF track page: 1-11), and Live's control surface SF E16 (controllers/live/SF_E16)
+# selects the track whose name starts with that number. NRG and MIX's pages send nothing: the
+# selection stays where it was. CC 119 on CONTROL's channel: no knob or press sends it.
+FOCUS = ("CC", 16, 119)
 
 # Ring colours: the OXI App's colour numbers (0-100), by role. The performer set SHAPE, GROUP and SET
 # in the PERF scene on Nov 8, for a page that reads at a glance while playing. Green, the suite's
@@ -128,6 +133,13 @@ LIGHT_BLUE = 18     # a level: a plugin's LEVEL, a volume, a send
 GROUP = 50          # a group's NRG (DRUMS, LOW, MUSIC)
 SET = 9             # NEXT SONG and BUILD: the set's own moves
 GREEN = 90          # SLOW ALL, knob 1's second destination; a travelling knob (GLIDE RINGS)
+# How each one looks, as the plugins' windows draw the rings (E16Map.h kE16Rings): RGB. White, light
+# blue, pink and green are what E16 owners see for those numbers (green, a mint, is also the plugins'
+# own glide colour, Ui.h kGreen). SHAPE red and SET violet are where the App's palette puts 63 (its
+# row 60-69, dark red to red) and 9 (the end of row 0-9, periwinkle), not yet held up against the
+# hardware: if the E16 shows them otherwise, change them here, run make_scene.py and rebuild.
+RING_RGB = {WHITE: 0xEEF2FF, SHAPE: 0xFF3F5F, LIGHT_BLUE: 0x8CC4FF, GROUP: 0xFF80C8, SET: 0xA894FF, GREEN: 0x4CF59B}
+RING_NAME = {WHITE: "white", SHAPE: "red", LIGHT_BLUE: "light blue", GROUP: "pink", SET: "violet", GREEN: "green"}
 
 FADER = "Max 0 dB"
 BIPOLAR = ("energy", "filter", "tune")      # centre (64) is neutral
@@ -473,6 +485,19 @@ def addresses():
                 assert e[0] == p.target and e[2] == p.mode, (p.address, e[0], p.target)
                 e[1].append((title, i))
     return out
+
+
+def focus(scene):
+    """The Live track each of the scene's 12 pages selects when it comes up (FOCUS): the track's number
+    (its channel, the number its Live name starts with) for a PERF track page; 0 for a page that
+    leaves the selection where it is (NRG, MIX's pages, the empty pages)."""
+    tracks = {CODE[t]: PLUGINS[t][2] for t in TRACKS} if scene == SHOW_SCENE else {}
+    titles = [t for t, _ in dict(SCENES)[scene]]
+    return [tracks.get(t, 0) for t in titles] + [0] * (12 - len(titles))
+
+
+assert FOCUS not in addresses() and FOCUS[2] not in RESERVED_CC, "FOCUS is a knob's or a press's address"
+assert all(c is None or c.colour in RING_RGB for _, cs in PAGES for c in cs + [SLOW_ALL.ctl]), "a ring colour without its RGB"
 
 
 def where(places, second=False):

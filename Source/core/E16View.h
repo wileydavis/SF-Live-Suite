@@ -89,4 +89,12 @@ inline bool onEveryShowPage (int e, const char* module, const char* track, int e
         }
     return n > 1;
 }
+// How a ring of the App's colour number c looks, as the plugins draw it (kE16Rings, from layout.py's
+// RING_RGB): RGB. White for a number the table doesn't have.
+inline unsigned ringRGB (int c)
+{
+    for (const auto& r : kE16Rings)
+        if (r.colour == c) return r.rgb;
+    return kE16Rings[0].rgb;
+}
 } // namespace sf::e16

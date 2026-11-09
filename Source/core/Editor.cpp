@@ -5,9 +5,9 @@ using namespace sf;
 
 namespace
 {
-// A ring's colour from the OXI App's colour number (E16Map.h): light blue (18) and green (90) as the
-// E16 shows them; the others white.
-juce::Colour ringColour (int c) { return c == 18 ? ui::kLedBlue : c == 90 ? ui::kGreen : ui::kLedWhite; }
+// A ring's colour from the OXI App's colour number, as the E16 lights it (E16Map.h kE16Rings): white,
+// red, light blue, pink, violet, green, by role (layout.py).
+juce::Colour ringColour (int c) { return juce::Colour (0xff000000u | e16::ringRGB (c)); }
 
 // A label squeezed (to 75 %) rather than cut when it is long.
 void fitted (juce::Graphics& g, const juce::String& s, juce::Rectangle<float> r, juce::Colour c, float h,
