@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds docs/SF-SHOW-Operators-Manual.pdf: the show template, the E16 scene SF SHOW and the OXI One
+"""Builds docs/SF-SHOW-Operators-Manual.pdf: the show template, the E16 scenes PERF and MIX and the OXI One
 MkII, and how to play them. Same look as the suite reference (manual_style.py). Every E16 page,
 press and address is drawn from controllers/e16/layout.py, the scene's one source."""
 import math, os, sys
@@ -68,7 +68,7 @@ class RigDiagram(Flowable):
         box(c, xo, yb, bw, hb, "OXI ONE MKII", ("8 SEQUENCERS", "PLAYS THE NOTES", "AND THE PATTERNS"))
         box(c, xl, yl, lw, hl, "LIVE: SF SHOW.ALS", ("SF PLUGINS ON EVERY TRACK", "SF CONTROL: SONGS, KEY,", "MACROS",
                                                     "THE CLOCK MASTER"), heavy=True)
-        box(c, xe, yb, bw, hb, "OXI E16", ("SF SHOW: A PAGE A TRACK", "SF MIX: LEVELS, RETURNS", "THE SONG AND THE DROPS"))
+        box(c, xe, yb, bw, hb, "OXI E16", ("PERF: A PAGE A TRACK", "MIX: LEVELS, RETURNS", "THE SONG AND THE DROPS"))
         # ONE <-> Live
         gx0, gx1 = xo + bw, xl
         arrow(c, gx0, yb + 44, gx1, yb + 44); label(c, (gx0 + gx1) / 2, yb + 49, "NOTES")
@@ -301,52 +301,52 @@ class DropTimeline(Flowable):
 
 # ------------------------------------------------------------------ the manual
 PAGE_NOTES = {
-    "1 KICK": ("SF KICK on 1 KICK. TUNE and DECAY are the body, PUNCH and CLICK the attack.",
+    "KCK": ("SF KICK on 1 KICK. TUNE and DECAY are the body, PUNCH and CLICK the attack.",
                ["Set TUNE and DECAY per song and store them: KICK and RUMBLE tune themselves to the song's KEY when KEY is on.",
                 "FILTER right thins the kick, and Pocket closes the low pockets as it thins: the bass and rumble take the sub. Bring the kick's low end back on the drop."]),
-    "2 CLOSED HT": ("SF PERC (HAT 909-TYPE) on 2 CLOSED HAT. The fill page.",
+    "CHH": ("SF PERC (HAT 909-TYPE) on 2 CLOSED HAT. The fill page.",
                     ["DENSITY with ECHO SPACE at 1/16 turns 1/8 hats into 1/16 hats: the send-delay trick, built in. Past 50 % it rolls in 1/32s.",
                      "ECHO SWING and ECHO PROB make the ghosts loose and sparse: a groove that breathes without a new pattern."]),
-    "3 OPEN HAT": ("SF PERC (HAT 909-TYPE, DECAY 0.8) on 3 OPEN HAT.",
+    "OHH": ("SF PERC (HAT 909-TYPE, DECAY 0.8) on 3 OPEN HAT.",
                    ["DECAY from closed to open across a build. CHOKE works inside one track only: the closed hat never cuts this one.",
                     "TONE and ACCENT set how the off-beat speaks; SPREAD widens it."]),
-    "4 CLAP": ("SF PERC (CLAP) on 4 CLAP.",
+    "CLP": ("SF PERC (CLAP) on 4 CLAP.",
                ["DENSITY for rolls into the drop; DECAY short for a snap, long for a room.",
                 "SEND B on the clap's last hit before a breakdown: the room carries it."]),
-    "5 PERC": ("SF STRIKE on 5 PERC: blast-excited bells, plates, bars, tubes and gongs.",
+    "PRC": ("SF STRIKE on 5 PERC: blast-excited bells, plates, bars, tubes and gongs.",
                ["SIZE sets the pitch; MATERIAL goes from wood to glass; DISTANCE darkens and lengthens the hit.",
                 "POWER above about 70 % fractures the object: save it for the peak."]),
-    "6 BASS": ("SF BASS on 6 BASS. CUTOFF, RES and ENV AMT move the line; GATE shortens it.",
+    "BAS": ("SF BASS on 6 BASS. CUTOFF, RES and ENV AMT move the line; GATE shortens it.",
                ["GATE down with DENSITY up is a tight, nervous build; GATE open with DENSITY down is spacious dub.",
                 "DRIVE adds weight at low settings and grit at high ones. GLIDE and ACCENT shape the line's slides and pushes."]),
-    "7 RUMBLE": ("SF RUMBLE on 7 RUMBLE. It plays no notes: it follows SF KICK.",
+    "RMB": ("SF RUMBLE on 7 RUMBLE. It plays no notes: it follows SF KICK.",
                  ["SIZE is the bed's reverb, DARK its low-pass (600 Hz down to 70 Hz), GRIT its distortion; PUMP is how far it ducks under each kick.",
                   "In each section decide whether BASS or RUMBLE carries the sustained low end, then steer that one."]),
-    "8 LEAD": ("SF LEAD (ACID 303-TYPE) on 8 LEAD. CUTOFF, RES and ENV AMT are the squelch.",
+    "LED": ("SF LEAD (ACID 303-TYPE) on 8 LEAD. CUTOFF, RES and ENV AMT are the squelch.",
                ["Overlapping notes slide like a 303 (always 60 ms): write legato notes on the ONE for slides.",
                 "SLOW ALL at 8 BAR and a quarter turn of CUTOFF: an eight-bar rise that plays itself."]),
-    "9 CHORD": ("SF LEAD (STAB DUB) on 9 CHORD. SPACE is the stab's ensemble.",
+    "CRD": ("SF LEAD (STAB DUB) on 9 CHORD. SPACE is the stab's ensemble.",
                 ["If the ONE sends whole chords, set CHORD to NONE on the plugin; if it sends single notes, CHORD voices them. Not both.",
-                 "Short GATE plus SEND A (13): the dub-chord move. Ride the DUB return on SF MIX's LEVELS page."]),
-    "10 PAD": ("SF PAD (GRANULAR) on 10 PAD. On GRANULAR, COLOR is grain size and DETUNE is scatter.",
+                 "Short GATE plus SEND A (13): the dub-chord move. Ride the DUB return on MIX's LEVELS page."]),
+    "PAD": ("SF PAD (GRANULAR) on 10 PAD. On GRANULAR, COLOR is grain size and DETUNE is scatter.",
                ["ATTACK up for swells; SPACE is the pad's own room.",
                 "Field recordings work well in GRANULAR: drop one on the plugin before the show."]),
-    "11 VOICE": ("SF VOICE on 11 VOICE: phrases, radio fragments, choir.",
+    "VOX": ("SF VOICE on 11 VOICE: phrases, radio fragments, choir.",
                  ["SIGNAL goes from lost to clear (RADIO model); ECHO feeds the voice's own dub echo, ECHO TME and ECHO FBK shape it.",
                   "C3 plays slice 1, C#3 slice 2 and so on; below C3 the whole phrase. Sequence it as choreography."]),
-    "PERFORM": ("Every ENERGY knob: knob n is track n's SF ENERGY, 12-14 the groups'. The arrangement under one hand.",
+    "NRG": ("Every ENERGY knob: knob n is track n's SF ENERGY, 12-14 the groups'. The arrangement under one hand.",
                 ["Centre is neutral: left takes energy out (filter, space), right puts it in (drive, echo, chop). Small moves, often.",
                  "Press an ENERGY knob and it goes back to the centre; with SLOW ALL on it glides there.",
                  "The group knobs (12-14) move a whole section; a track's own knob shapes one part inside it."]),
-    "LEVELS": ("SF MIX. The volumes in PERFORM's places: knob n is track n's, 12-14 the groups', 15 and 16 the returns'.",
+    "LEVELS": ("MIX. The volumes in NRG's places: knob n is track n's, 12-14 the groups', 15 and 16 the returns'.",
                ["Every volume is mapped up to 0 dB, so a full turn never runs past the soundcheck balance.",
                 "Set each instrument's LEVEL (its song) so the volumes at 0 dB give the intended mix; the volumes are your balance on the night."]),
-    "SPACE": ("SF MIX. The returns: 1-4 DUB (SF DELAY on A DUB), 5-8 SPACE (SF REVERB on B SPACE). The presses sit under their knobs.",
+    "SPACE": ("MIX. The returns: 1-4 DUB (SF DELAY on A DUB), 5-8 SPACE (SF REVERB on B SPACE). The presses sit under their knobs.",
               ["THROW (hold) sends into the effect for as long as you hold it. FREEZE (toggle) loops what is in it until pressed again.",
                "Turn DUB TIME while frozen: the loop bends like tape speed and locks again when you let go.",
                "DUB FEEDBACK is mapped 0-70 % at first; widen the mapping when the music asks.",
                "SF TERROIR (your captured places) can replace SF REVERB on B SPACE: the same four knobs and two presses, mapped once (Cmd-M)."]),
-    "MACROS": ("SF MIX. SF CONTROL's six macros and SLOW ALL, and SF REPEAT on DRUMS.",
+    "MACROS": ("MIX. SF CONTROL's six macros and SLOW ALL, and SF REPEAT on DRUMS.",
                ["Hold ROLL on 9 and turn LENGTH under the same finger: the drums roll at the length you dial.",
                 "10 PITCH makes the roll fall as it repeats. The macro plan is in chapter 7. SLOW ALL is a plain knob here (7)."]),
 }
@@ -374,9 +374,9 @@ def knob_desc(ctl, many):
     if ctl.module == "CONTROL" and ctl.pid in MACRO_PLAN:
         return f"Macro {ctl.pid[-1]}: every SF plugin with MACRO SRC = MACRO {ctl.pid[-1]} follows it. " + MACRO_PLAN[ctl.pid]
     if ctl.module == "CONTROL" and ctl.pid == "next_song":
-        return "Picks the next song; nothing changes until you press it (GO): the song lands on the next bar line. The same knob on every SF SHOW page."
+        return "Picks the next song; nothing changes until you press it (GO): the song lands on the next bar line. The same knob on every PERF page."
     if ctl.module == "BUILD" and ctl.pid == "build":
-        return "SF BUILD on LIVE BUS: turn it up over a build. Press it: DROP, on the next bar line (chapter 7). The same knob on every SF SHOW page."
+        return "SF BUILD on LIVE BUS: turn it up over a build. Press it: DROP, on the next bar line (chapter 7). The same knob on every PERF page."
     if ctl.module == "ENERGY" and ctl.pid == "energy":
         return f"{ctl.track}'s SF ENERGY: centre neutral, left takes energy out, right puts it in."
     if ctl.module == "PAD" and ctl.pid == "color":
@@ -391,9 +391,9 @@ def page_sub(scene, title, controls):
     """The line under a page's heading: its scene, what it works on and on which channel."""
     if title in [t for t, _ in E16.SHOW_PAGES[:-1]]:
         c = controls[1]
-        return f"SF SHOW: SF {c.module} ON {c.track}, CHANNEL {c.channel}"
-    return {"PERFORM": "SF SHOW: EVERY SF ENERGY, NEXT SONG AND BUILD", "LEVELS": "SF MIX: THE VOLUMES, IN PERFORM'S PLACES",
-            "SPACE": "SF MIX: SF DELAY ON A DUB, SF REVERB ON B SPACE", "MACROS": "SF MIX: SF CONTROL'S MACROS, SF REPEAT ON DRUMS"}[title]
+        return f"PERF: SF {c.module} ON {c.track}, CHANNEL {c.channel}"
+    return {"NRG": "PERF: EVERY SF ENERGY, NEXT SONG AND BUILD", "LEVELS": "MIX: THE VOLUMES, IN NRG'S PLACES",
+            "SPACE": "MIX: SF DELAY ON A DUB, SF REVERB ON B SPACE", "MACROS": "MIX: SF CONTROL'S MACROS, SF REPEAT ON DRUMS"}[title]
 
 story = []
 story += [NextPageTemplate("body"), PageBreak()]
@@ -417,15 +417,16 @@ story.append(Spacer(1, 8))
 story.append(table([["DEVICE", "ITS JOB"],
     ["OXI ONE MKII", "Every note, rhythm and pattern change."],
     ["LIVE: SF SHOW.ALS", "Every sound (one SF plugin per role), the songs, the master chain, the recording, the clock."],
-    ["OXI E16", "A page per track, every ENERGY on one page, the song call and the drop (SF SHOW); the levels, the returns and the macros (SF MIX)."],
+    ["OXI E16", "A page per track, every ENERGY on one page, the song call and the drop (PERF); the levels, the returns and the macros (MIX)."],
     ["AUDIO INTERFACE", "Its output knob is the PA's volume and the emergency stop: the room goes quiet, the recording carries on."]],
     [1.35 * inch, W - 1.35 * inch]))
 story.append(H2T("ONE NUMBER PER TRACK"))
-story += bullets(["<b>A track's number is everything:</b> 3 OPEN HAT is the third track in Live, plays on channel 3 of the ONE's port A, and is page 3 of SF SHOW, its knobs on channel 3 of the E16. Live, the ONE and the E16 read the same way.",
+story += bullets(["<b>A track's number is everything:</b> 3 OPEN HAT is the third track in Live, plays on channel 3 of the ONE's port A, and is page 3 of the E16 scene PERF, its knobs on channel 3 of the E16. Live, the ONE and the E16 read the same way.",
+                  "<b>On the E16 a track goes by a code</b> of three letters: KCK, CHH, OHH, CLP, PRC, BAS, RMB, LED, CRD, PAD, VOX, and the groups DRM, LOW, MUS. Its page is titled with it, its ENERGY knob reads KCK NRG, its volume KCK VOL.",
                   "<b>The order:</b> 1 KICK, the drums (2 CLOSED HAT, 3 OPEN HAT, 4 CLAP, 5 PERC), the low end (6 BASS, 7 RUMBLE), the music (8 LEAD, 9 CHORD, 10 PAD, 11 VOICE).",
                   "<b>A track is a role, not an instrument.</b> Put another instrument on 9 CHORD and it keeps its name, its channel and its page: map the page to the new instrument (Cmd-M) and nothing else moves."])
 story.append(H2T("THE TWO HANDS"))
-story += bullets(["<b>PERFORM, page 12:</b> every track's ENERGY and every group's, the song call and the build. The whole arrangement under one hand.",
+story += bullets(["<b>NRG, page 12:</b> every track's ENERGY and every group's, the song call and the build. The whole arrangement under one hand.",
                   "<b>A track's page:</b> its instrument, deep. Knobs 15 and 16 are NEXT SONG and BUILD on every page, so the song and the drop are always under the same finger."])
 story.append(H2T("WHAT NEVER CHANGES IN A SHOW"))
 story += bullets(["The tracks, the routing, the E16 scenes and the mappings. A song is a stored set of values in every SF plugin, recalled on the bar: nothing is loaded between tracks."])
@@ -461,7 +462,7 @@ story.append(table([["TRACK", "DEVICES", "MIDI FROM", "OUT"],
     ["Main", "SF LIMIT", "", "5/6: a pair that goes nowhere"]],
     [1.25 * inch, 2.35 * inch, 1.75 * inch, W - 5.35 * inch], pad=2.6))
 story.append(Spacer(1, 4))
-story.append(P("Every instrument track is on Monitor In: it plays from the ONE whether or not it is armed, and ends in SF ENERGY (its knob on PERFORM). MIDI From is set on every instrument: in Live the ONE's port A is OXI ONE MKII (Port 1), port B is (Port 2). The kick stays outside DRUMS and LOW, so the drum group's REPEAT never takes it and the bass and the rumble fade together while the kick holds the floor.", "smallgrey"))
+story.append(P("Every instrument track is on Monitor In: it plays from the ONE whether or not it is armed, and ends in SF ENERGY (its knob on NRG). MIDI From is set on every instrument: in Live the ONE's port A is OXI ONE MKII (Port 1), port B is (Port 2). The kick stays outside DRUMS and LOW, so the drum group's REPEAT never takes it and the bass and the rumble fade together while the kick holds the floor.", "smallgrey"))
 story.append(H2T("ROUTING"))
 story.append(RoutingDiagram())
 story.append(Spacer(1, 6))
@@ -537,15 +538,15 @@ story += bullets(["<b>One ONE project per track</b> (per piece of music), with a
 story.append(PageBreak())
 
 # ---------------- 4
-chapter("4  THE E16 SCENES", "Two E16 scenes run the show. SF SHOW: a page per track (page n is track n) and PERFORM, every ENERGY knob with the song call and the build. SF MIX: the levels, the returns and the macros. The set comes with every address of both mapped.")
+chapter("4  THE E16 SCENES", "Two E16 scenes run the show. PERF: a page per track (page n is track n, titled with its code) and NRG, every ENERGY knob with the song call and the build. MIX: the levels, the returns and the macros. The set comes with every address of both mapped.")
 story.append(H2T("THE GRID"))
-story.append(P("The E16 is a 4 &times; 4 grid of endless encoders, numbered row by row from the top left. Its screen shows each knob's short name. On SF SHOW, a track's page:"))
+story.append(P("The E16 is a 4 &times; 4 grid of endless encoders, numbered row by row from the top left. Its screen shows each knob's short name. On PERF, a track's page:"))
 cells = {i: ("SOUND", "ITS OWN" if i > 1 else "PRESS: SLOW ALL", INK, True) for i in range(1, 9)}
 cells.update({9: ("GATE", "OR DECAY", INK, False), 10: ("DENSITY", "", INK, False), 11: ("FILTER", "", INK, False),
-              12: ("LEVEL", "", CYAN, False), 13: ("SEND A", "INTO A DUB", INK, False), 14: ("SEND B", "INTO B SPACE", INK, False),
+              12: ("LEVEL", "", CYAN, False), 13: ("SEND A", "INTO A DUB", CYAN, False), 14: ("SEND B", "INTO B SPACE", CYAN, False),
               15: ("NEXT SONG", "PRESS: GO", INK, False), 16: ("BUILD", "PRESS: DROP", INK, False)})
 story.append(E16Grid(cells, bands=[(1, 2, "ITS SOUND", "ROWS 1 AND 2"), (3, 4, "EVERY TRACK", "ROWS 3 AND 4")],
-                     note="LIGHT BLUE RING: A LEVEL.  15 AND 16 ARE THE SAME KNOBS ON EVERY SF SHOW PAGE."))
+                     note="LIGHT BLUE RING: A LEVEL OR A SEND.  15 AND 16 ARE THE SAME KNOBS ON EVERY PERF PAGE."))
 story.append(Spacer(1, 8))
 story += bullets(["<b>1-8, its sound:</b> the instrument's own knobs (chapter 5 has every page).",
                   "<b>9-12, on every track:</b> GATE (DECAY where the instrument has none), DENSITY, FILTER, LEVEL. The hand learns one layout.",
@@ -554,18 +555,18 @@ story += bullets(["<b>1-8, its sound:</b> the instrument's own knobs (chapter 5 
                   "<b>16, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page. The drop lands on the next bar line (chapter 7).",
                   "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns green): turn it to set how long your next moves take, OFF (at once) to 128 BAR. Press again: the page's own knob 1. Knobs already travelling keep going."])
 story.append(CondPageBreak(E16Grid.H + 30))
-story.append(P("PERFORM, page 12:"))
+story.append(P("NRG, page 12:"))
 cells = {}
-for i, c in enumerate(E16.encoders("PERFORM"), 1):
-    pr = E16.press_for("PERFORM", i)
-    sub = "PRESS: SLOW ALL" if pr.mode == "SWAP" else "PRESS: CENTRE" if pr.mode == "CENTRE" else f"PRESS: {pr.name}"
-    cells[i] = (c.label.replace(" ENERGY", "") if c.pid == "energy" else c.label, sub, INK, False)
+for i, c in enumerate(E16.encoders("NRG"), 1):
+    pr = E16.press_for("NRG", i)
+    sub = c.label.replace(" ENERGY", "") if pr.mode == "CENTRE" else "PRESS: SLOW ALL" if pr.mode == "SWAP" else f"PRESS: {pr.name}"
+    cells[i] = (c.name, sub, INK, False)
 story.append(E16Grid(cells, note="KNOB N IS TRACK N'S SF ENERGY; 12-14 THE GROUPS. A PRESS SETS IT BACK TO THE CENTRE (KNOB 1: SLOW ALL)."))
 story.append(Spacer(1, 8))
 story += bullets(["<b>The ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together). Each track's own knob shapes that part; 12-14 move a whole group.",
-                  "<b>SF MIX:</b> LEVELS has the volumes in PERFORM's places (knob n is track n's, 12-14 the groups', 15 DUB and 16 SPACE the returns'); SPACE the two returns, their throws and freezes; MACROS SF CONTROL's six macros, SLOW ALL and the drum roll. Its other nine pages are empty: their knobs send nothing."])
+                  "<b>MIX:</b> LEVELS has the volumes in NRG's places (knob n is track n's, 12-14 the groups', 15 DUB and 16 SPACE the returns'); SPACE the two returns, their throws and freezes; MACROS SF CONTROL's six macros, SLOW ALL and the drum roll. Its other nine pages are empty: their knobs send nothing."])
 story.append(H2T("RINGS, PAGES, PRESSES"))
-story += bullets(["<b>Rings:</b> light blue is a level (a LEVEL, a volume), white is everything else, green is knob 1 on SLOW ALL or a knob travelling (knob 1 itself never shows a glide: it swaps, so it always shows the value of the side it is on). Live sends every value back, so the rings follow song recalls and mouse moves.",
+story += bullets(["<b>Rings, by role</b> (the OXI App's colour numbers, as set in PERF on Nov 8): white (34) an instrument's own sound, knobs 1-8; 63 a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; 50 a group's NRG; 9 NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL, or a knob travelling (knob 1 itself never shows a glide: it swaps, so it always shows the value of the side it is on). Live sends every value back, so the rings follow song recalls and mouse moves.",
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>Changing pages or scenes sends nothing.</b> A knob on several pages (NEXT SONG, BUILD, SLOW ALL) sends the same address from all: several ways to one mapping.",
                   "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (GO, DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off. <b>A centre press</b> sends 64 on its knob's own address: an ENERGY back to neutral.",
@@ -578,7 +579,7 @@ def press_row(where, i, p):
            "CENTRE": f"CC {p.number} ch {p.channel}, value 64"}.get(p.mode, f"note {p.number} ({E16.note_name(p.number)}) ch {p.channel}")
     return [where, str(i), f"{p.name}, {kind}", msg, esc(p.target)]
 first_show = E16.SHOW_PAGES[0][0]
-rows = [press_row("every SF SHOW page", i, E16.press_for(first_show, i)) for i in (1, 15, 16)]
+rows = [press_row("every PERF page", i, E16.press_for(first_show, i)) for i in (1, 15, 16)]
 for title, _ in E16.PAGES:
     for i in range(1, 17):
         p = E16.press_for(title, i)
@@ -589,26 +590,26 @@ story.append(table([["WHERE", "KNOB", "PRESS", "MESSAGE", "LIVE TARGET"]] + rows
     [0.95 * inch, 0.45 * inch, 1.15 * inch, 1.45 * inch, W - 4.0 * inch], mono_first=False))
 story.append(H2T("ADDRESSES"))
 story += bullets(["<b>Channel = track:</b> 1-11 the instrument tracks, 12 A DUB, 13 B SPACE, 14 the groups (DRUMS, LOW, MUSIC and DRUMS' REPEAT), 15 LIVE BUS, 16 CONTROL. Nothing else uses a track's channel.",
-                  "<b>CC = the knob's place + 11 in SF SHOW</b> (a track's page: CC 12-23), <b>+ 43 in SF MIX</b>; a press its place + 27 in SF SHOW, + 59 in SF MIX. A track's ENERGY: CC 28 (the groups on 14: 28, 29, 30).",
+                  "<b>CC = the knob's place + 11 in PERF</b> (a track's page: CC 12-23), <b>+ 43 in MIX</b>; a press its place + 27 in PERF, + 59 in MIX. A track's ENERGY: CC 28 (the groups on 14: 28, 29, 30).",
                   "<b>Mixer:</b> CC 102 volume, 103 send A, 104 send B on the track's own channel; channel 14: 102-104 the DRUMS, LOW and MUSIC volumes. CC 6, 38 and 96-101 (data entry and RPN/NRPN) are never used.",
                   "Every address is in the appendix and in controllers/e16/sf-show-map.csv."])
 story.append(H2T("LOAD THE SCENES"))
 story += numbered(["OXI App &gt; Scenes. If no computer folder is assigned yet, assign one.",
-                   "Copy <b>SF SHOW.oxie16</b> and <b>SF MIX.oxie16</b> (controllers/e16 in the repository) into the Scenes folder inside it and click Refresh Views.",
-                   "Drag SF SHOW, then SF MIX, from On Computer onto two free slots under On Device. The presses come with them.",
+                   "Copy <b>PERF.oxie16</b> and <b>MIX.oxie16</b> (controllers/e16 in the repository) into the Scenes folder inside it and click Refresh Views. They replace SF SHOW and SF MIX.",
+                   "Drag PERF, then MIX, from On Computer onto two free slots under On Device. The presses come with them.",
                    "<b>Auto Transmit off</b>, for both scenes and in the global settings: sending stored values on a page change would pull Live's faders to whatever the E16 last held. MIDI Thru off.",
                    "In Live: E16 Port 1 Remote on, input and output; Ports 2 and 3 off (Port 1 is the one the E16 sends on; a second Remote port could take a message twice, and a FREEZE would flip twice). Takeover Mode: Value Scaling."])
 story.append(H2T("CHECK IT ONCE"))
 story += numbered(["Every knob: turn it, the right parameter moves. Every press: the right switch. A track's page moves that track only.",
                    "Hold DROP, a THROW and ROLL for three seconds each: on for the whole hold, off on release. (A long press also opens the E16's own functions; if one interferes, make that press a toggle.)",
                    "Shared knobs: on page 1 turn NEXT SONG fully left; on page 6 turn it one step right. The pick moves one step, not jumps. If it jumps, the E16 keeps a value per page: controllers/e16 README, check 4, has the relative fallback.",
-                   "Change pages, change to SF MIX and back: Live's MIDI input indicator stays dark.",
+                   "Change pages, change to MIX and back: Live's MIDI input indicator stays dark.",
                    "Press knob 1 (green) and turn: SLOW ALL moves, the page's knob 1 doesn't. Press again: the page's own.",
                    "Turn NEXT SONG and press it: the song lands on the bar, the rings follow, and a recalled knob moves smoothly from the new value."])
 story.append(PageBreak())
 
 # ---------------- 5
-chapter("5  THE PAGES", "All fifteen pages: SF SHOW's twelve (a page per track, then PERFORM) and SF MIX's three. Under each knob: the name on the E16's screen, the parameter, where it lands in Live, its address.")
+chapter("5  THE PAGES", "All fifteen pages: PERF's twelve (a page per track, then NRG) and MIX's three. Under each knob: the name on the E16's screen, the parameter, where it lands in Live, its address.")
 rows = [["PAGE", "KNOBS 1-8", "KNOBS 9-16"]]
 for scene, pages in E16.SCENES:
     for n, (title, controls) in enumerate(pages, 1):
@@ -621,7 +622,7 @@ for scene, pages in E16.SCENES:
     for n, (title, controls) in enumerate(pages, 1):
         lead, tips = PAGE_NOTES[title]
         live = [c for c in controls if c is not None]
-        many = len({ctl.track for ctl in live if ctl.module not in ("CONTROL", "BUILD")}) > 1 and title not in ("PERFORM", "LEVELS")
+        many = len({ctl.track for ctl in live if ctl.module not in ("CONTROL", "BUILD")}) > 1 and title not in ("NRG", "LEVELS")
         knobs = [["KNOB", "SCREEN", "WHAT IT DOES"]] + [[str(i), ctl.name, esc(knob_desc(ctl, many))] for i, ctl in enumerate(controls, 1) if ctl is not None]
         story += [H2T(f"{scene} {n}  {title}"), P(page_sub(scene, title, controls), "label"), E16Page(title, controls), Spacer(1, 6), P(lead),
                   table(knobs, [0.45 * inch, 0.85 * inch, W - 1.3 * inch], pad=2.4)] + [Spacer(1, 4)] + bullets(tips) + [PageBreak()]
@@ -637,7 +638,7 @@ story.append(table([["SYSTEM", "RESPONSIBLE FOR"],
 story.append(H2T("A SONG CHANGE"))
 story.append(SongFlow())
 story.append(Spacer(1, 6))
-story += bullets(["<b>NEXT SONG</b> (knob 15 of any SF SHOW page) picks the song and does nothing else: a knob knocked in passing never changes the song. SF CONTROL shows NEXT in amber, PRESS GO, until you call it.",
+story += bullets(["<b>NEXT SONG</b> (knob 15 of any PERF page) picks the song and does nothing else: a knob knocked in passing never changes the song. SF CONTROL shows NEXT in amber, PRESS GO, until you call it.",
                   "<b>GO</b> (its press) calls it: SF CONTROL decides the bar line once and sends it with the song, so every plugin lands on the same bar whatever order Live processes the tracks in. Pressed up to 30 ms after a bar line, it counts for that bar; later, for the next one. With the transport stopped it lands at once. Every plugin's header shows WAIT BAR in green until it lands.",
                   "GO again, or GO on the song already in force, does nothing. NEXT SONG follows any song change (a turn of SONG on SF CONTROL, STORE TO), so a pick you didn't call gives way.",
                   "A song and a ONE project are independent: any song with any project's patterns. A plugin with nothing stored in that song stays as it is.",
@@ -654,20 +655,20 @@ story += numbered(["Turn NEXT SONG (15) to the track's song and press it on the 
 story.append(PageBreak())
 
 # ---------------- 7
-chapter("7  PERFORMANCE", "PERFORM is the arrangement, a track's page is the detail. Very simple note content, all the variation played on knobs: every move below is a knob or a press, on the bar.")
+chapter("7  PERFORMANCE", "NRG is the arrangement, a track's page is the detail. Very simple note content, all the variation played on knobs: every move below is a knob or a press, on the bar.")
 story.append(H2T("THE SET ARC"))
 story.append(table([["PHASE", "WHAT CARRIES IT", "WHERE"],
-    ["OPENING", "Kick and rumble alone; PAD or VOICE far back. ENERGY knobs left of centre.", "PERFORM; 7 RUMBLE, 10 PAD"],
-    ["LOCK-IN", "Hats come in by DENSITY, not by level. One part at a time, eight or sixteen bars apart.", "2 CLOSED HT, 1 KICK"],
-    ["BUILD", "BUILD up over 8-16 bars; hats and clap DENSITY up; SPACE DUCK down so the tail fills the bar.", "Knob 16, 2-4, SF MIX SPACE"],
-    ["PEAK", "The drop; ENERGY knobs right of centre; the lead or the chord carries the hook; dub throws on the offbeats.", "Press 16, PERFORM, 8 LEAD, SPACE"],
-    ["BREAKDOWN", "Kick lane muted on the ONE; LOW ENERGY down; FREEZE a return; VOICE up.", "The ONE, PERFORM, SPACE, 11 VOICE"],
+    ["OPENING", "Kick and rumble alone; PAD or VOICE far back. ENERGY knobs left of centre.", "NRG; RMB, PAD"],
+    ["LOCK-IN", "Hats come in by DENSITY, not by level. One part at a time, eight or sixteen bars apart.", "CHH, KCK"],
+    ["BUILD", "BUILD up over 8-16 bars; hats and clap DENSITY up; SPACE DUCK down so the tail fills the bar.", "Knob 16; CHH, OHH, CLP; MIX SPACE"],
+    ["PEAK", "The drop; ENERGY knobs right of centre; the lead or the chord carries the hook; dub throws on the offbeats.", "Press 16, NRG, LED, SPACE"],
+    ["BREAKDOWN", "Kick lane muted on the ONE; LOW NRG down; FREEZE a return; VOICE up.", "The ONE, NRG, SPACE, VOX"],
     ["RETURN", "Kick back on the one; a song change lands here (NEXT SONG, then GO).", "Press 16, knob 15, the ONE"],
-    ["CLOSE", "ENERGY knobs left; parts out one by one; the last bars on a frozen reverb or BRIDGE.", "PERFORM, SPACE, Live's BRIDGE"]],
+    ["CLOSE", "ENERGY knobs left; parts out one by one; the last bars on a frozen reverb or BRIDGE.", "NRG, SPACE, Live's BRIDGE"]],
     [0.9 * inch, 3.75 * inch, W - 4.65 * inch], mono_first=True))
 story.append(P("A starting plan, not a rule: hypnotic sets hold a phase far longer than feels safe.", "smallgrey"))
 story.append(H2T("BUILDS AND DROPS"))
-story.append(P("BUILD is one knob for a whole-mix build (16, on every SF SHOW page): a rising high-pass, a noise riser, a reverb wash and width. Press it during the build (DROP): the drop lands on the next bar line. Three settings on SF BUILD shape the landing; the drawing shows GAP 1/2, TAIL 1 BAR, DROP DUCK 6 dB, DUCK TIME 1 BAR."))
+story.append(P("BUILD is one knob for a whole-mix build (16, on every PERF page): a rising high-pass, a noise riser, a reverb wash and width. Press it during the build (DROP): the drop lands on the next bar line. Three settings on SF BUILD shape the landing; the drawing shows GAP 1/2, TAIL 1 BAR, DROP DUCK 6 dB, DUCK TIME 1 BAR."))
 story.append(DropTimeline())
 story.append(Spacer(1, 6))
 story += bullets(["<b>GAP</b> (OFF to 1 BAR): everything through BUILD goes silent for that long before the bar line, the whole LIVE BUS with its returns (BRIDGE and DECK play on). Press DROP later than that and the gap starts on the next 1/16.",
@@ -684,8 +685,8 @@ story.append(table([["RECIPE", "GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHAT IT
     [0.95 * inch, 0.45 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch, W - 3.4 * inch]))
 story.append(P("Defaults: GAP OFF, TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR, LAND ON KICK. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
 story.append(H2T("ENERGY AND MACROS"))
-story += bullets(["The ENERGY knobs on PERFORM are the fastest way to move a whole set: small moves, often. The group knobs (12-14) move a section, a track's own knob one part. A negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
-                  "Six macros on SF MIX's MACROS page, each followed by the plugins that subscribe to it (MACRO SRC, MACRO AMT on each plugin). A starting plan:"])
+story += bullets(["The ENERGY knobs on NRG are the fastest way to move a whole set: small moves, often. The group knobs (12-14) move a section, a track's own knob one part. A negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
+                  "Six macros on MIX's MACROS page, each followed by the plugins that subscribe to it (MACRO SRC, MACRO AMT on each plugin). A starting plan:"])
 story.append(table([["MACRO", "FOLLOWED BY", "MOVES"],
     ["1 ENERGY", "the group ENERGY plugins, BUILD", "every group's energy at once"],
     ["2 MOOD", "PAD, CHORD, VOICE", "cutoff, envelope and drive; the voice's SIGNAL and ECHO"],
@@ -696,18 +697,18 @@ story.append(table([["MACRO", "FOLLOWED BY", "MOVES"],
 story.append(P("Start the amounts at 30-50 %. One macro per plugin.", "smallgrey"))
 story.append(H2T("DUB"))
 story += bullets(["<b>Sends:</b> every track page has the track's two sends (13 into A DUB, 14 into B SPACE). A quarter turn of 9 CHORD's SEND A on the last stab of a phrase is the dub-chord move.",
-                  "<b>Throws:</b> SF MIX's SPACE page, hold 1 (DUB THROW) on an offbeat stab or a voice fragment and let go: the repeats carry on. With INPUT THROW ONLY on SF DELAY, the press is the only way in.",
+                  "<b>Throws:</b> MIX's SPACE page, hold 1 (DUB THROW) on an offbeat stab or a voice fragment and let go: the repeats carry on. With INPUT THROW ONLY on SF DELAY, the press is the only way in.",
                   "<b>Tape moves:</b> turn DUB TIME while repeats are running: the head slews and the pitch bends. FREEZE (2) then TIME: the frozen loop bends like tape speed.",
                   "<b>Repeats that grow:</b> DUB FEEDBACK past 100 % saturates instead of exploding; the mapping stops at 70 % until you widen it.",
                   "<b>Space that breathes:</b> SPACE DUCK (8) 30-60 % lets the reverb bloom in the gaps between kicks. FREEZE (6) holds a chord in the room for a breakdown."])
 story.append(H2T("FILLS AND TRANSITIONS"))
-story += bullets(["<b>Hats:</b> 2 CLOSED HT page, DENSITY (10) up with ECHO SPACE (5) at 1/16: 1/8 hats become 1/16s, then 1/32 rolls past 50 %.",
-                  "<b>Drum roll:</b> SF MIX's MACROS page, hold ROLL (9) and turn LENGTH under the same finger: 1/4 down to 1/32. PITCH (10) makes it fall.",
+story += bullets(["<b>Hats:</b> CHH, the closed hat's page: DENSITY (10) up with ECHO SPACE (5) at 1/16: 1/8 hats become 1/16s, then 1/32 rolls past 50 %.",
+                  "<b>Drum roll:</b> MIX's MACROS page, hold ROLL (9) and turn LENGTH under the same finger: 1/4 down to 1/32. PITCH (10) makes it fall.",
                   "<b>Between tracks:</b> turn NEXT SONG (15) during a build or a breakdown and press it on the bar before the change; load the next ONE project when you like, the two are independent. With SLOW ALL set, the knobs glide into the new song; a MODEL change in it still lands on the bar, so cover it with the build or the drop.",
                   "<b>BRIDGE:</b> bring BRIDGE up and LIVE BUS down in Live to hand the room to a clip while you regroup. BRIDGE still needs Live: it is not a backup for a computer failure."])
 story.append(H2T("GLIDES"))
 story += bullets(["<b>A travelling knob's ring turns green</b> and walks with the sound to where you set it, then turns white. Turn it while it walks: the ring shows your hand, then green again. (SF CONTROL's E16 RINGS and the scene's script; nothing else depends on them.)",
-                  "<b>SLOW ALL</b> (press knob 1 of any SF SHOW page, turn, press again; or MACROS 7 on SF MIX) sets how long your next moves take, in every SF plugin. OFF: they land at once. 8 BAR: a quarter turn of LEAD CUTOFF becomes an eight-bar rise that plays itself.",
+                  "<b>SLOW ALL</b> (press knob 1 of any PERF page, turn, press again; or MACROS 7 on MIX) sets how long your next moves take, in every SF plugin. OFF: they land at once. 8 BAR: a quarter turn of LEAD CUTOFF becomes an eight-bar rise that plays itself.",
                   "<b>A move keeps its length.</b> Start a 16-bar rise on the pad, set SLOW ALL to OFF, and make quick moves elsewhere: the pad keeps rising. Turn a travelling knob and it sets off again from where it has got to.",
                   "<b>SLOW ALL changed in the same instant as a move</b> (one audio buffer, a few ms): the move takes the length from before the change, in every plugin alike. Set SLOW ALL, then move.",
                   "<b>Song changes follow it, knob by knob.</b> SLOW ALL at 16 BAR before GO: every SF knob the song stores travels to the new song over 16 bars; OFF: it lands on the bar. What does not glide (the table) changes on the bar. It is a morph of the knobs, not a crossfade between two whole sounds.",
@@ -739,7 +740,7 @@ names = lambda rows: ", ".join(dict.fromkeys(rows))
 detail_names = sorted({f"{c.track.split(' ', 1)[-1]} {E16.param_name(c.module, c.pid)}" for t, _ in E16.PAGES for c in E16.encoders(t)
                        if c is not None and c.module and spec_of(c)["slow"] and not spec_of(c)["primary"]})
 story.append(CondPageBreak(2.4 * inch))
-story.append(P("<b>WHAT SLOW MOVES</b> (every knob and press of SF SHOW and SF MIX; drawn from the scenes and the plugins)", "smallgrey"))
+story.append(P("<b>WHAT SLOW MOVES</b> (every knob and press of PERF and MIX; drawn from the scenes and the plugins)", "smallgrey"))
 story.append(table([["ON THE E16", "WITH SLOW / SLOW ALL"],
     [f"Every SF knob, {len(set(glides))} of them: each plugin's top row, and the details on the scenes too ({esc(', '.join(detail_names))})", "Travels over the bars set"],
     [esc(names(menus)), "Menus: at once, on the next buffer"],
@@ -793,10 +794,10 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["The drop opens before the kick", "SF BUILD: LAND ON KICK, and its readout shows a value (KICK --: four kicks haven't agreed yet; GAP silences the beat before)."],
     ["Songs don't change", "Turn NEXT SONG (15), then press it (GO): SF CONTROL shows NEXT in amber, PRESS GO, until you do. The song must be stored (SONG nn EMPTY otherwise). SF CONTROL from this build: an older one has no NEXT SONG."],
     ["E16 rings don't follow", "Remote on for E16 Port 1's output."],
-    ["An E16 press does nothing", "A scene file from before Nov 8 is loaded: load the current SF SHOW and SF MIX. A toggle that flips back: Remote is on for two E16 ports."],
+    ["An E16 press does nothing", "A scene file from before Nov 8 is loaded: load the current PERF and MIX. A toggle that flips back: Remote is on for two E16 ports."],
     ["No green on a travelling knob", "SF CONTROL shows E16 RINGS PORT 3 in green? If not, the E16 isn't found: try PORT 1. Load the scenes from the repository again (the script is in them). Use the VST3s."],
     ["Knob 1 swapped (green) changes nothing", "SLOW ALL isn't mapped in this set: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 and turn it. Cmd-M off, save."],
-    ["Knob 1 moves its own parameter and SLOW ALL together", "Its push was changed in the App: load SF SHOW.oxie16 again (knob 1's push must be Swap Destination)."],
+    ["Knob 1 moves its own parameter and SLOW ALL together", "Its push was changed in the App: load PERF.oxie16 again (knob 1's push must be Swap Destination)."],
     ["Every move glides (or none does)", "SLOW ALL is saved with the set: press knob 1 and set it. A plugin whose own SLOW isn't CONTROL keeps its own."],
     ["An E16 knob jumps when touched", "Auto Transmit is on, or the E16 keeps a value per page: chapter 4, check 3."],
     ["CONTROL shows LOCAL ONLY", "The plugins come from different builds: rebuild and install the whole suite, restart Live."],
@@ -810,8 +811,8 @@ story.append(PageBreak())
 # ---------------- appendix
 story.append(H1("APPENDIX"))
 story.append(Rule())
-story.append(H2T("E16 ADDRESS MAP (SF SHOW, SF MIX)"))
-story.append(P("Every address of the two scenes once, by channel: the Live target, the mapping, and where the knob is on the E16 (an SF SHOW page is named for its track; LEVELS, SPACE and MACROS are SF MIX's). The same list is controllers/e16/sf-show-map.csv."))
+story.append(H2T("E16 ADDRESS MAP (PERF, MIX)"))
+story.append(P("Every address of the two scenes once, by channel: the Live target, the mapping, and where the knob is on the E16 (a PERF page is named by its track's code; LEVELS, SPACE and MACROS are MIX's). The same list is controllers/e16/sf-show-map.csv."))
 rows = [["CH", "MESSAGE", "LIVE TARGET", "MAPPING", "ON THE E16"]]
 for (msg, ch, n), (target, places, kind, rng, item) in sorted(E16.addresses().items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2])):
     m = f"CC {n}" if msg == "CC" else f"NOTE {n} ({E16.note_name(n)})"

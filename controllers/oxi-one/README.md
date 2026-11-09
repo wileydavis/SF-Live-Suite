@@ -47,7 +47,7 @@ notes: it follows the kick). The ONE, Live and the E16 read the same way.
 | 7 | spare (SF START has it on 7B: DECK's hot cues) | MONO | 7B | USB | off |
 | 8 | spare (SF START has it on 16A, SF CONTROL's channel) | MONO | 16A | USB | off |
 
-**Songs are called from the E16, not the ONE** [Nov 8]: encoder 15 of any SF SHOW page picks NEXT
+**Songs are called from the E16, not the ONE** [Nov 8]: encoder 15 of any PERF page picks NEXT
 SONG, its press (GO) calls it on the next bar line. A project and a song are independent: any song
 with any project's patterns, and changing projects on the ONE never changes the song. Live sends a
 VST3 no Program Change, and the show set's SF CONTROL is a VST3; a Program Change on 16A reaches only
@@ -94,7 +94,7 @@ all four columns, so loading a scene resets them too. Columns 5-16 are empty. St
 3. `python3 controllers/oxi-one/check_project.py MY.oxipro` checks the copy: every setting. On SF
    START itself, add `--start` (it must send no Program Change).
 
-The song comes from the E16 (encoder 15 of any SF SHOW page, then press it), not from the project.
+The song comes from the E16 (encoder 15 of any PERF page, then press it), not from the project.
 Only with SF CONTROL as an AU (and its track's MIDI From on the ONE's port A, ch 16, as the set has
 it) does a Program Change from the ONE call a song: **Shift + Seq 8**, **Knob 3**, the song's number,
 press, save into slot 1. The ONE stores PC n as n - 1, the number MIDI sends, and SF CONTROL takes 0

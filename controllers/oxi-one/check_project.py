@@ -5,7 +5,7 @@
 Prints each sequencer as the ONE has it (mode, channel, Out, the slots in use and what is in them,
 any Program Change) and what doesn't match the card. A part's channel is its Live track's number, on
 port A (controllers/e16/layout.py: one number per track, on the ONE and the E16) [Nov 8]. Songs are
-called from the E16 (encoder 15 of every SF SHOW page: NEXT SONG, its press GO), so a project calls
+called from the E16 (encoder 15 of every PERF page: NEXT SONG, its press GO), so a project calls
 none: a Program Change reaches SF CONTROL only as an AU, and the show set's is a VST3. --start: the
 project is SF START, which must send none (an AU of SF CONTROL would take it). Sequencers 7 and 8 are
 spare: reported, not checked. Exit 1 if anything doesn't match.

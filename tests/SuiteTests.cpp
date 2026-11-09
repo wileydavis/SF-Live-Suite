@@ -1194,7 +1194,7 @@ static void testEditor()
     CHECK (grids >= 24, "grids: %d", grids);
     CHECK (worst <= 900, "every strip fits a laptop's screen at first: %d", worst);
 
-    // DELAY on A DUB: TIME, FEEDBACK... on SF MIX's SPACE 1-4, THROW and FREEZE their presses.
+    // DELAY on A DUB: TIME, FEEDBACK... on MIX's SPACE 1-4, THROW and FREEZE their presses.
     {
         SFProcessor p (makeModule ("DELAY"));
         juce::AudioProcessor::TrackProperties tp; tp.name = "A DUB"; p.updateTrackProperties (tp);

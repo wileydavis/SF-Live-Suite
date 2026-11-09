@@ -2,7 +2,7 @@
 
 The Live set of the manual's chapter 7, ready to play: every track, group and return, every SF plugin
 in place with its starting settings, the routing, every instrument's MIDI From on its OXI One port and
-channel, and every address of the E16 scenes SF SHOW and SF MIX already mapped. Live's own settings
+channel, and every address of the E16 scenes PERF and MIX already mapped. Live's own settings
 (section 1) are set once per computer; then open it and play.
 
 | FILE | WHAT |
@@ -52,7 +52,7 @@ its own.
   presses and knob 1's second destination (SLOW ALL on SF CONTROL) included. Every volume and send is
   mapped up to 0 dB; DUB FEEDBACK 0-70 %. A track's E16 page sends on the track's own channel, so it
   can be mapped to another instrument on that track without touching the others.
-- **Songs** are called from the E16: encoder 15 of any SF SHOW page turns SF CONTROL's NEXT SONG, its
+- **Songs** are called from the E16: encoder 15 of any PERF page turns SF CONTROL's NEXT SONG, its
   press (GO) calls it on the next bar line. Live sends a VST3 no Program Change, so the ONE calls no
   song.
 - Every instrument listens to one OXI One port and channel (section 2's table), never All Ins. RUMBLE
@@ -141,10 +141,10 @@ For DECK's headphone cue, add an audio track: Audio From DECK, CUE; out to the h
 1. Live opens the set without a message and lists no SF plugin as missing. A missing plugin: the
    suite isn't installed, or VST3 is off.
 2. Cmd-M: the MIDI Mappings list shows the E16 mappings (210). Turn a few knobs on different pages
-   of both scenes: the parameter named in `sf-show-map.csv` moves. On PERFORM, press an ENERGY knob:
+   of both scenes: the parameter named in `sf-show-map.csv` moves. On NRG, press an ENERGY knob:
    it goes back to the centre. `python3 controllers/live/check_set.py "SF SHOW.als"` says the same
    from the file: 210 of 210.
-3. **Songs.** Store a song, then on any SF SHOW page turn knob 15: SF CONTROL shows NEXT nn, PRESS GO
+3. **Songs.** Store a song, then on any PERF page turn knob 15: SF CONTROL shows NEXT nn, PRESS GO
    (amber) and nothing changes. Press it: the song lands on the next bar line.
 4. Play the ONE: each instrument plays only its own part; the LIVE BUS, Main and PA meters move;
    REC, armed, records the set. Cue a track: it reaches the headphones and not the PA. ROOM's

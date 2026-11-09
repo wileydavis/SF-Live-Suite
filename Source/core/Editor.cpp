@@ -5,7 +5,9 @@ using namespace sf;
 
 namespace
 {
-juce::Colour ringColour (int c) { return c == 1 ? ui::kLedBlue : c == 2 ? ui::kGreen : ui::kLedWhite; }
+// A ring's colour from the OXI App's colour number (E16Map.h): light blue (18) and green (90) as the
+// E16 shows them; the others white.
+juce::Colour ringColour (int c) { return c == 18 ? ui::kLedBlue : c == 90 ? ui::kGreen : ui::kLedWhite; }
 
 // A label squeezed (to 75 %) rather than cut when it is long.
 void fitted (juce::Graphics& g, const juce::String& s, juce::Rectangle<float> r, juce::Colour c, float h,
@@ -413,7 +415,7 @@ void SFEditor::build()
             if (press >= 0) placed[(size_t) press] = true;
             swap = swap || second;
         }
-        // Where else it is: an encoder on every SF SHOW page (NEXT SONG, BUILD) once, others by page.
+        // Where else it is: an encoder on every PERF page (NEXT SONG, BUILD) once, others by page.
         juce::StringArray every, also;
         for (int e = 0; e < 16; ++e)
             if (e16::onEveryShowPage (e, mod.c_str(), t, page)) every.add (juce::String (e + 1));
@@ -422,8 +424,9 @@ void SFEditor::build()
                 for (int e = 0; e < 16; ++e)
                     if (e16::cellIs (kE16Pages[pg2].cells[e], mod.c_str(), t) && ! (e16::isShowPage (pg2) && every.contains (juce::String (e + 1))))
                         also.add (juce::String (kE16Pages[pg2].name) + " " + juce::String (e + 1));
-        if (! every.isEmpty()) also.insert (0, (every.size() == 1 ? "ENCODER " : "ENCODERS ") + every.joinIntoString (", ") + " ON EVERY SF SHOW PAGE");
-        if (swap) note = "ENCODER 1: PRESS FOR SLOW ALL, ON EVERY SF SHOW PAGE";
+        const juce::String everyPage = " ON EVERY " + juce::String (kE16ShowScene) + " PAGE";
+        if (! every.isEmpty()) also.insert (0, (every.size() == 1 ? "ENCODER " : "ENCODERS ") + every.joinIntoString (", ") + everyPage);
+        if (swap) note = "ENCODER 1: PRESS FOR SLOW ALL," + everyPage;
         else if (! also.isEmpty()) note = "ALSO " + also.joinIntoString (", ");
     }
 
@@ -669,7 +672,7 @@ void SFEditor::paintE16 (juce::Graphics& g)
     g.setColour (juce::Colour (0xff262626));
     g.drawRoundedRectangle (oled, 2.0f, 1.0f);
     fitted (g, kE16Pages[page].name, oled, ui::kText, 10.0f, juce::Justification::centred, true);
-    fitted (g, "E16 " + juce::String (kE16Pages[page].scene).fromFirstOccurrenceOf ("SF ", false, false),
+    fitted (g, "E16 " + juce::String (kE16Pages[page].scene),
             { pr.getX() + 8.0f, oled.getY(), oled.getX() - pr.getX() - 12.0f, oled.getHeight() }, ui::kFaint, 8.5f, juce::Justification::centredLeft, true);
     fitted (g, track, { oled.getRight() + 4.0f, oled.getY(), pr.getRight() - oled.getRight() - 12.0f, oled.getHeight() },
             ui::kDim, 8.5f, juce::Justification::centredRight);

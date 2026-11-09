@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks a Live set's mappings against the E16 scenes SF SHOW and SF MIX: every address in
+"""Checks a Live set's mappings against the E16 scenes PERF and MIX: every address in
 controllers/e16/layout.py mapped once, to the right parameter on the right track, with the right range;
 and any computer keys mapped. Reads the set, never writes it.
 

@@ -1,5 +1,5 @@
 #pragma once
-// Where a plugin sits on the E16 (the scenes SF SHOW and SF MIX, E16Map.h): the Live track its knobs
+// Where a plugin sits on the E16 (the scenes PERF and MIX, E16Map.h): the Live track its knobs
 // are on, and the page its editor draws. One rule for GLIDE RINGS (the processor, audio thread: no allocation)
 // and the editor's E16 grid.
 #include "E16Map.h"
@@ -60,10 +60,10 @@ inline bool cellIs (const E16Cell& c, const char* module, const char* track)
     return turnIs (c.turn, module, track) || turnIs (c.second, module, track) || pressIs (c.press, module, track);
 }
 
-inline bool isShowPage (int pg) { return std::strcmp (kE16Pages[pg].scene, "SF SHOW") == 0; }
+inline bool isShowPage (int pg) { return std::strcmp (kE16Pages[pg].scene, kE16ShowScene) == 0; }
 
 // The page an editor shows: the one with most of the plugin's encoders; on a tie the last of them
-// (what every SF SHOW page has, NEXT SONG and BUILD, shows on PERFORM, the last).
+// (what every PERF page has, NEXT SONG and BUILD, shows on NRG, the last).
 inline int homePage (const char* module, const char* track)
 {
     int best = 0, bestCount = 0;
@@ -77,7 +77,7 @@ inline int homePage (const char* module, const char* track)
     return best;
 }
 
-// The plugin is on encoder e of every SF SHOW page but `except`.
+// The plugin is on encoder e of every PERF page but `except`.
 inline bool onEveryShowPage (int e, const char* module, const char* track, int except)
 {
     int n = 0;

@@ -2792,7 +2792,7 @@ static void testSongWindow()
     resetBus();
 }
 
-// NEXT SONG and GO [Nov 8]: the song call on the E16 (encoder 15 of every SF SHOW page, GO its
+// NEXT SONG and GO [Nov 8]: the song call on the E16 (encoder 15 of every PERF page, GO its
 // press). A turn of NEXT SONG asks for
 // nothing; GO asks for it, on the next bar line (a turn of SONG's 30 ms); GO again, or GO on the song
 // already in force, asks for nothing; SONG follows GO, and NEXT SONG follows any song change (here a

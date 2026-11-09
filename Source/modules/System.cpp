@@ -22,7 +22,7 @@ namespace sf
 // E16 RINGS: the E16 USB port SF CONTROL tells the E16 scenes' script about travelling knobs
 // on (their rings turn green and follow the sound). OFF: nothing is sent. A port that isn't there
 // is looked for again every 2 s.
-// NEXT SONG and GO [Nov 8]: the song call on the E16 (knob 15 of every SF SHOW page). Turning picks NEXT SONG and
+// NEXT SONG and GO [Nov 8]: the song call on the E16 (knob 15 of every PERF page). Turning picks NEXT SONG and
 // changes nothing else, so a knob knocked in passing never changes the song; GO (its press) asks for
 // that song, on the next bar line as a turn of SONG would (Live stopped: at once). GO on the song
 // already asked for does nothing. NEXT SONG follows the song whenever it changes, by any way, so the

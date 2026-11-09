@@ -1,5 +1,5 @@
-"""Tests the E16 scenes' GLIDE RINGS script as shipped (the minified code inside SF SHOW.oxie16 and
-SF MIX.oxie16, each with its own knob map) against a mock of the E16's Lua API (1-based encoders and
+"""Tests the E16 scenes' GLIDE RINGS script as shipped (the minified code inside PERF.oxie16 and
+MIX.oxie16, each with its own knob map) against a mock of the E16's Lua API (1-based encoders and
 pages, 14-bit ring values, leds.reset hands a ring back to the firmware). Needs lupa (pip install
 lupa): Lua 5.4.
 
@@ -96,24 +96,24 @@ class E16:
 GREEN = L.GREEN
 knobs = L.encoders
 
-show = E16("SF SHOW")
+show = E16(L.SHOW_SCENE)
 check(show.E.rate == 50, "updates every 50 ms")
-check(show.E.page == 1 and show.pages[0] == "1 KICK", "SF SHOW opens on 1 KICK")
-kick, chord = knobs("1 KICK"), knobs("9 CHORD")
+check(show.E.page == 1 and show.pages[0] == "KCK", "PERF opens on KCK, the kick's page")
+kick, chord = knobs("KCK"), knobs("CRD")
 show.move((kick[0], 9000))
 check(show.ring(1) is None, f"KICK TUNE travelling: ring 1 stays the E16's own (knob 1 swaps to SLOW ALL; the script can't tell which) ({show.ring(1)})")
 show.move((kick[1], 9000), (kick[9], 7000))
 check(show.ring(2) == (9000, GREEN) and show.ring(10) == (7000, GREEN), f"KICK PUNCH and DENSITY travelling: rings 2 and 10 green ({show.rings()})")
 show.move((chord[1], 4000), (chord[9], 4000))
-check(show.rings() == {2: (9000, GREEN), 10: (7000, GREEN)}, "CHORD's knobs travelling while 1 KICK is up: no ring touched (same places, another channel)")
+check(show.rings() == {2: (9000, GREEN), 10: (7000, GREEN)}, "CHORD's knobs travelling while KCK is up: no ring touched (same places, another channel)")
 check(all(kick[i].mixer for i in (12, 13)), "knobs 13-14 are the sends")
 show.move(*[(c, 100) for c in kick if c.mixer])
 check(show.ring(13) is None and show.ring(14) is None, "the sends (a Live control) never go green")
 
-show.goto("9 CHORD")
+show.goto("CRD")
 check(show.rings() == {}, "page change: every ring back to the knobs")
 show.move((chord[1], 4100), (chord[9], 4100), (kick[1], 9100))
-check(show.rings() == {2: (4100, GREEN), 10: (4100, GREEN)}, f"9 CHORD: knobs 2 and 10 green, the kick's not here ({show.rings()})")
+check(show.rings() == {2: (4100, GREEN), 10: (4100, GREEN)}, f"CRD: knobs 2 and 10 green, the kick's not here ({show.rings()})")
 
 show.turn(10)
 check(show.ring(10) is None, "knob 10 turned: its ring shows the hand")
@@ -137,9 +137,9 @@ show.G.controller.onSysex(show.lua.table_from([0xF0, 0x7D, 0x53, 0x46, 1, 0xF7])
 show.G.controller.onSysex(show.lua.table_from([0xF0, 0x7D, 0x53, 0x46, 1, 0, 20, 0xF7]))
 check(show.rings() == {}, "other SysEx, empty and short messages: ignored")
 
-show.goto("PERFORM")
-perform = knobs("PERFORM")
-check([c.label for c in perform[:3]] == ["KICK ENERGY", "CLOSED HAT ENERGY", "OPEN HAT ENERGY"], "PERFORM: knob n is track n's ENERGY")
+show.goto("NRG")
+perform = knobs("NRG")
+check([c.label for c in perform[:3]] == ["KICK ENERGY", "CLOSED HAT ENERGY", "OPEN HAT ENERGY"], "NRG: knob n is track n's ENERGY")
 show.move(*[(c, 1000 + 100 * k) for k, c in enumerate(perform[:14])])
 check(show.ring(1) is None and all(show.ring(1 + k) == (1000 + 100 * k, GREEN) for k in range(1, 14)),
       f"a full message of 14 ENERGYs: rings 2-14 green, knob 1 (it swaps) its own ({show.rings()})")
@@ -147,8 +147,8 @@ check(show.ring(15) is None and show.ring(16) is None, "NEXT SONG and BUILD, not
 show.lua.execute("page.onInit()")
 check(show.rings() == {}, "the script reloaded: every ring back")
 
-mix = E16("SF MIX")
-check(mix.pages == ["LEVELS", "SPACE", "MACROS"], f"SF MIX: {mix.pages}")
+mix = E16(L.MIX_SCENE)
+check(mix.pages == ["LEVELS", "SPACE", "MACROS"], f"MIX: {mix.pages}")
 mix.move(*[(c, 500) for c in knobs("LEVELS") if c.number is not None])
 check(mix.rings() == {}, "LEVELS: volumes never go green")
 mix.goto("SPACE")
@@ -160,7 +160,7 @@ mix.goto("MACROS")
 macros = knobs("MACROS")
 slow_all = macros[6]
 check(slow_all.label == "SLOW ALL" and slow_all.channel == L.SLOW_ALL.ctl.channel and slow_all.number == L.SLOW_ALL.ctl.number,
-      "MACROS knob 7 is SLOW ALL, on the address of SF SHOW's knob-1 swap")
+      "MACROS knob 7 is SLOW ALL, on the address of PERF's knob-1 swap")
 mix.move(*[(c, 3000 + k) for k, c in enumerate(macros) if c is not None])
 check(all(mix.ring(1 + k) == (3000 + k, GREEN) for k in range(7)) and mix.ring(9) == (3008, GREEN) and mix.ring(10) == (3009, GREEN),
       f"MACROS: MACRO 1-6, SLOW ALL (a plain knob here) and the REPEAT knobs green ({mix.rings()})")

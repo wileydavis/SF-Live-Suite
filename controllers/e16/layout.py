@@ -1,4 +1,4 @@
-"""The OXI E16 layout for the show template (manual, chapter 7): two scenes, SF SHOW and SF MIX.
+"""The OXI E16 layout for the show template (manual, chapter 7): two scenes, PERF and MIX.
 
 The one source of truth for the scene files and the address map (make_scene.py), the show set's
 mappings (controllers/live/make_set.py), the plugins' copy of the map (Source/core/E16Map.h), and the
@@ -6,27 +6,33 @@ manuals' E16 tables and page drawings. Change the layout here, then run make_sce
 and rebuild both manuals.
 
 One number per track [Nov 8]
-  A track's number is its MIDI channel, on the OXI One (port A) and on the E16, and its page in SF SHOW:
+  A track's number is its MIDI channel, on the OXI One (port A) and on the E16, and its page in PERF:
   1 KICK, 2 CLOSED HAT, 3 OPEN HAT, 4 CLAP, 5 PERC, 6 BASS, 7 RUMBLE, 8 LEAD, 9 CHORD, 10 PAD, 11 VOICE
   (7 RUMBLE gets no notes: it follows the kick). 12 is A DUB, 13 B SPACE, 14 the groups (DRUMS, LOW,
   MUSIC, and DRUMS' REPEAT), 15 the LIVE BUS, 16 CONTROL. Nothing else on the E16 uses a track's
   channel, so a track's page can be mapped to any other instrument put on that track.
+  On the E16 a track goes by its code (the performer's, from the PERF scene he edited on Nov 8): KCK,
+  CHH, OHH, CLP, PRC, BAS, RMB, LED, CRD, PAD, VOX, and the groups DRM, LOW, MUS. A page's title is
+  its track's code; an ENERGY knob is its code + NRG (KCK NRG), a volume its code + VOL.
 
 The grid
   The E16 is a 4 x 4 grid, numbered row by row from the top left: 1-4 the top row, 13-16 the bottom row.
-  SF SHOW, pages 1-11: one per track. Rows 1-2 are its instrument's own knobs; row 3 is GATE (DECAY where
+  PERF, pages 1-11: one per track. Rows 1-2 are its instrument's own knobs; row 3 is GATE (DECAY where
   the instrument has none), DENSITY, FILTER and LEVEL on every page; row 4 is SEND A, SEND B, NEXT SONG
-  (press: GO) and BUILD (press: DROP). Page 12, PERFORM: the ENERGY knobs, knob n for track n (12-14 the
+  (press: GO) and BUILD (press: DROP). Page 12, NRG: the ENERGY knobs, knob n for track n (12-14 the
   groups DRUMS, LOW, MUSIC; each press back to the centre), then NEXT SONG and BUILD. Knob 1's press
-  swaps it to SLOW ALL on every SF SHOW page.
-  SF MIX: LEVELS (the volumes, in PERFORM's places; 15 and 16 the returns), SPACE (both returns, THROW
-  and FREEZE on their presses), MACROS (MACRO 1-6, SLOW ALL, REPEAT with ROLL on its press).
+  swaps it to SLOW ALL on every PERF page.
+  MIX: LEVELS (the volumes, in NRG's places; 15 and 16 the returns), SPACE (both returns, THROW and
+  FREEZE on their presses), MACROS (MACRO 1-6, SLOW ALL, REPEAT with ROLL on its press).
+  Rings by role (the performer's colours): white an instrument's own sound, SHAPE a track's GATE or
+  DECAY, DENSITY, FILTER and its NRG, light blue a level (LEVEL, a volume, a send), GROUP a group's NRG,
+  SET NEXT SONG and BUILD, green SLOW ALL.
 
 Addresses
   On a track's channel: its page's knobs 1-12 CC 12-23 (the place + 11), its ENERGY CC 28 (the groups on
   14: DRUMS 28, LOW 29, MUSIC 30), its volume CC 102 (the groups: 102-104), SEND A 103, SEND B 104.
-  Anything else in SF SHOW: the place + 11 for a turn, + 27 for a press (SLOW ALL 12, NEXT SONG 26,
-  BUILD 27, GO 42, DROP 43); in SF MIX: the place + 43 for a turn, + 59 for a press. A knob on two pages
+  Anything else in PERF: the place + 11 for a turn, + 27 for a press (SLOW ALL 12, NEXT SONG 26,
+  BUILD 27, GO 42, DROP 43); in MIX: the place + 43 for a turn, + 59 for a press. A knob on two pages
   sends the same address from both (one Live parameter takes one mapping).
   Turns send CC. A HOLD press sends CC (127 on press, 0 on release); a TOGGLE press a note (Live flips a
   switch on every Note On); a CENTRE press sends 64 on its knob's own address (an ENERGY back to neutral).
@@ -102,20 +108,26 @@ def alternates(module, pid):
     return out
 
 
+# The scenes' titles (the E16 shows 7 characters): PERF, the show; MIX, the levels, returns and macros.
+SHOW_SCENE, MIX_SCENE = "PERF", "MIX"
 # Numbers: per scene, a turn its place + TURN, a press its place + PRESS; a track's ENERGY 28; the mixer
 # 102 volume, 103 send A, 104 send B (MIDI's undefined numbers: 100 and 101 select an RPN).
-TURN = {"SF SHOW": 11, "SF MIX": 43}
-PRESS = {"SF SHOW": 27, "SF MIX": 59}
+TURN = {SHOW_SCENE: 11, MIX_SCENE: 43}
+PRESS = {SHOW_SCENE: 27, MIX_SCENE: 59}
 ENERGY = 28
 SENDS = {"volume": 102, "send A": 103, "send B": 104}
 RESERVED_CC = {6, 38, 96, 97, 98, 99, 100, 101} | set(range(120, 128))
 
-# Ring colours: indexes into the OXI App's 10 x 10 colour picker, read row by row from the top left
-# from 0 (34 white, 18 light blue, 90 green: the bottom row's first). Light blue marks a level (a
-# volume, a plugin's LEVEL); everything else is white. Green, the suite's colour for a glide: the knob
-# is on its second destination, SLOW ALL (Swap Destination's second colour). Change them here, not in
-# the App: make_scene.py rewrites the files.
-WHITE, LIGHT_BLUE, GREEN = 34, 18, 90
+# Ring colours: the OXI App's colour numbers (0-100), by role. The performer set SHAPE, GROUP and SET
+# in the PERF scene on Nov 8, for a page that reads at a glance while playing. Green, the suite's
+# colour for a glide: the knob is on its second destination, SLOW ALL (Swap Destination's second
+# colour). Change them here, not in the App: make_scene.py rewrites the files.
+WHITE = 34          # an instrument's own sound (a track's knobs 1-8), and anything without a role below
+SHAPE = 63          # a track's GATE or DECAY, DENSITY and FILTER (its knobs 9-11), and its NRG
+LIGHT_BLUE = 18     # a level: a plugin's LEVEL, a volume, a send
+GROUP = 50          # a group's NRG (DRUMS, LOW, MUSIC)
+SET = 9             # NEXT SONG and BUILD: the set's own moves
+GREEN = 90          # SLOW ALL, knob 1's second destination; a travelling knob (GLIDE RINGS)
 
 FADER = "Max 0 dB"
 BIPOLAR = ("energy", "filter", "tune")      # centre (64) is neutral
@@ -194,11 +206,11 @@ GROUP_ORDER = ["DRUMS", "LOW", "MUSIC"]      # channel 14's volumes 102-104, as 
 
 
 def M(track, control, name, abbr, live_range="", label=None):
-    """A turn on a Live mixer control (a track's volume or send; a group's volume). A fader stops at 0 dB
-    (gain 1), and so does a send."""
+    """A turn on a Live mixer control (a track's volume or send; a group's volume), a level: light blue.
+    A fader stops at 0 dB (gain 1), and so does a send."""
     ch = channel_of(track)
     n = SENDS["volume"] + GROUP_ORDER.index(track) if ch == 14 else SENDS[control]
-    return Ctl(name, abbr, ch, n, f"{track} > mixer > {control}", LIGHT_BLUE if control == "volume" else WHITE, 0,
+    return Ctl(name, abbr, ch, n, f"{track} > mixer > {control}", LIGHT_BLUE, 0,
                live_range or FADER, label, track, None, None, control, 1.0)
 
 
@@ -256,7 +268,7 @@ def note_name(n):
     return ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][n % 12] + str(n // 12 - 2)
 
 
-# ---------------------------------------------------------------------------------------- SF SHOW
+# ---------------------------------------------------------------------------------------- PERF
 # A track's page: rows 1-2 its instrument's own knobs, row 3 GATE (or DECAY), DENSITY, FILTER, LEVEL,
 # row 4 SEND A, SEND B, NEXT SONG, BUILD.
 SOUND = {
@@ -274,49 +286,48 @@ SOUND = {
 }
 
 
+def coloured(c, colour):
+    c.colour = colour
+    return c
+
+
 def next_song():
-    return P("CONTROL", "next_song", "NEXT SNG", "SONG", label="NEXT SONG")
+    return coloured(P("CONTROL", "next_song", "NEXT SNG", "SONG", label="NEXT SONG"), SET)
 
 
 def build_knob():
-    return P("BUILD", "build", "BUILD", "BLD")
+    return coloured(P("BUILD", "build", "BUILD", "BLD"), SET)
 
 
 def track_page(dest):
     track = PLUGINS[dest][0]
     sound, gate = SOUND[dest]
-    return [P(dest, pid) for pid in sound] + [P(dest, pid) for pid in (gate, "density", "filter", "level")] + [
+    return [P(dest, pid) for pid in sound] + [coloured(P(dest, pid), SHAPE) for pid in (gate, "density", "filter")] + [
+        P(dest, "level"),
         M(track, "send A", "SEND A", "SNDA", label="SEND A (DUB)"),
         M(track, "send B", "SEND B", "SNDB", label="SEND B (SPACE)"),
         next_song(), build_knob()]
 
 
-def E(dest, name, abbr, label):
-    """An ENERGY knob (its press, CENTRE, sets it back to neutral)."""
-    return P(dest, "energy", name, abbr, label=label)
+# Each track's and group's code: the E16's name for it (page titles, NRG, the volumes).
+CODE = {"KICK": "KCK", "CLOSED HAT": "CHH", "OPEN HAT": "OHH", "CLAP": "CLP", "PERC": "PRC", "BASS": "BAS",
+        "RUMBLE": "RMB", "LEAD": "LED", "CHORD": "CRD", "PAD": "PAD", "VOICE": "VOX",
+        "DRUMS": "DRM", "LOW": "LOW", "MUSIC": "MUS"}
+assert set(CODE) == set(TRACKS) | set(GROUP_ORDER) and len(set(CODE.values())) == len(CODE)
 
 
-ENERGY_NAMES = {"KICK": ("KCK ENGY", "E KK"), "CLOSED HAT": ("CLH ENGY", "E CH"), "OPEN HAT": ("OPH ENGY", "E OH"),
-                "CLAP": ("CLP ENGY", "E CP"), "PERC": ("PRC ENGY", "E PC"), "BASS": ("BAS ENGY", "E BS"),
-                "RUMBLE": ("RMB ENGY", "E RM"), "LEAD": ("LED ENGY", "E LD"), "CHORD": ("CHD ENGY", "E CD"),
-                "PAD": ("PAD ENGY", "E PD"), "VOICE": ("VOX ENGY", "E VX"), "DRUMS": ("DRM ENGY", "E DR"),
-                "LOW": ("LOW ENGY", "E LO"), "MUSIC": ("MUS ENGY", "E MU")}
-PERFORM = [E(t + " EN", *ENERGY_NAMES[t], t + " ENERGY") for t in TRACKS] + \
-          [E(g + " EN", *ENERGY_NAMES[g], g + " ENERGY") for g in GROUP_ORDER] + [next_song(), build_knob()]
+def E(t):
+    """Track or group t's ENERGY knob, KCK NRG on the E16 (its press, CENTRE, sets it back to neutral)."""
+    return coloured(P(t + " EN", "energy", CODE[t] + " NRG", CODE[t], label=t + " ENERGY"), GROUP if t in GROUP_ORDER else SHAPE)
 
 
-def page_title(dest):
-    """A track's page: its Live name, if the E16 takes it (11 characters at most)."""
-    t = PLUGINS[dest][0]
-    return t if len(t) <= 11 else t.replace("CLOSED HAT", "CLOSED HT")
+NRG = [E(t) for t in TRACKS] + [E(g) for g in GROUP_ORDER] + [next_song(), build_knob()]
+SHOW_PAGES = [(CODE[t], track_page(t)) for t in TRACKS] + [("NRG", NRG)]
 
-
-SHOW_PAGES = [(page_title(t), track_page(t)) for t in TRACKS] + [("PERFORM", PERFORM)]
-
-# ---------------------------------------------------------------------------------------- SF MIX
+# ---------------------------------------------------------------------------------------- MIX
 def V(track, code):
-    """A volume on LEVELS, named as its ENERGY knob on PERFORM (KCK ENGY, KCK VOL)."""
-    return M(track, "volume", ENERGY_NAMES[code][0][:3] + " VOL", "V " + ENERGY_NAMES[code][1][2:], label=track + " VOLUME")
+    """A volume on LEVELS, named by its code (KCK VOL), in NRG's place."""
+    return M(track, "volume", CODE[code] + " VOL", CODE[code], label=track + " VOLUME")
 
 
 LEVELS = [V(PLUGINS[t][0], t) for t in TRACKS] + [V(g, g) for g in GROUP_ORDER] + \
@@ -337,7 +348,7 @@ MACROS_PAGE = [P("CONTROL", f"macro{i}", f"MACRO {i}", f"M{i}") for i in range(1
                P("REPEAT", "pitch", "RPT PTCH", "RPCH", label="REPEAT PITCH")] + [None] * 6
 MIX_PAGES = [("LEVELS", LEVELS), ("SPACE", SPACE_PAGE), ("MACROS", MACROS_PAGE)]
 
-SCENES = [("SF SHOW", SHOW_PAGES), ("SF MIX", MIX_PAGES)]
+SCENES = [(SHOW_SCENE, SHOW_PAGES), (MIX_SCENE, MIX_PAGES)]
 PAGES = [p for _, pages in SCENES for p in pages]                 # every page that has knobs, scene by scene
 TOP = []                                                          # no knobs shared by every page since Nov 8
 assert all(len(c) == 16 for _, c in PAGES) and len({t for t, _ in PAGES}) == len(PAGES)
@@ -362,12 +373,12 @@ def _centre(c):
 SLOW_ALL = Swap(P("CONTROL", "slow_all", "SLOW ALL", "SLOW"))
 PRESSES_PAGE = {}
 for _title, _ in SHOW_PAGES:
-    PRESSES_PAGE[(_title, 1)] = SLOW_ALL                         # knob 1's press: SLOW ALL, every SF SHOW page
+    PRESSES_PAGE[(_title, 1)] = SLOW_ALL                         # knob 1's press: SLOW ALL, every PERF page
     PRESSES_PAGE[(_title, 15)] = Press("CONTROL", "song_go", "HOLD")
     PRESSES_PAGE[(_title, 16)] = Press("BUILD", "drop", "HOLD")
-for _k, _c in enumerate(PERFORM[:14], 1):
+for _k, _c in enumerate(NRG[:14], 1):
     if _k > 1:
-        PRESSES_PAGE[("PERFORM", _k)] = _centre(_c)
+        PRESSES_PAGE[("NRG", _k)] = _centre(_c)
 PRESSES_PAGE.update({
     ("SPACE", 1): Press("DUB", "throw", "HOLD"),
     ("SPACE", 2): Press("DUB", "freeze", "TOGGLE"),
@@ -394,7 +405,7 @@ def page_channel(controls):
 
 def place():
     """Every SF plugin turn's and press's number, from where it sits (the module's docstring). A control
-    sits on one page only, or at the same place on several (NEXT SONG, BUILD, SLOW ALL), or on PERFORM's
+    sits on one page only, or at the same place on several (NEXT SONG, BUILD, SLOW ALL), or on NRG's
     or MACROS' copy of it: it keeps the address it was first given, since a Live parameter takes one
     mapping. Refused: one control with two addresses. A CENTRE press takes its knob's address."""
     home, energies = {}, {}
@@ -411,7 +422,7 @@ def place():
         else:
             c.number = knob + TURN[scene]
         home[key] = c.number
-    turn(SLOW_ALL.ctl, "SF SHOW", 1)
+    turn(SLOW_ALL.ctl, SHOW_SCENE, 1)
     SLOW_ALL.number = SLOW_ALL.ctl.number
     for scene, pages in SCENES:
         for title, controls in pages:
@@ -465,14 +476,14 @@ def addresses():
 
 
 def where(places, second=False):
-    """'every SF SHOW page, encoder 16' or 'SPACE 1, ...'. A swap's turn (second) is reached with the
-    press on SF SHOW: ' (second destination)' after those places."""
+    """'every PERF page, encoder 16' or 'SPACE 1, ...'. A swap's turn (second) is reached with the
+    press on PERF: ' (second destination)' after those places."""
     tail = " (second destination)" if second else ""
     show = [t for t, _ in SHOW_PAGES]
     on_show = [(t, i) for t, i in places if t in show]
     rest = [f"{t} {i}" for t, i in places if t not in show]
     if len(on_show) == len(show) and len({i for _, i in on_show}) == 1:
-        return ", ".join([f"every SF SHOW page, encoder {on_show[0][1]}{tail}"] + rest)
+        return ", ".join([f"every {SHOW_SCENE} page, encoder {on_show[0][1]}{tail}"] + rest)
     return ", ".join([f"{t} {i}{tail}" for t, i in on_show] + rest)
 
 

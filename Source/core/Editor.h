@@ -2,7 +2,7 @@
 // SFEditor: one generic editor for every module, a narrow strip so several sit side by side in Live.
 // Top to bottom, from the hands to the set and forget:
 //   HEADER   SF <MODULE>, SONG, OUT meter (FAULT / PANIC); PRESET, STORE, LOAD
-//   E16      the plugin's page of the scene SF SHOW as the E16 shows it: the plugin's own encoders
+//   E16      the plugin's page of the scenes PERF and MIX as the E16 shows it: the plugin's own encoders
 //            lit in their ring colours where they sit, the other encoders dark (E16View.h). A plugin
 //            the scene doesn't have: no grid; one on several tracks Live hasn't named: a line.
 //   PERFORM  the rest of the top row (the first 8 parameters: Live's device view), and what else

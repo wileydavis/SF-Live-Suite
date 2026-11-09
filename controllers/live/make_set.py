@@ -43,7 +43,7 @@ WHITE, LIGHT, GREY, DARK, BLACK, RED, DARK_RED = 13, 27, 41, 55, 69, 14, 58
 # midi: the MIDI From, (ONE port, channel): set in the set, under the names Live gives the OXI One MkII's
 # two USB ports on a Mac (ONE_PORTS). A MIDI track without one (RUMBLE) stays on No Input.
 # One number per track [Nov 8]: an instrument track's number is its MIDI channel, on the OXI One (port A)
-# and on the E16, and its page in the E16 scene SF SHOW (controllers/e16/layout.py). Tracks are named by
+# and on the E16, and its page in the E16 scene PERF (controllers/e16/layout.py). Tracks are named by
 # their role, not their instrument: a track keeps its name and number when another instrument goes on it.
 # The kick sits outside DRUMS (the drum group's REPEAT and ENERGY never take it). A track without a number
 # has no channel of its own: CONTROL listens to port A ch 16 (Program Change, for an AU of SF CONTROL;
@@ -93,8 +93,8 @@ SHOW = [
 # The numbered tracks are the scene's, in the scene's order: one list (controllers/e16/layout.py).
 assert [t["name"] for t in SHOW if t["name"].split(" ", 1)[0].isdigit()] == [L.PLUGINS[d][0] for d in L.TRACKS]
 assert all(t["midi"] == ("A", int(t["name"].split(" ", 1)[0])) for t in SHOW if t["name"].split(" ", 1)[0].isdigit() and t["midi"])
-# Every instrument track ends in SF ENERGY, with the profile for its part: the E16's ENERGY knobs (SF
-# SHOW's PERFORM page) [Nov 8]. One list for the scene and the set: controllers/e16/layout.py.
+# Every instrument track ends in SF ENERGY, with the profile for its part: the E16's ENERGY knobs
+# (PERF's NRG page) [Nov 8]. One list for the scene and the set: controllers/e16/layout.py.
 for _dest, _profile in L.ENERGY_TRACKS.items():
     next(t for t in SHOW if t["name"] == L.PLUGINS[_dest][0])["devices"].append(("ENERGY", {"profile": _profile}))
 MAIN_DEVICES = [("LIMIT", {})]

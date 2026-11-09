@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.join(ROOT, "controllers", "e16"))
 import layout as L  # noqa: E402
 
 SET = os.path.join(ROOT, "controllers", "live", "SF SHOW.als")
-# KICK TUNE (1 KICK, knob 1) and the knob after it, KICK PUNCH: turns on one page each.
-TUNE, PUNCH = (L.encoders("1 KICK")[k] for k in (0, 1))
+# KICK TUNE (the kick's page, KCK, knob 1) and the knob after it, KICK PUNCH: turns on one page each.
+TUNE, PUNCH = (L.encoders("KCK")[k] for k in (0, 1))
 assert (TUNE.pid, PUNCH.pid) == ("tune", "punch") and TUNE.channel == PUNCH.channel
 CHECK = os.environ.get("CHECK_SET", os.path.join(ROOT, "controllers", "live", "check_set.py"))   # CHECK_SET: test another copy
 fails = 0
