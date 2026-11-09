@@ -117,10 +117,11 @@ public:
         const float morph = c.v (MORPH), len = 0.05f + c.v (LENGTH) * 0.95f, shape = c.v (SHAPE), depth = c.v (DEPTH);
         const float sw = c.v (SWING) / 3.0f;
         const float ramp = 0.02f + shape * 0.43f;
+        const double late = groove.beats (*c.bus, c.bpm);     // the steps on the groove's grid (KickGroove)
         const float smoothA = std::exp (-1.0f / (float) (0.0008 * sr));
         for (int i = 0; i < c.n; ++i)
         {
-            double pos = c.ppqAt (i) / stepB;
+            double pos = (c.ppqAt (i) - late) / stepB;
             const double whole = std::floor (pos);
             const int step = (int) ((long long) whole % 16 + 16) % 16;
             double frac = pos - whole;
@@ -169,6 +170,7 @@ private:
     std::atomic<uint16_t> patA { 0 }, patB { 0 };
     std::atomic<float> morphD { 0 };
     std::atomic<int> playStep { 0 };
+    KickGroove groove;                    // where the groove lands against Live's beat
 };
 ModulePtr makeGATE() { return std::make_unique<GateModule>(); }
 
@@ -617,11 +619,12 @@ public:
         const int capSize = (int) cap[0].size() - 4;
         const int segLen = juce::jlimit (64, capSize, (int) (lenB[juce::jlimit (0, 5, c.ci (LENGTH))] * c.samplesPerBeat()));
         const bool want = c.b (ROLL);
+        const double late = groove.beats (*c.bus, c.bpm);    // kept current, for the next roll
         int startAt = -1;
         if (want && state == Idle)
         {
             const double q = qB[juce::jlimit (0, 3, c.ci (QUANT))];
-            startAt = q <= 0.0 ? 0 : c.nextGrid (q);
+            startAt = q <= 0.0 ? 0 : c.nextGrid (q, late);   // on the groove's grid (KickGroove)
             if (startAt >= 0) state = Armed;
         }
         if (! want && (state == Rolling || state == Armed)) state = state == Armed ? Idle : Releasing;
@@ -684,6 +687,7 @@ private:
     float x = 0, passRate = 1.0f, passGain = 1.0f;
     Svf lp[2];
     std::atomic<int> dispPass { -1 };
+    KickGroove groove;                    // where the groove lands against Live's beat
 };
 ModulePtr makeREPEAT() { return std::make_unique<RepeatModule>(); }
 } // namespace sf

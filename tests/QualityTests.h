@@ -17,6 +17,7 @@
 #include "core/E16Glide.h"
 #include "core/E16Map.h"
 #include "core/HeardBeat.h"
+#include "core/KickGroove.h"
 #include "core/Loudness.h"
 #include "core/Oversample.h"
 #include "core/Resample.h"
@@ -2596,6 +2597,157 @@ static void testDrop()
         CHECK (openMs > -12.5 && openMs < -7.5 && std::abs (whole) < 0.5, "SF KICK late: opens %+.1f ms from the kick, kick %+.2f dB", openMs, whole);
         Bus::testClock = nullptr;
     }
+    resetBus();
+}
+
+// The grid devices follow the kick [Nov 8]. Live can't follow the OXI One's clock (EXT turns delay
+// compensation off), and as the master its clock reaches the ONE late: the ONE's parts all arrive
+// 30-45 ms after Live's beat. KickGroove takes where SF KICK's kicks land and REPEAT's start,
+// ENERGY's chop, GATE's steps, STRIP's pattern, DUCK's pump and DECK move their grid by it.
+// 1. KickGroove: 8 kicks 40 ms late read 40 ms; two off the beat among them change nothing;
+//    kicks scattered over 300 ms never lock; it holds through 20 s with no kick; 132 BPM, 43 ms.
+// 2. Each device on noise, with kicks reported on the beat and then 40 ms after it: its gain
+//    pattern moves 40 ms; with no kick reported it stays where it is with kicks on the beat.
+// 3. REPEAT, QUANT 1/16: the roll's capture starts on the groove's sixteenth, 40 ms after Live's.
+static void testGrooveFollow()
+{
+    std::printf ("-- the grid devices follow the kick (KickGroove)\n");
+    static double simSec5 = 30000.0;
+    Bus::testClock = [] { return simSec5; };
+    auto report = [] (double ppq) { Bus::get().publishKick ({ ppq, 1.0f, 120.0f, 50.0f, 0.03f, 0.4f, 0.0f, 0.0f, 0.0 }); };
+    {
+        resetBus();
+        KickGroove g;
+        for (int k = 0; k < 8; ++k) { simSec5 += 0.5; report (k + 0.08); }
+        const double a = g.seconds (Bus::get(), 120.0) * 1000.0;
+        resetBus();
+        KickGroove g2;
+        for (int k = 0; k < 8; ++k) { simSec5 += 0.5; report (k + (k == 2 || k == 5 ? 0.75 : 0.0) + 0.08); }
+        const double b = g2.seconds (Bus::get(), 120.0) * 1000.0;
+        resetBus();
+        KickGroove g3;
+        for (int k = 0; k < 8; ++k) { simSec5 += 0.5; report (k + 0.08 + 0.02 * (double) ((k * 5) % 8 - 4)); }
+        const double c = g3.seconds (Bus::get(), 120.0) * 1000.0;
+        const bool cLocked = g3.isLocked();
+        // Hold: 20 s on, two kicks on the beat (not enough to agree): the 40 ms stays.
+        simSec5 += 20.0;
+        report (100.0); report (101.0);
+        const double d = g.seconds (Bus::get(), 120.0) * 1000.0;
+        resetBus();
+        KickGroove g4;
+        for (int k = 0; k < 8; ++k) { simSec5 += 60.0 / 132.0; report (k + 0.043 * 132.0 / 60.0); }
+        const double e = g4.seconds (Bus::get(), 132.0) * 1000.0;
+        std::printf ("   40 ms late: %.2f ms; two kicks off the beat among them: %.2f ms; scattered: %s; 20 s later, two on the beat: %.2f ms; 132 BPM, 43 ms late: %.2f ms\n",
+                     a, b, cLocked ? "LOCKED" : "no lock", d, e);
+        CHECK (std::abs (a - 40.0) < 0.01 && std::abs (b - 40.0) < 0.01 && ! cLocked && c == 0.0 && std::abs (d - 40.0) < 0.01 && std::abs (e - 43.0) < 0.01,
+               "KickGroove: %.2f, %.2f, scattered %s (%.2f), held %.2f, 132 BPM %.2f", a, b, cLocked ? "locked" : "unlocked", c, d, e);
+    }
+    const double bpm = 120.0, spb = kSr * 60.0 / bpm;
+    enum Kicks { NONE, ON_THE_BEAT, LATE };
+    // The output's gain against its input, every 1 ms, beats 6-14 (the groove found by beat 4).
+    auto gains = [&] (const char* module, const std::vector<std::pair<const char*, float>>& params, Kicks kicks)
+    {
+        resetBus();
+        Rig2 r (module);
+        r.head.bpm = bpm;
+        for (auto& p : params) r.set (p.first, p.second);
+        const double lateB = kicks == LATE ? 0.040 * bpm / 60.0 : 0.0;
+        uint32_t seed = 12345;
+        std::vector<float> in, out;
+        int next = 0;
+        while (r.ppq < 14.0)
+        {
+            const double q0 = r.ppq, bps = r.bps();
+            while (kicks != NONE && next + lateB < q0 + kBlock * bps) { report (next + lateB); ++next; }   // as SF KICK reports, when it plays it
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    seed = seed * 1664525u + 1013904223u;
+                    const float v = 0.25f * ((float) (seed >> 8) / 8388608.0f - 1.0f);
+                    b.setSample (0, i, v); b.setSample (1, i, v); in.push_back (v);
+                }
+            });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+            simSec5 += kBlock / kSr;
+        }
+        std::vector<double> g;
+        const int w = (int) (0.001 * kSr);
+        for (size_t s = (size_t) (6.0 * spb); s + (size_t) w <= (size_t) (14.0 * spb) && s + (size_t) w <= out.size(); s += (size_t) w)
+        {
+            double eo = 0.0, ei = 0.0;
+            for (int i = 0; i < w; ++i) { eo += (double) out[s + (size_t) i] * out[s + (size_t) i]; ei += (double) in[s + (size_t) i] * in[s + (size_t) i]; }
+            g.push_back (std::sqrt (eo / (ei + 1e-30)));
+        }
+        return g;
+    };
+    // How far b's pattern sits after a's (ms, the best match within +-80 ms).
+    auto lag = [] (const std::vector<double>& a, const std::vector<double>& b)
+    {
+        int best = 0; double bestC = -1e300;
+        for (int L = -80; L <= 80; ++L)
+        {
+            double cs = 0.0, ma = 0.0, mb = 0.0; int n = 0;
+            for (size_t t = 100; t + 100 < b.size(); ++t) { ma += a[t - (size_t) L]; mb += b[t]; ++n; }
+            ma /= n; mb /= n;
+            for (size_t t = 100; t + 100 < b.size(); ++t) cs += (a[t - (size_t) L] - ma) * (b[t] - mb);
+            if (cs > bestC) { bestC = cs; best = L; }
+        }
+        return best;
+    };
+    struct Dev { const char* what; const char* module; std::vector<std::pair<const char*, float>> params; };
+    const Dev devs[] = {
+        { "ENERGY's chop", "ENERGY", { { "energy", 1.0f }, { "gate_amt", 1.0f }, { "drive_amt", 0.0f }, { "space_amt", 0.0f }, { "echo_amt", 0.0f } } },
+        { "GATE's steps", "GATE", { { "depth", 1.0f } } },
+        { "STRIP's pattern", "STRIP", { { "gate_mode", 1.0f }, { "gate", 0.5f }, { "pocket", 0.0f }, { "density", 0.0f }, { "drive", 0.0f }, { "space", 0.0f } } },
+        { "DUCK's pump", "DUCK", { { "source", 2.0f }, { "rate", 1.0f }, { "depth", 1.0f }, { "mix", 1.0f } } },
+    };
+    for (const auto& dv : devs)
+    {
+        const auto none = gains (dv.module, dv.params, NONE), on = gains (dv.module, dv.params, ON_THE_BEAT), late = gains (dv.module, dv.params, LATE);
+        double swing = 0.0;
+        for (double v : on) swing = std::max (swing, std::abs (v - on[0]));
+        const int moved = lag (on, late), still = lag (none, on);
+        std::printf ("   %-16s kicks 40 ms late move it %+3d ms; kicks on the beat %+3d ms from none (gain swings %.2f)\n", dv.what, moved, still, swing);
+        CHECK (moved >= 39 && moved <= 41 && still == 0 && swing > 0.3, "%s: moved %+d ms (want +40), %+d with kicks on the beat, swing %.2f", dv.what, moved, still, swing);
+    }
+    // 3. REPEAT: ROLL held from beat 9.1, QUANT 1/16, LENGTH 1/32: the roll starts on the next
+    //    sixteenth of the groove. Its first loop pass replays what it captured, so the output first
+    //    differs from the input one LENGTH after the start.
+    for (const Kicks kicks : { ON_THE_BEAT, LATE })
+    {
+        resetBus();
+        Rig2 r ("REPEAT");
+        r.head.bpm = bpm;
+        r.set ("length", 3.0f); r.set ("quant", 1.0f); r.set ("mix", 1.0f); r.set ("decay", 0.0f); r.set ("pitch", 0.0f); r.set ("gate", 1.0f); r.set ("filter", 0.0f);
+        const double lateB = kicks == LATE ? 0.040 * bpm / 60.0 : 0.0;
+        uint32_t seed = 999;
+        std::vector<float> in, out;
+        int next = 0;
+        while (r.ppq < 11.0)
+        {
+            const double q0 = r.ppq, bps = r.bps();
+            while (next + lateB < q0 + kBlock * bps) { report (next + lateB); ++next; }
+            r.set ("roll", q0 >= 9.1 ? 1.0f : 0.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    seed = seed * 1664525u + 1013904223u;
+                    const float v = 0.25f * ((float) (seed >> 8) / 8388608.0f - 1.0f);
+                    b.setSample (0, i, v); b.setSample (1, i, v); in.push_back (v);
+                }
+            });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+            simSec5 += kBlock / kSr;
+        }
+        size_t d = (size_t) (9.1 * spb);
+        while (d < out.size() && std::abs (out[d] - in[d]) < 0.02f) ++d;
+        const double startBeat = ((double) d - 0.125 * spb) / spb, want = 9.25 + lateB;
+        std::printf ("   REPEAT, kicks %s: the roll starts on beat %.4f (want %.4f, %+.1f ms)\n", kicks == LATE ? "40 ms late " : "on the beat", startBeat, want, (startBeat - want) * 500.0);
+        CHECK (std::abs (startBeat - want) * 500.0 < 2.0, "REPEAT, kicks %s: starts on %.4f, want %.4f", kicks == LATE ? "late" : "on the beat", startBeat, want);
+    }
+    Bus::testClock = nullptr;
     resetBus();
 }
 

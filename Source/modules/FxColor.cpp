@@ -342,6 +342,7 @@ public:
     {
         const int src = c.ci (SOURCE);
         const float depth = c.v (DEPTH) * c.v (MIX);
+        const double late = groove.beats (*c.bus, c.bpm);         // the pump on the groove's beat (KickGroove), kept current
         pocket.process (c, io.getArrayOfWritePointers(), 2, c.n, depth, c.v (SHAPE), side, src != 2, src == 1);
         if (src == 2)
         {
@@ -351,7 +352,7 @@ public:
             const double look = Pocket::kLatency * c.beatsPerSample();
             for (int i = 0; i < c.n; ++i)
             {
-                double ph = std::fmod (c.ppqAt (i) - look, per) / per;
+                double ph = std::fmod (c.ppqAt (i) - look - late, per) / per;
                 if (ph < 0) ph += 1.0;
                 const float shapeV = std::pow ((float) ph, pw);
                 const float g = 1.0f - depth * (1.0f - shapeV);
@@ -367,6 +368,7 @@ private:
     double sr = 48000.0;
     Pocket pocket;
     float gz = 1.0f;
+    KickGroove groove;                    // where the groove lands against Live's beat
 };
 ModulePtr makeDUCK() { return std::make_unique<DuckModule>(); }
 
@@ -433,6 +435,7 @@ public:
         const float echoD = (float) (0.25 * c.samplesPerBeat());
         for (auto& f : echoLp) f.set (3500.0f, 0.7071f, sr);
         const float chop = up * c.v (GATEAMT);
+        const double late = groove.beats (*c.bus, c.bpm);
         for (int i = 0; i < n; ++i)
         {
             const float l = io.getSample (0, i), r = io.getSample (1, i);
@@ -443,7 +446,8 @@ public:
             float g = 1.0f;
             if (chop > 0.001f)
             {
-                const double ph = std::fmod (c.ppqAt (i) * 4.0, 1.0);
+                double ph = std::fmod ((c.ppqAt (i) - late) * 4.0, 1.0);   // the groove's sixteenths (KickGroove)
+                if (ph < 0.0) ph += 1.0;
                 const float tgt = ph < 0.5 ? 1.0f : 1.0f - chop;
                 chopZ = tgt + 0.995f * (chopZ - tgt);
                 g = chopZ;
@@ -473,6 +477,7 @@ private:
     Svf echoLp[2];
     float echoFb[2] {}, chopZ = 1.0f;
     std::atomic<float> disp { 0.5f };
+    KickGroove groove;                    // where the groove lands against Live's beat
 };
 ModulePtr makeENERGY() { return std::make_unique<EnergyModule>(); }
 } // namespace sf

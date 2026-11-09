@@ -110,9 +110,11 @@ struct Ctx
     bool b (int i) const            { return p[i] > 0.5f; }
     double ppqAt (int s) const      { return ppq + s * beatsPerSample(); }
     // Sample offset in this block of the next multiple of `beats`, or -1.
-    int nextGrid (double beats) const
+    // Samples to the next grid line of `beats` in this block (-1: none). offsetBeats moves the grid
+    // later: the grid a late groove plays on (KickGroove).
+    int nextGrid (double beats, double offsetBeats = 0.0) const
     {
-        const double first = std::ceil (ppq / beats - 1e-9) * beats;
+        const double first = std::ceil ((ppq - offsetBeats) / beats - 1e-9) * beats + offsetBeats;
         const double off = (first - ppq) * samplesPerBeat();
         return off < n ? (int) off : -1;
     }

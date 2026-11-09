@@ -4,6 +4,7 @@
 #include "../core/Bus.h"
 #include "../core/Dsp.h"
 #include "../core/Instrument.h"
+#include "../core/KickGroove.h"
 #include "../core/Module.h"
 #include "../core/Pocket.h"
 #include "../core/Registry.h"

@@ -89,7 +89,8 @@ headphone out and records the place (the operator's manual, chapter 8, CAPTURING
   come back, buffers both ways: on Nov 7 the kick came 40 ms after Live's beat), and nothing needs
   them on the beat: SF BUILD lands its drop on the kick it hears (LAND ON KICK; its KICK readout
   shows how late the kick reaches it), SF CONTROL takes the ONE's Program Change up to a sixteenth
-  after the bar line as on the bar, and Pocket follows SF KICK. On Nov 7, -70 ms there moved the
+  after the bar line as on the bar, and Pocket and the effects that cut on the beat (GATE, STRIP,
+  ENERGY's chop, DUCK's GRID, REPEAT, DECK) follow SF KICK. On Nov 7, -70 ms there moved the
   kick not at all.
 - Live's preferences live outside any set: nothing in this file can set them.
 - The OXI One's own setup (sync, its config, the startup project): `controllers/oxi-one`. Live sends

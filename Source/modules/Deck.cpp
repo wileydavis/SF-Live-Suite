@@ -288,6 +288,9 @@ public:
         const float target = c.v (TARGET);
         static const double rollB[] = { 0.0, 1.0, 0.5, 0.25, 0.125 };
         const double rollLen = rollB[juce::jlimit (0, 4, c.ci (ROLL))];
+        // Starts, jumps and the trance gate on the groove's grid (KickGroove): a deck lands with the
+        // ONE's parts, which come after Live's beat.
+        const double late = groove.beats (*c.bus, c.bpm);
         for (int k = 0; k < 2; ++k)
         {
             auto& d = decks[(size_t) k];
@@ -304,7 +307,7 @@ public:
             // Start / jump on the grid.
             if (d.armed)
             {
-                const int at = c.nextGrid (quant);
+                const int at = c.nextGrid (quant, late);
                 if (at >= 0) { d.armed = false; d.playing = true; d.startPpq = c.ppqAt (at); d.cueBeat = hotCue (k, 0); d.synced = false; d.fade = 0.0f; d.logPending = true; }
             }
             if (! d.playing) d.jumpCue = -1;      // hot cues only act on a playing deck
@@ -312,7 +315,7 @@ public:
             {
                 // Lands on the next beat line: the cue point is exactly on the beat; the few ms
                 // before it in this block play the audio just ahead of the cue, faded in.
-                const int at = c.nextGrid (1.0);
+                const int at = c.nextGrid (1.0, late);
                 if (at >= 0) { d.startPpq = c.ppqAt (at); d.cueBeat = hotCue (k, d.jumpCue); d.jumpCue = -1; d.synced = false; d.fade = 0.0f; }
             }
             if (! d.playing) continue;
@@ -405,7 +408,8 @@ public:
         if (gate > 0.001f)
             for (int i = 0; i < n; ++i)
             {
-                const double ph = std::fmod (c.ppqAt (i) * 4.0, 1.0);
+                double ph = std::fmod ((c.ppqAt (i) - late) * 4.0, 1.0);
+                if (ph < 0.0) ph += 1.0;
                 const float tgt = ph < 0.5 ? 1.0f : 1.0f - gate;
                 gateZ += (tgt - gateZ) * 0.01f;
                 io.getWritePointer (0)[i] *= gateZ; io.getWritePointer (1)[i] *= gateZ;
@@ -636,6 +640,7 @@ private:
     double expectedPpq = -1e9;
     struct Disp { std::atomic<bool> playing { false }, armed { false }; std::atomic<double> beat { 0 }, bpm { 0 }; } disp[2];
     std::atomic<double> dispHostBpm { 120 };
+    KickGroove groove;                    // where the groove lands against Live's beat
 };
 ModulePtr makeDECK() { return std::make_unique<DeckModule>(); }
 } // namespace sf

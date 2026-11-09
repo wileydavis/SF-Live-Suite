@@ -104,6 +104,7 @@ public:
         static const double rates[] = { 0.5, 0.25, 0.125 };
         const double stepB = rates[juce::jlimit (0, 2, c.ci (RATE))];
         const uint16_t pat = kStripPatterns[(size_t) juce::jlimit (0, 11, c.ci (PATTERN))];
+        const double late = groove.beats (*c.bus, c.bpm);     // the pattern on the groove's grid (KickGroove)
         const float att = 1.0f / (0.001f * (float) sr), rel = 1.0f / (0.005f * (float) sr);
 
         // ---- DENSITY (audio ghost echoes, as SF DENSITY)
@@ -134,7 +135,7 @@ public:
             float target = 1.0f;
             if (pattern)
             {
-                const double pos = c.ppqAt (i) / stepB;
+                const double pos = (c.ppqAt (i) - late) / stepB;
                 const int step = (int) (((long long) std::floor (pos)) % 16 + 16) % 16;
                 const float frac = (float) (pos - std::floor (pos));
                 const bool on = (pat >> (15 - step)) & 1;
@@ -245,6 +246,7 @@ private:
     float gateG = 1.0f, pass1 = 1.0f, pass2 = 1.0f, throwG = 0.0f;
     int spaceTail = 0;
     std::atomic<float> dispGate { 1.0f }, dispDens { 0.0f };
+    KickGroove groove;                    // where the groove lands against Live's beat
 };
 ModulePtr makeSTRIP() { return std::make_unique<StripModule>(); }
 } // namespace sf

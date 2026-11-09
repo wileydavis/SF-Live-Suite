@@ -75,21 +75,25 @@ public:
         kept[head] = sec;
         head = (head + 1) % kKeep;
         nKept = std::min (nKept + 1, kKeep);
+        if (agreedMedian (kept, nKept, med)) isLocked = true;     // else the last result holds
+    }
+    // The median of the largest group of v[0..n) (n <= kKeep) that agree within kAgree, if it is at
+    // least kLock of them and more than half; false (out untouched) if not.
+    static bool agreedMedian (const double* v, int n, double& out)
+    {
         int bestN = 0;
         double near[kKeep];
-        for (int k = 0; k < nKept; ++k)
+        for (int k = 0; k < n; ++k)
         {
             double g[kKeep];
-            int n = 0;
-            for (int j = 0; j < nKept; ++j) if (std::abs (kept[j] - kept[k]) <= kAgree) g[n++] = kept[j];
-            if (n > bestN) { bestN = n; std::copy (g, g + n, near); }
+            int m = 0;
+            for (int j = 0; j < n; ++j) if (std::abs (v[j] - v[k]) <= kAgree) g[m++] = v[j];
+            if (m > bestN) { bestN = m; std::copy (g, g + m, near); }
         }
-        if (bestN >= kLock && 2 * bestN > nKept)     // else the last result holds
-        {
-            std::sort (near, near + bestN);
-            med = bestN % 2 ? near[bestN / 2] : 0.5 * (near[bestN / 2 - 1] + near[bestN / 2]);
-            isLocked = true;
-        }
+        if (bestN < kLock || 2 * bestN <= n) return false;
+        std::sort (near, near + bestN);
+        out = bestN % 2 ? near[bestN / 2] : 0.5 * (near[bestN / 2 - 1] + near[bestN / 2]);
+        return true;
     }
     bool locked() const { return isLocked; }
     double seconds() const { return med; }            // where the beat lands, + = after the host's beat

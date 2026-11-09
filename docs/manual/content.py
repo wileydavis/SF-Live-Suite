@@ -273,7 +273,7 @@ MODULES["DECK"] = dict(
     use=[
         "Drop tracks on the window. Each is analysed in the background (ANALYSING, then BPM and LUFS).",
         "Click A or B on a row to load it into a deck. X removes it from the list.",
-        "PLAY A starts the deck on the next QUANT boundary (default 4 bars), locked to Live's tempo. PLAY off fades it out.",
+        "PLAY A starts the deck on the next QUANT boundary (default 4 bars), locked to Live's tempo. PLAY off fades it out. Starts, hot-cue jumps and GATE follow the groove: with SF KICK in the set they land where its kicks do, which with a sequencer clocked by Live is a little after Live's beat (the ONE: 30-45 ms).",
         "Hot cues: C1-D#1 jump deck A to cue 1-4 on the next beat, C2-D#2 deck B. Default cues at beats 0, 32, 64, 96.",
         "Headphones: make an audio track with Audio From = the DECK track, choose CUE, route it to your headphone outputs, and turn CUE A or CUE B on.",
         "Every deck start is written to Documents/SF Live Suite/tracklog.txt.",
@@ -287,7 +287,7 @@ MODULES["DECK"] = dict(
         "low_a": "Deck A low band: 0 = kill, 75 % = 0 dB, 100 % = +6 dB.",
         "low_b": "Deck B low band.",
         "roll": "Slip loop roll on the playing decks: 1/4 to 1/32. The track keeps running underneath; OFF returns to where it would have been.",
-        "gate": "1/16 trance gate depth on the deck mix.",
+        "gate": "1/16 trance gate depth on the deck mix, on the groove's sixteenths.",
         "play_a": "Start (on the next QUANT boundary) / stop deck A.",
         "play_b": "Start / stop deck B.",
         "mid_a": "Deck A mid band.", "high_a": "Deck A high band.",
@@ -345,7 +345,8 @@ MODULES["FILTER"] = dict(group="EFFECTS", summary="Bipolar performance filter wi
         "throw_to": "Direction of the throw: HP or LP.",
     })
 MODULES["GATE"] = dict(group="EFFECTS", summary="Rhythmic gate with 16 patterns, morphing between two of them.",
-    use=["The tool that turns a held note into a rhythm.", "Set PATTERN A and B, then ride MORPH between them; DEPTH sets how hard the gate cuts."],
+    use=["The tool that turns a held note into a rhythm.", "Set PATTERN A and B, then ride MORPH between them; DEPTH sets how hard the gate cuts.",
+         "The steps follow the groove: with SF KICK in the set they sit where its kicks land against Live's beat (a sequencer clocked by Live plays a little after it: the ONE 30-45 ms), so the gate opens with the notes, not ahead of them. With no SF KICK, Live's grid."],
     models=[("Patterns", "FULL, 8THS, OFFBEAT, OFF 8THS, TRESILLO, GALLOP, SKIP 1, SKIP 2, STAB, PUMP, BROKEN, CLAVE, 3-3-2, HALF, SPARSE, DOTTED.")],
     desc={
         "depth": "How far the gate closes. 0 = no effect.",
@@ -474,14 +475,14 @@ MODULES["REPEAT"] = dict(group="EFFECTS", summary="Beat repeat for fills and bui
         "roll": "Hold to roll. The slice is captured from the QUANT point (up to 4 s) and kept for the whole hold. Release: the loop keeps playing while it crossfades back to the input.", "length": "Loop length: 1/4 to 1/32 and triplets.",
         "decay": "Level loss per pass.", "pitch": "Pitch drop over the repeats: falls by this amount every four passes.",
         "gate": "How much of each pass plays.", "filter": "Darkens over the repeats.", "mix": "Roll level over the input.",
-        "quant": "Start point: OFF (at once), 1/16, 1/8, 1/4.",
+        "quant": "Start point: OFF (at once), 1/16, 1/8, 1/4, on the groove's grid: where SF KICK's kicks land, a little after Live's beat with a sequencer clocked by Live (Live's grid with no SF KICK).",
     })
 MODULES["DUCK"] = dict(group="EFFECTS", summary="Pocket as an effect for any audio: follows SF KICK on the bus, a sidechain input, or a tempo-synced volume shape.",
     use=["Put it on any track that should pump with the kick: no sidechain routing needed.", "SOURCE SIDECHAIN for an external kick; GRID for a classic volume-shaper pump."],
     models=[], desc={
         "depth": "How far it ducks.", "shape": "Transparent (pitch-tracking) to full pump.",
         "source": "KICK BUS (SF KICK), SIDECHAIN (Live's sidechain input), GRID (volume shape).",
-        "rate": "GRID: 1/2, 1/4, 1/8.", "curve": "GRID: shape of the recovery.", "mix": "Amount.",
+        "rate": "GRID: 1/2, 1/4, 1/8, on the groove's beat (where SF KICK's kicks land; Live's beat with no SF KICK).", "curve": "GRID: shape of the recovery.", "mix": "Amount.",
     })
 MODULES["ENERGY"] = dict(group="EFFECTS", summary="Group energy. Replaces the DJ filter on groups: one bipolar knob, centre neutral, that adds energy as well as taking it away.",
     use=["One per group (drums, bass, music, voice) with PROFILE to match.", "Down: low-pass, space and softness. Up: high-pass with a resonant edge, drive, 1/16 echo and chop.", "With SLOW on, an 8-bar high-pass build happens by itself."],
@@ -490,7 +491,7 @@ MODULES["ENERGY"] = dict(group="EFFECTS", summary="Group energy. Replaces the DJ
         "energy": "Bipolar. Centre = neutral. Left = down, right = up.", "profile": "How far each side travels for this kind of group.",
         "res": "Resonant edge (stronger on the up side).", "drive_amt": "Drive added on the up side (2x oversampled, from clean at centre).",
         "space_amt": "Reverb added on the down side. It rings out when the knob comes back past centre.", "echo_amt": "1/16 echo added on the up side.",
-        "gate_amt": "1/16 chop added on the up side.",
+        "gate_amt": "1/16 chop added on the up side, on the groove's sixteenths (where SF KICK's kicks land).",
     })
 
 # --- master
@@ -589,7 +590,7 @@ MODULES["STRIP"] = dict(group="EFFECTS", summary="The suite's performance row fo
         "darken": "How much darker each generation of echoes is.",
         "gate_mode": "HITS (closes each detected hit) or PATTERN (rhythmic gate).",
         "pattern": "Gate pattern for PATTERN mode.",
-        "rate": "Step size for PATTERN mode: 1/8, 1/16, 1/32.",
+        "rate": "Step size for PATTERN mode: 1/8, 1/16, 1/32. The steps sit on the groove's grid (where SF KICK's kicks land; Live's grid with no SF KICK).",
         "character": "Drive character: tape (0) to fuzz (100 %).",
         "space_type": "REVERB or DUB ECHO (ping-pong, 1/8 to 3/16).",
         "space_size": "Reverb size and decay / echo time and feedback.",
