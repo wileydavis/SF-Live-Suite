@@ -385,7 +385,7 @@ void SFEditor::build()
         track = t;
         page = e16::homePage (mod.c_str(), t);
         const auto& pg = kE16Pages[page];
-        bool top = false, swap = false;
+        bool swap = false;
         for (int e = 0; e < 16; ++e)
         {
             auto& gc = grid[(size_t) e];
@@ -411,22 +411,20 @@ void SFEditor::build()
             body.addAndMakeVisible (*gc.mine);
             placed[(size_t) param] = true;
             if (press >= 0) placed[(size_t) press] = true;
-            top = top || e < 8;
             swap = swap || second;
         }
-        // Where else it is: another page's encoders 9-16 (1-8 are on every page).
-        juce::StringArray also;
+        // Where else it is: an encoder on every SF SHOW page (NEXT SONG, BUILD) once, others by page.
+        juce::StringArray every, also;
+        for (int e = 0; e < 16; ++e)
+            if (e16::onEveryShowPage (e, mod.c_str(), t, page)) every.add (juce::String (e + 1));
         for (int pg2 = 0; pg2 < e16::kNumPages; ++pg2)
             if (pg2 != page)
-                for (int e = 8; e < 16; ++e)
-                {
-                    const auto& c = kE16Pages[pg2].cells[e];
-                    if (e16::turnIs (c.turn, mod.c_str(), t) || e16::pressIs (c.press, mod.c_str(), t))
+                for (int e = 0; e < 16; ++e)
+                    if (e16::cellIs (kE16Pages[pg2].cells[e], mod.c_str(), t) && ! (e16::isShowPage (pg2) && every.contains (juce::String (e + 1))))
                         also.add (juce::String (kE16Pages[pg2].name) + " " + juce::String (e + 1));
-                }
-        if (swap) note = "ENCODER 1: PRESS FOR SLOW ALL, ON EVERY PAGE";
-        else if (! also.isEmpty()) note = "ALSO ON " + also.joinIntoString (", ");
-        else if (top) note = "ENCODERS 1-8: ON EVERY PAGE";
+        if (! every.isEmpty()) also.insert (0, (every.size() == 1 ? "ENCODER " : "ENCODERS ") + every.joinIntoString (", ") + " ON EVERY SF SHOW PAGE");
+        if (swap) note = "ENCODER 1: PRESS FOR SLOW ALL, ON EVERY SF SHOW PAGE";
+        else if (! also.isEmpty()) note = "ALSO " + also.joinIntoString (", ");
     }
 
     // The groups, in the order of the strip.
@@ -671,7 +669,8 @@ void SFEditor::paintE16 (juce::Graphics& g)
     g.setColour (juce::Colour (0xff262626));
     g.drawRoundedRectangle (oled, 2.0f, 1.0f);
     fitted (g, kE16Pages[page].name, oled, ui::kText, 10.0f, juce::Justification::centred, true);
-    fitted (g, "E16", { pr.getX() + 8.0f, oled.getY(), 40.0f, oled.getHeight() }, ui::kFaint, 8.5f, juce::Justification::centredLeft, true);
+    fitted (g, "E16 " + juce::String (kE16Pages[page].scene).fromFirstOccurrenceOf ("SF ", false, false),
+            { pr.getX() + 8.0f, oled.getY(), oled.getX() - pr.getX() - 12.0f, oled.getHeight() }, ui::kFaint, 8.5f, juce::Justification::centredLeft, true);
     fitted (g, track, { oled.getRight() + 4.0f, oled.getY(), pr.getRight() - oled.getRight() - 12.0f, oled.getHeight() },
             ui::kDim, 8.5f, juce::Justification::centredRight);
     for (const auto& gc : grid)

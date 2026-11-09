@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
-"""Tests the E16 scene's GLIDE RINGS script as shipped (the minified code inside SF SHOW.oxie16)
-against a mock of the E16's Lua API (1-based encoders and pages, 14-bit ring values, leds.reset
-hands a ring back to the firmware). Needs lupa (pip install lupa): Lua 5.4.
+"""Tests the E16 scenes' GLIDE RINGS script as shipped (the minified code inside SF SHOW.oxie16 and
+SF MIX.oxie16, each with its own knob map) against a mock of the E16's Lua API (1-based encoders and
+pages, 14-bit ring values, leds.reset hands a ring back to the firmware). Needs lupa (pip install
+lupa): Lua 5.4.
 
     python3 tests/glide_rings_test.py
 """
@@ -24,12 +24,7 @@ def check(ok, msg):
     fails += 0 if ok else 1
 
 
-scene = json.load(open(os.path.join(ROOT, "controllers", "e16", "SF SHOW.oxie16")))
-code = scene["code"]["code"]
-check(code.count("\n") == 1 and code.endswith("\n"), f"the script is one line, {len(code)} bytes")
-
-lua = lua54.LuaRuntime(unpack_returned_tuples=True)
-lua.execute("""
+MOCK = """
 E = {rings = {}, page = 1, rate = 0}
 leds = {
   updateByIndex = function(i, v, c)
@@ -45,103 +40,134 @@ page = {}
 system = {setUpdateRate = function(ms) E.rate = ms end}
 slots = {update = function() end, reset = function() end}
 midi = {}
-""")
-lua.execute(code)
-G = lua.globals()
-E = G.E
+"""
 
 
-def ring(i):
-    r = E.rings[i]
-    return None if r is None else (r.v, r.c)
+class E16:
+    """One scene's script running in a fresh Lua."""
+    def __init__(self, title):
+        scene = json.load(open(os.path.join(ROOT, "controllers", "e16", title + ".oxie16")))
+        code = scene["code"]["code"]
+        check(code.count("\n") == 1 and code.endswith("\n"), f"{title}: the script is one line, {len(code)} bytes")
+        self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
+        self.lua.execute(MOCK)
+        self.lua.execute(code)
+        self.G = self.lua.globals()
+        self.E = self.G.E
+        self.pages = [t for t, _ in dict(L.SCENES)[title]]
+        self.G.page.onInit()
+
+    def ring(self, i):
+        r = self.E.rings[i]
+        return None if r is None else (r.v, r.c)
+
+    def rings(self):
+        return {i: self.ring(i) for i in range(1, 17) if self.ring(i) is not None}
+
+    def sysex(self, *data):
+        self.G.controller.onSysex(self.lua.table_from([0xF0, 0x7D, 0x53, 0x46] + list(data) + [0xF7]))
+
+    def move(self, *knobs):
+        """knobs: (control, value)"""
+        out = [1]
+        for c, v in knobs:
+            out += [c.channel - 1, c.number, v >> 7, v & 127]
+        self.sysex(*out)
+
+    def arrive(self, *knobs):
+        out = [2]
+        for c in knobs:
+            out += [c.channel - 1, c.number]
+        self.sysex(*out)
+
+    def update(self, n=1):
+        for _ in range(n):
+            self.G.system.update()
+
+    def goto(self, title):
+        p = self.pages.index(title) + 1 if isinstance(title, str) else title
+        prev, self.E.page = self.E.page, p
+        self.G.page.onPageChange(prev, p)
+
+    def turn(self, i, inc=1):
+        self.G.controller.onEncoderTurn(self.lua.table_from({"index": i, "page": self.E.page, "increment": inc, "value": 0}))
 
 
-def sysex(*data):
-    return lua.table_from([0xF0, 0x7D, 0x53, 0x46] + list(data) + [0xF7])
-
-
-def move(*knobs):
-    """knobs: (channel, number, value)"""
-    out = [1]
-    for ch, num, v in knobs:
-        out += [ch - 1, num, v >> 7, v & 127]
-    G.controller.onSysex(sysex(*out))
-
-
-def arrive(*knobs):
-    out = [2]
-    for ch, num in knobs:
-        out += [ch - 1, num]
-    G.controller.onSysex(sysex(*out))
-
-
-def update(n=1):
-    for _ in range(n):
-        G.system.update()
-
-
-def goto(p):
-    prev, E.page = E.page, p
-    G.page.onPageChange(prev, p)
-
-
-def turn(i, inc=1):
-    G.controller.onEncoderTurn(lua.table_from({"index": i, "page": E.page, "increment": inc, "value": 0}))
-
-
-G.page.onInit()
-check(E.rate == 50, "updates every 50 ms")
-pages = [t for t, _ in L.PAGES]
-low = L.TOP[0]                                        # LOW ENERGY, knob 1 on every page (swaps to SLOW ALL)
-drums = L.TOP[1]                                      # DRUMS ENERGY, knob 2 on every page
-kick_tune = dict(L.PAGES)["KICK"][0]                  # KICK page, knob 9
 GREEN = L.GREEN
+knobs = L.encoders
 
-move((low.channel, low.number, 9000))
-check(ring(1) is None, f"LOW ENERGY travelling: ring 1 stays the E16's own (knob 1 swaps to SLOW ALL; the script can't tell which) ({ring(1)})")
-move((drums.channel, drums.number, 9000))
-check(ring(2) == (9000, GREEN), f"DRUMS ENERGY travelling: ring 2 green at 9000 ({ring(2)})")
-move((kick_tune.channel, kick_tune.number, 4000))
-check(all(ring(i) is None for i in [1] + list(range(3, 17))), "KICK TUNE travelling while PERFORM is up: no other ring touched")
+show = E16("SF SHOW")
+check(show.E.rate == 50, "updates every 50 ms")
+check(show.E.page == 1 and show.pages[0] == "1 KICK", "SF SHOW opens on 1 KICK")
+kick, chord = knobs("1 KICK"), knobs("9 CHORD")
+show.move((kick[0], 9000))
+check(show.ring(1) is None, f"KICK TUNE travelling: ring 1 stays the E16's own (knob 1 swaps to SLOW ALL; the script can't tell which) ({show.ring(1)})")
+show.move((kick[1], 9000), (kick[9], 7000))
+check(show.ring(2) == (9000, GREEN) and show.ring(10) == (7000, GREEN), f"KICK PUNCH and DENSITY travelling: rings 2 and 10 green ({show.rings()})")
+show.move((chord[1], 4000), (chord[9], 4000))
+check(show.rings() == {2: (9000, GREEN), 10: (7000, GREEN)}, "CHORD's knobs travelling while 1 KICK is up: no ring touched (same places, another channel)")
+check(all(kick[i].mixer for i in (12, 13)), "knobs 13-14 are the sends")
+show.move(*[(c, 100) for c in kick if c.mixer])
+check(show.ring(13) is None and show.ring(14) is None, "the sends (a Live control) never go green")
 
-goto(pages.index("KICK") + 1)
-check(all(ring(i) is None for i in range(1, 17)), "page change: every ring back to the knobs")
-move((kick_tune.channel, kick_tune.number, 4100), (drums.channel, drums.number, 9100))
-check(ring(9) == (4100, GREEN) and ring(2) == (9100, GREEN), f"KICK page: knob 9 and knob 2 green ({ring(9)}, {ring(2)})")
+show.goto("9 CHORD")
+check(show.rings() == {}, "page change: every ring back to the knobs")
+show.move((chord[1], 4100), (chord[9], 4100), (kick[1], 9100))
+check(show.rings() == {2: (4100, GREEN), 10: (4100, GREEN)}, f"9 CHORD: knobs 2 and 10 green, the kick's not here ({show.rings()})")
 
-turn(9)
-check(ring(9) is None, "knob 9 turned: its ring shows the hand")
-move((kick_tune.channel, kick_tune.number, 4200))
-check(ring(9) is None, "a report right after the turn: still the hand")
-update(17)
-move((kick_tune.channel, kick_tune.number, 4300), (drums.channel, drums.number, 9300))
-check(ring(9) == (4300, GREEN), f"0.85 s later: green again ({ring(9)})")
+show.turn(10)
+check(show.ring(10) is None, "knob 10 turned: its ring shows the hand")
+show.move((chord[9], 4200))
+check(show.ring(10) is None, "a report right after the turn: still the hand")
+show.update(17)
+show.move((chord[9], 4300), (chord[1], 4300))
+check(show.ring(10) == (4300, GREEN), f"0.85 s later: green again ({show.ring(10)})")
 
-update(10)
-move((drums.channel, drums.number, 9400))
-update(15)
-check(ring(9) is None and ring(2) == (9400, GREEN), "1.25 s without a report: knob 9 back; knob 2, reported, stays")
-arrive((drums.channel, drums.number))
-check(ring(2) is None, "DRUMS ENERGY arrived: ring 2 back")
+show.update(10)
+show.move((chord[1], 4400))
+show.update(15)
+check(show.ring(10) is None and show.ring(2) == (4400, GREEN), "1.25 s without a report: knob 10 back; knob 2, reported, stays")
+show.arrive(chord[1])
+check(show.ring(2) is None, "CHORD RES arrived: ring 2 back")
 
-move((1, 127, 16383))
-check(all(ring(i) is None for i in range(1, 17)), "an address the page doesn't have: nothing")
-G.controller.onSysex(lua.table_from([0xF0, 0x41, 0x10, 0x00, 1, 0, 20, 1, 2, 0xF7]))
-G.controller.onSysex(lua.table_from([0xF0, 0x7D, 0x53, 0x46, 1, 0xF7]))
-G.controller.onSysex(lua.table_from([0xF0, 0x7D, 0x53, 0x46, 1, 0, 20, 0xF7]))
-check(all(ring(i) is None for i in range(1, 17)), "other SysEx, empty and short messages: ignored")
+show.sysex(1, 0, 127, 127, 127)
+check(show.rings() == {}, "an address the page doesn't have: nothing")
+show.G.controller.onSysex(show.lua.table_from([0xF0, 0x41, 0x10, 0x00, 1, 0, 20, 1, 2, 0xF7]))
+show.G.controller.onSysex(show.lua.table_from([0xF0, 0x7D, 0x53, 0x46, 1, 0xF7]))
+show.G.controller.onSysex(show.lua.table_from([0xF0, 0x7D, 0x53, 0x46, 1, 0, 20, 0xF7]))
+check(show.rings() == {}, "other SysEx, empty and short messages: ignored")
 
-goto(pages.index("MACROS") + 1)
-macros = dict(L.PAGES)["MACROS"]
-move(*[(c.channel, c.number, 1000 + 100 * k) for k, c in enumerate(macros[:6])] +
-     [(L.TOP[k].channel, L.TOP[k].number, 2000 + k) for k in range(4)] +
-     [(kick_tune.channel, kick_tune.number, 5)] * 4)
-check(all(ring(9 + k) == (1000 + 100 * k, GREEN) for k in range(6)) and all(ring(1 + k) == (2000 + k, GREEN) for k in range(1, 4)) and ring(1) is None,
-      "a full message of 14: six macros and top knobs 2-4 green; knob 1 (it swaps) its own")
-check(all(ring(i) is None for i in (5, 6, 7, 8, 15, 16)), "volumes and the REPEAT knobs untouched")
+show.goto("PERFORM")
+perform = knobs("PERFORM")
+check([c.label for c in perform[:3]] == ["KICK ENERGY", "CLOSED HAT ENERGY", "OPEN HAT ENERGY"], "PERFORM: knob n is track n's ENERGY")
+show.move(*[(c, 1000 + 100 * k) for k, c in enumerate(perform[:14])])
+check(show.ring(1) is None and all(show.ring(1 + k) == (1000 + 100 * k, GREEN) for k in range(1, 14)),
+      f"a full message of 14 ENERGYs: rings 2-14 green, knob 1 (it swaps) its own ({show.rings()})")
+check(show.ring(15) is None and show.ring(16) is None, "NEXT SONG and BUILD, not in the message: untouched")
+show.lua.execute("page.onInit()")
+check(show.rings() == {}, "the script reloaded: every ring back")
 
-lua.execute("page.onInit()")
-check(all(ring(i) is None for i in range(1, 17)), "the script reloaded: every ring back")
+mix = E16("SF MIX")
+check(mix.pages == ["LEVELS", "SPACE", "MACROS"], f"SF MIX: {mix.pages}")
+mix.move(*[(c, 500) for c in knobs("LEVELS") if c.number is not None])
+check(mix.rings() == {}, "LEVELS: volumes never go green")
+mix.goto("SPACE")
+space = knobs("SPACE")
+mix.move(*[(c, 2000 + k) for k, c in enumerate(space[:8])])
+check(all(mix.ring(1 + k) == (2000 + k, GREEN) for k in range(8)) and all(mix.ring(i) is None for i in range(9, 17)),
+      f"SPACE: knobs 1-8 green, 9-16 (nothing on them) untouched ({mix.rings()})")
+mix.goto("MACROS")
+macros = knobs("MACROS")
+slow_all = macros[6]
+check(slow_all.label == "SLOW ALL" and slow_all.channel == L.SLOW_ALL.ctl.channel and slow_all.number == L.SLOW_ALL.ctl.number,
+      "MACROS knob 7 is SLOW ALL, on the address of SF SHOW's knob-1 swap")
+mix.move(*[(c, 3000 + k) for k, c in enumerate(macros) if c is not None])
+check(all(mix.ring(1 + k) == (3000 + k, GREEN) for k in range(7)) and mix.ring(9) == (3008, GREEN) and mix.ring(10) == (3009, GREEN),
+      f"MACROS: MACRO 1-6, SLOW ALL (a plain knob here) and the REPEAT knobs green ({mix.rings()})")
+check(all(mix.ring(i) is None for i in (8, 11, 12, 13, 14, 15, 16)), "knobs with nothing on them: untouched")
+mix.goto(4)
+mix.move(*[(c, 100) for c in macros if c is not None] + [(c, 100) for c in space[:8]])
+check(mix.rings() == {}, "an empty page (P.4): nothing")
 
 print(("PASS" if fails == 0 else "FAIL") + f": {fails} failure(s)")
 sys.exit(1 if fails else 0)

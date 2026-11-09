@@ -1,68 +1,121 @@
-# SF SHOW: the OXI E16 scene for the show template
+# SF SHOW and SF MIX: the OXI E16 scenes for the show template
 
-One E16 scene for the whole rig of the manual's chapter 7. Load it once, open the show set (already
-mapped: `controllers/live`), save it as your template: nothing is remapped after that.
+Two E16 scenes for the whole rig of the manual's chapter 7: **SF SHOW**, one page per track and a
+PERFORM page, and **SF MIX**, the levels, the returns and the macros. Load them once, open the show
+set (already mapped: `controllers/live`), save it as your template: nothing is remapped after that.
 
 | FILE | WHAT |
 |---|---|
-| `SF SHOW.oxie16` | The scene: 12 pages, all 192 turns set (name, ring colour, channel, CC), every press, knob 1's second destination, and the GLIDE RINGS script. |
-| `sf-show-map.csv` | Every address once: channel, CC or note, the Live target, the mapping range, where it sits on the E16. Map Live from this. |
-| `layout.py` | The layout. One source for the scene, the map, the show set's mappings and the manual's E16 tables. |
-| `glide_rings.lua` | The scene's script: travelling knobs show green, walking with the sound (GLIDE RINGS below). |
-| `make_scene.py` | Rebuilds the scene, the map and the plugins' copy of it (`Source/core/E16Map.h`: the knobs GLIDE RINGS reports, and every page as each plugin's window draws it at its top): `python3 make_scene.py`. |
+| `SF SHOW.oxie16` | Scene 1: 12 pages, every turn set (name, ring colour, channel, CC), every press, knob 1's second destination, and the GLIDE RINGS script. |
+| `SF MIX.oxie16` | Scene 2: LEVELS, SPACE and MACROS; pages 4-12 are left empty (their knobs send nothing). |
+| `sf-show-map.csv` | Every address of both scenes once: channel, CC or note, the Live target, the mapping range, the scene, where it sits on the E16. Map Live from this. |
+| `layout.py` | The layout. One source for the scenes, the map, the show set's mappings, the ONE's channels and the manuals' E16 tables. |
+| `glide_rings.lua` | The scenes' script: travelling knobs show green, walking with the sound (GLIDE RINGS below). |
+| `make_scene.py` | Rebuilds both scenes, the map and the plugins' copy of it (`Source/core/E16Map.h`: the knobs GLIDE RINGS reports, and every page as each plugin's window draws it at its top): `python3 make_scene.py`. |
+
+**Since Nov 8** (load both scenes, with the new SF SHOW.als and SF START): one number per track. A
+track's number is its MIDI channel on the E16 and on the OXI One, and its page in SF SHOW: 1 KICK,
+2 CLOSED HAT, 3 OPEN HAT, 4 CLAP, 5 PERC, 6 BASS, 7 RUMBLE, 8 LEAD, 9 CHORD, 10 PAD, 11 VOICE, in
+the set's order from the top.
 
 ## THE GRID
 
+Encoders are numbered row by row from the top left: 1-4 the top row, 13-16 the bottom row.
+
 ```
- 1 LOW ENERGY      2 DRUMS ENERGY    3 MUSIC ENERGY    4 BUILD           press 1: SLOW ALL, press 4: DROP
- 5 KICK VOLUME     6 LOW VOLUME      7 DRUMS VOLUME    8 MUSIC VOLUME
- 9  ...           10  ...           11  ...           12  ...            rows 3 and 4: the page
-13  ...           14  ...           15  ...           16  ...
+SF SHOW, pages 1-11: one per track (the page is the track's number; the title its name)
+ 1 its sound  [press: SLOW ALL]   2 its sound      3 its sound       4 its sound
+ 5 its sound                      6 its sound      7 its sound       8 its sound
+ 9 GATE (DECAY)                  10 DENSITY       11 FILTER         12 LEVEL
+13 SEND A (DUB)                  14 SEND B (SPACE) 15 NEXT SONG [GO] 16 BUILD [DROP]
+
+SF SHOW, page 12: PERFORM, the ENERGY knobs (knob n for track n)
+ 1 KICK [SLOW ALL]   2 CLOSED HAT        3 OPEN HAT          4 CLAP
+ 5 PERC              6 BASS              7 RUMBLE            8 LEAD
+ 9 CHORD            10 PAD              11 VOICE            12 DRUMS (group)
+13 LOW (group)      14 MUSIC (group)    15 NEXT SONG [GO]   16 BUILD [DROP]
+
+SF MIX
+LEVELS: the volumes in PERFORM's places (knob n for track n, 12-14 the groups), 15 DUB and 16 SPACE
+        the returns
+SPACE:  1 DUB TIME [THROW]  2 DUB FDBK [FREEZE]  3 DUB TONE  4 DUB DRV
+        5 SPC SIZE [THROW]  6 SPC DCY [FREEZE]   7 SPC DARK  8 SPC DUCK
+MACROS: 1-6 MACRO 1-6  7 SLOW ALL  9 RPT LEN [ROLL]  10 RPT PTCH
 ```
 
-Encoders are numbered row by row from the top left. Rows 1 and 2 are the same on every page (the
-E16's screen shows them as LOW ENGY, DRM ENGY, MUS ENGY, BUILD, KICK VOL, LOW VOL, DRUM VOL, MUS VOL).
-Rows 3 and 4 are the page: PERFORM, KICK, BASS, RUMBLE, HATS, STRIKE, ACID, STAB, TEXTURE, VOICE,
-SPACE, MACROS (the manual, chapter 7, THE E16). Rings: light blue is a volume, white is everything else,
-green is knob 1 on SLOW ALL.
+A track's page: rows 1 and 2 are its instrument's own knobs; row 3 is the same four on every page
+(GATE, or DECAY where the instrument has no gate, DENSITY, FILTER, LEVEL); row 4 is the track's two
+sends and the song and build, on every page. The page titles are the Live track names (the E16 takes
+11 characters: **2 CLOSED HT**). Rows 1 and 2:
 
-**Knob 1 has two destinations.** A quick press flips it from LOW ENERGY to **SLOW ALL** on SF CONTROL
-(CC 34, channel 16; the ring turns green and the screen shows a bar under the value): turn it to set how
-long your next moves take, OFF (at once) to 128 BAR. Another quick press flips it back. Knobs already
-travelling keep the length they set off with. SF SHOW.als has it mapped; in a set of your own (or one
-saved before SLOW ALL existed), map it once: Cmd-M, click SLOW ALL on SF CONTROL, press knob 1 (green)
-and turn it, Cmd-M off, save.
+| PAGE | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| 1 KICK | TUNE | PUNCH | CLICK | DRIVE | PITCH T | LAYER | ECHO SPC | ECHO SWG |
+| 2 CLOSED HT, 3 OPEN HAT, 4 CLAP | TUNE | TONE | ACCENT | DRIVE | ECHO SPC | ECHO SWG | ECHO PRB | SPREAD |
+| 5 PERC | POWER | DISTANCE | SIZE | MATERIAL | POSITION | TENSION | SPREAD | TUNE |
+| 6 BASS | CUTOFF | RES | ENV AMT | DECAY | DRIVE | ACCENT | GLIDE | PCKT DEP |
+| 7 RUMBLE | SIZE | DARK | GRIT | PUMP | TUNE | PREDELAY | WIDTH | PCKT SHP |
+| 8 LEAD | CUTOFF | RES | ENV AMT | DECAY | DRIVE | ACCENT | GLIDE | COLOR |
+| 9 CHORD | CUTOFF | RES | ENV AMT | DECAY | ATTACK | SPACE | DETUNE | PCKT DEP |
+| 10 PAD | CUTOFF | RES | COLOR | DETUNE | ATTACK | DECAY | SPACE | PCKT DEP |
+| 11 VOICE | SIGNAL | TONE | TUNE | DRIVE | ECHO | ECHO TME | ECHO FBK | PCKT DEP |
 
-## ADDRESSES
+Rings: light blue is a level (a LEVEL, a volume), white is everything else, green is knob 1 on SLOW
+ALL (and any knob while it travels: GLIDE RINGS).
 
-- **Channel = track.** 1 KICK, 2 BASS, 3 RUMBLE, 4 CLOSED, 5 OPEN, 6 CLAP, 7 STRIKE, 8 ACID, 9 STAB,
-  10 TEXTURE, 11 VOICE, 12 DUB, 13 SPACE, 14 the groups (LOW, DRUMS, MUSIC and DRUMS' REPEAT),
-  15 LIVE BUS and BRIDGE, 16 CONTROL.
-- **CC = block base + the parameter's place in its SF plugin's own order**, counting from 0. One
-  plugin on a channel: base 20, so its performance row (its first eight parameters) is CC 20-27.
-  Channel 14: LOW ENERGY 20, DRUMS ENERGY 30, MUSIC ENERGY 40, REPEAT 50. Channel 15: BUILD 20
-  (its first ten parameters: DUCK TIME and LAND ON, the eleventh and twelfth, have no address);
-  30-79 are kept for ISOLATOR,
-  GLUE, TONE, LOWEND and LIMIT. Channel 16: CONTROL 20 (MACRO 1-6 are
-  20-25).
-- **Mixer:** CC 100 volume, 101 send A, 102 send B. Channel 14: 100-102 the LOW, DRUMS and MUSIC
-  volumes. Channel 15: 100 LIVE BUS, 101 BRIDGE (102 kept for DECK).
-- A parameter on two pages sends the same address from both. The plugins never reorder their
-  parameters, so an address never moves.
+**Presses:** on every SF SHOW page, knob 1's press swaps it to SLOW ALL (below), 15's is **GO** (the
+song NEXT SONG picked lands on the next bar line) and 16's is **DROP**. On PERFORM, every ENERGY knob's
+press sends it back to the centre (neutral; with SLOW ALL on it glides there), except knob 1's. SF MIX:
+the SPACE page's presses throw and freeze the returns; MACROS 9's rolls REPEAT.
 
-## 1. LOAD THE SCENE
+**Knob 1 has two destinations** on every SF SHOW page. A quick press flips it from the page's first
+knob (KICK ENERGY on PERFORM) to **SLOW ALL** on SF CONTROL (CC 12, channel 16; the ring turns green
+and the screen shows a bar under the value): turn it to set how long your next moves take, OFF (at
+once) to 128 BAR. Another quick press flips it back. Knobs already travelling keep the length they set
+off with. SLOW ALL is also MACROS 7 in SF MIX, a plain knob there.
+
+## ADDRESSES [Nov 8]
+
+The channel is the track. A track's page sends CC 12-23 on its own channel whatever instrument is on
+it, so a track's page can be mapped to any other instrument you put on that track (Cmd-M, click its
+parameter, turn the knob) without touching another track. The OXI One plays each part on the same
+channel (port A): `controllers/oxi-one`.
+
+| CHANNEL | TRACK | ITS PAGE (SF SHOW) | ENERGY (PERFORM) | VOLUME (LEVELS) | SEND A, B (ITS PAGE 13, 14) | ALSO |
+|---|---|---|---|---|---|---|
+| 1-11 | 1 KICK ... 11 VOICE | knobs 1-12: CC 12-23 | CC 28 (knob n) | CC 102 (knob n) | CC 103, 104 | |
+| 12 | A DUB | | | CC 102 (15) | | SPACE 1-4: CC 44-47; THROW CC 60, FREEZE note 61 (C#3) |
+| 13 | B SPACE | | | CC 102 (16) | | SPACE 5-8: CC 48-51; THROW CC 64, FREEZE note 65 (F3) |
+| 14 | DRUMS, LOW, MUSIC | | CC 28, 29, 30 (12-14) | CC 102, 103, 104 (12-14) | | DRUMS' REPEAT, MACROS 9-10: CC 52, 53; ROLL CC 68 |
+| 15 | LIVE BUS | | | | | BUILD CC 27, DROP CC 43 (SF SHOW 16) |
+| 16 | CONTROL | | | | | SLOW ALL CC 12 (knob 1's swap; MACROS 7), NEXT SONG CC 26 and GO CC 42 (SF SHOW 15), MACRO 1-6 CC 44-49 (MACROS 1-6) |
+
+- **The rule:** in SF SHOW a knob sends its place + 11 and a press its place + 27; in SF MIX a knob
+  its place + 43 and a press its place + 59; always on the channel of the track it works on. A track's
+  ENERGY is CC 28 (the groups, sharing channel 14: 28, 29, 30), its volume CC 102, its sends CC 103
+  and 104 (the groups' volumes: 102, 103, 104). An ENERGY knob's press sends 64 on the knob's own
+  address: Live sets the knob to its centre and sends the E16 the value back.
+- A parameter on two pages sends the same address from both (Live takes one mapping per parameter):
+  NEXT SONG, BUILD, SLOW ALL.
+- Never used: CC 6, 38 and 96-101 (data entry and RPN/NRPN: Live and many devices read them as parts
+  of a longer message) and 120-127. `layout.py` refuses them.
+- Every volume and send stops at 0 dB (Max 0 dB in Live's mapping).
+
+## 1. LOAD THE SCENES
 
 1. OXI App > Scenes. If no computer folder is assigned yet, assign one (Assign PC/Mac folder).
-2. Copy `SF SHOW.oxie16` into the **Scenes** folder inside it and click **Refresh Views**.
-3. Drag SF SHOW from **On Computer** onto a free slot under **On Device**.
+2. Copy `SF SHOW.oxie16` and `SF MIX.oxie16` into the **Scenes** folder inside it and click
+   **Refresh Views**.
+3. Drag SF SHOW, then SF MIX, from **On Computer** onto two free slots under **On Device**, among
+   the scenes the E16's home screen shows.
 
 ## 2. E16 SETTINGS
 
-- **Auto Transmit off**, for the scene and in the global settings. Sending stored values on scene
+- **Auto Transmit off**, for both scenes and in the global settings. Sending stored values on scene
   entry, page change or preset load would pull Live's faders to whatever the E16 last held.
 - **MIDI Thru off** (incoming MIDI passed to the outputs).
-- Knob speed: every SF SHOW turn follows the scene's acceleration setting.
-- Stay in SF SHOW for the whole show.
+- Knob speed: every turn follows its scene's acceleration setting.
+- SF SHOW is the show; SF MIX is for setting levels and the returns. Changing scenes sends nothing.
 
 ## 3. LIVE SETTINGS (Settings > Tempo & MIDI; before Live 12.4, Link, Tempo & MIDI)
 
@@ -74,7 +127,7 @@ and turn it, Cmd-M off, save.
 
 - Port 1 is the port the E16 sends its knobs and presses on. Remote on one E16 port only: a message
   that reached Live on two Remote ports would be taken twice, and a FREEZE press would flip twice and
-  do nothing.
+  do nothing. Track off: the E16's CCs never reach an instrument.
 - Remote on the **output** sends Live's values back: the rings follow song recalls, mouse moves and
   ALLOC slot changes, and the knobs hold the new values.
 - **Takeover Mode: Value Scaling.** A knob that disagrees with Live (after a song recall, say) moves
@@ -82,42 +135,45 @@ and turn it, Cmd-M off, save.
 
 ## 4. MAP LIVE, ONCE
 
-**The show set comes mapped.** `controllers/live/SF SHOW.als` holds every address below, presses
-included, with every volume at Max 0 dB and DUB FEEDBACK at 0-70 %: open it (its README has Live's
-own settings, set once per computer). Map by hand only in a set of your own;
-`python3 controllers/live/check_set.py "My Show.als"` lists what it is missing (a set saved before
-SLOW ALL or the presses existed lacks those):
+**The show set comes mapped.** `controllers/live/SF SHOW.als` holds every address of both scenes,
+presses included, with every volume and send at Max 0 dB and DUB FEEDBACK at 0-70 %: open it (its
+README has Live's own settings, set once per computer). Map by hand only in a set of your own;
+`python3 controllers/live/check_set.py "My Show.als"` lists what it is missing:
 
 1. Open the show set (tracks named as in chapter 7).
 2. Unfold every SF plugin's parameter panel (the triangle in its title bar). A parameter that isn't
    listed: Configure, touch it in the plugin window, Configure off.
 3. **Cmd-M.** Page by page on the E16: click the target in Live (`sf-show-map.csv` names it), turn
-   the knob. The top half and the PERFORM page's shared knobs need mapping only once.
-4. In the Mapping Browser: every volume (faders and returns) **Max 0 dB**; DUB FEEDBACK 0-70 %.
+   the knob. NEXT SONG, BUILD and SLOW ALL need mapping only once.
+4. In the Mapping Browser: every volume and send **Max 0 dB**; DUB FEEDBACK 0-70 %.
 5. Cmd-M off. Save. Then **File > Save Live Set As Template** (or as the Default Set): MIDI mappings
    belong to the Live set, so a new set made from it starts mapped.
 
 ## 5. PRESSES
 
-The presses are in the scene file, in the OXI App's own encoding (learned from a test scene exported
+The presses are in the scene files, in the OXI App's own encoding (learned from a test scene exported
 from the App on 3 Nov): every press sends to Output ALL, like the turns. Nothing to add in the App.
 
 | WHERE | ENCODER | PRESS | MESSAGE | LIVE TARGET |
 |---|---|---|---|---|
-| all 12 pages | 1 | SLOW ALL, swap | Swap Destination (sends nothing); Destination 2 = CC 34 ch 16 | 00 CONTROL > SF CONTROL > SLOW ALL |
-| all 12 pages | 4 | DROP, hold | CC 21 ch 15, Press & Release, P.Val 127, R.Val 0 | 90 LIVE BUS > SF BUILD > DROP |
-| SPACE | 9 | DUB THROW, hold | CC 24 ch 12, Press & Release, P.Val 127, R.Val 0 | A DUB > SF DELAY > THROW |
-| SPACE | 10 | DUB FREEZE, toggle | Note 25 (C#0) ch 12, Press & Release, velocity 127 | A DUB > SF DELAY > FREEZE |
-| SPACE | 13 | SPACE THROW, hold | CC 26 ch 13, Press & Release, P.Val 127, R.Val 0 | B SPACE > SF REVERB > THROW |
-| SPACE | 14 | SPACE FREEZE, toggle | Note 25 (C#0) ch 13, Press & Release, velocity 127 | B SPACE > SF REVERB > FREEZE |
-| MACROS | 15 | REPEAT ROLL, hold | CC 50 ch 14, Press & Release, P.Val 127, R.Val 0 | 20 DRUMS > SF REPEAT > ROLL |
+| every SF SHOW page | 1 | SLOW ALL, swap | Swap Destination (sends nothing); Destination 2 = CC 12 ch 16 | CONTROL > SF CONTROL > SLOW ALL |
+| every SF SHOW page | 15 | GO, hold | CC 42 ch 16, Press & Release, P.Val 127, R.Val 0 | CONTROL > SF CONTROL > GO |
+| every SF SHOW page | 16 | DROP, hold | CC 43 ch 15, Press & Release, P.Val 127, R.Val 0 | LIVE BUS > SF BUILD > DROP |
+| PERFORM | 2-14 | ENERGY to the centre | CC 28 on the knob's own channel (the groups 28, 29, 30 on ch 14), Press & Release, P.Val 64, R.Val 64 | that knob's SF ENERGY |
+| SPACE (SF MIX) | 1 | DUB THROW, hold | CC 60 ch 12, Press & Release, P.Val 127, R.Val 0 | A DUB > SF DELAY > THROW |
+| SPACE (SF MIX) | 2 | DUB FREEZE, toggle | Note 61 (C#3) ch 12, Press & Release, velocity 127 | A DUB > SF DELAY > FREEZE |
+| SPACE (SF MIX) | 5 | SPACE THROW, hold | CC 64 ch 13, Press & Release, P.Val 127, R.Val 0 | B SPACE > SF REVERB > THROW |
+| SPACE (SF MIX) | 6 | SPACE FREEZE, toggle | Note 65 (F3) ch 13, Press & Release, velocity 127 | B SPACE > SF REVERB > FREEZE |
+| MACROS (SF MIX) | 9 | REPEAT ROLL, hold | CC 68 ch 14, Press & Release, P.Val 127, R.Val 0 | DRUMS > SF REPEAT > ROLL |
 
 A hold press is a CC: 127 on press, 0 on release, and the parameter is on for as long as the knob is
 down. A toggle press is a note: Live flips the switch on every Note On, so the E16 can never think
-FREEZE is on while Live has it off. The swap sends nothing: it only chooses which destination knob 1
-turns. Every press here is one the set plays through if it happens by accident (a throw, a roll, a
-freeze, a drop, a flipped knob 1). Nothing that would stop the set is on the E16: the PA's emergency
-stop is the audio interface's output knob.
+FREEZE is on while Live has it off. A centre press is its knob's own CC with the value 64: no mapping
+of its own. The swap sends nothing: it only chooses which destination knob 1 turns. GO is safe by
+accident: a song only changes when NEXT SONG picked another one first (SF CONTROL shows it in amber,
+PRESS GO). Every press here is one the set plays through if it happens by accident (a throw, a roll,
+a freeze, a drop, an ENERGY back to neutral, a flipped knob 1). Nothing that would stop the set is on
+the E16: the PA's emergency stop is the audio interface's output knob.
 
 Never give an encoder a second destination without the Swap Destination press: it would send both on
 every turn. `make_scene.py` refuses to write one.
@@ -130,61 +186,67 @@ as before. Turn a travelling knob and for a moment the ring shows your hand (whe
 it); the green walk picks up again when you let go. Song recalls with SLOW ALL on show every recalled
 knob walking.
 
-- **How:** every SF plugin finds its own knobs in the scene (by its Live track's name; a plugin the
-  scene has on one track only also without it) and reports the travelling ones. SF CONTROL sends
+- **How:** every SF plugin finds its own knobs in the scenes (by its Live track's name; a plugin the
+  scenes have on one track only also without it) and reports the travelling ones. SF CONTROL sends
   their positions to the E16 as SysEx on **E16 RINGS** (SF CONTROL, setup: OFF, PORT 1-3; default
-  PORT 3, which Live doesn't use). The scene's script paints those rings.
-- **Nothing depends on it.** The knobs are the scene's plain CC knobs. If the script stops, SF CONTROL
+  PORT 3, which Live doesn't use). Each scene carries the script with its own knob map.
+- **Nothing depends on it.** The knobs are the scenes' plain CC knobs. If the script stops, SF CONTROL
   goes, or E16 RINGS is OFF, the rings show the knobs' values as before (a green ring lets go within
   1.2 s).
-- **Needs** E16 firmware with Lua scripting (1.2 or later; 1.3.1 here) and the SF SHOW scene loaded
-  from this folder (the script is inside it).
+- **Needs** E16 firmware with Lua scripting (1.2 or later; 1.3.1 here) and the scenes loaded from this
+  folder (the script is inside them).
 - SF CONTROL's display shows **E16 RINGS PORT 3** in green once it has the port; **NO PORT 3** while
   the E16 isn't there (it looks again every 2 s).
-- Knob 1 is green both on SLOW ALL and while LOW ENERGY travels: a travelling ring moves.
+- Knob 1 of an SF SHOW page keeps its own ring (it swaps, and the script can't tell which destination
+  is up); a Live volume or send never goes green.
 - No green: the plugins must come from the same build (SF CONTROL: BUS SHARED); try E16 RINGS PORT 1
   (Live's port: the SysEx goes in beside Live's feedback). An AU of SF LEAD, PERC or ENERGY (on
-  several tracks in the scene) doesn't know its track name: use the VST3s.
+  several tracks in the scenes) doesn't know its track name: use the VST3s.
 - Message format and timing: `Source/core/E16Glide.h`. Tests: `SFTests --rings` (the plugins and SF
-  CONTROL), `python3 tests/glide_rings_test.py` (the script as shipped, on a mock of the E16's Lua).
+  CONTROL), `python3 tests/glide_rings_test.py` (the script as shipped in both scenes, on a mock of the
+  E16's Lua).
 
 ## SF TERROIR ON B SPACE
 
 SF TERROIR (convolution, your own places) can take SF REVERB's place on B SPACE: its first eight
-controls are SF REVERB's, in the same order, so the E16's SPACE page fits as it is.
+controls are SF REVERB's, in the same order, so SF MIX's SPACE page fits as it is.
 
 1. On B SPACE, put SF TERROIR in place of SF REVERB and turn its **DRY off** (a return is wet only).
-2. Cmd-M, then on the E16's SPACE page: turn 13 SPC SIZE, 14 SPC DCY, 15 SPC DARK, 16 SPC DUCK, and
-   press 13 (THROW) and 14 (FREEZE), each with its SF TERROIR control clicked. Cmd-M off, save.
-3. `python3 controllers/live/check_set.py "My Show.als"` counts SF TERROIR wherever the scene has
-   SF REVERB: 108 of 108 again. GLIDE RINGS find it too.
+2. Cmd-M, then on SF MIX's SPACE page: turn 5 SPC SIZE, 6 SPC DCY, 7 SPC DARK, 8 SPC DUCK, and press
+   5 (THROW) and 6 (FREEZE), each with its SF TERROIR control clicked. Cmd-M off, save.
+3. `python3 controllers/live/check_set.py "My Show.als"` counts SF TERROIR wherever the scenes have
+   SF REVERB: 210 of 210 again. GLIDE RINGS find it too.
 
 ## 6. CHECKS
 
-1. Every knob: turn it, the right parameter moves. Every press: the right switch.
-2. **Knob 1.** A quick press: the ring turns green; turn it: SLOW ALL moves on SF CONTROL and LOW ENERGY
-   stays put. Press again: white, and the turn moves LOW ENERGY. Do it on two pages.
-3. **Holds.** Hold DROP, a THROW and ROLL for three seconds each: the parameter stays on for the whole
-   hold and goes off on release. (A long press on the E16 also opens its own functions, such as
-   group status; if one interferes, make that press a toggle in `layout.py`.)
-4. **Shared knobs.** On page 2, turn LOW ENERGY fully left. Go to page 1 and turn it one step right:
-   the sound must move one step, not jump back. If it jumps, the E16 keeps a separate value per page:
-   run `python3 make_scene.py --relative-shared`, load the new file, and
-   remap the turns the new `sf-show-map.csv` marks *relative*, turning each knob slowly **left** while
-   mapping so Live picks Relative, Twos Complement. Set Max 0 dB again on the remapped volumes.
-5. **Page change.** Change pages and leave and re-enter SF SHOW: Live's MIDI input indicator stays
-   dark (nothing sent).
-6. **Recall.** Switch songs from the ONE: the rings follow, and a recalled knob moves smoothly from
-   the new value when turned.
-7. **Glide rings.** SLOW ALL to 4 BAR, turn a knob on the page and let go: its ring turns green and
-   walks to where you set it over four bars, then turns white. Turn it while it walks: the ring shows
-   your hand, then green again. SF CONTROL shows E16 RINGS PORT 3 in green.
+1. Every knob: turn it, the right parameter moves. Every press: the right switch. A track's page
+   moves that track's instrument only.
+2. **Knob 1.** A quick press: the ring turns green; turn it: SLOW ALL moves on SF CONTROL and the
+   page's first knob stays put. Press again: white, and the turn moves the first knob. Do it on two
+   pages.
+3. **Holds.** Hold DROP, a THROW and ROLL for three seconds each: the parameter stays on for the
+   whole hold and goes off on release. On PERFORM, press an ENERGY knob turned away from the centre:
+   it goes back to the centre, and so does its ring. (A long press on the E16 also opens its own
+   functions, such as group status; if one interferes, make that press a toggle in `layout.py`.)
+4. **Shared knobs.** On page 1 KICK, turn NEXT SONG (15) fully left. Go to page 6 BASS and turn it one
+   step right: the pick must move one step, not jump back. If it jumps, the E16 keeps a separate value
+   per page: run `python3 make_scene.py --relative-shared`, load the new files, and remap the turns
+   the new `sf-show-map.csv` marks *relative*, turning each knob slowly **left** while mapping so Live
+   picks Relative, Twos Complement.
+5. **Page and scene change.** Change pages, and change to SF MIX and back: Live's MIDI input
+   indicator stays dark (nothing sent).
+6. **Recall.** Turn NEXT SONG (15) to another song and press it: on the next bar line the rings
+   follow, and a recalled knob moves smoothly from the new value when turned.
+7. **Glide rings.** SLOW ALL to 4 BAR, turn a knob on a track's page and let go: its ring turns green
+   and walks to where you set it over four bars, then turns white. Turn it while it walks: the ring
+   shows your hand, then green again. SF CONTROL shows E16 RINGS PORT 3 in green.
 
 ## CHANGING THE LAYOUT
 
-Edit `layout.py`: `TOP` is rows 1-2, `PAGES` is rows 3-4 of each page, `PRESSES_*` the presses.
-Run `python3 make_scene.py` (it checks that every address names one Live target),
-load the new file and map only what changed. It also rewrites `Source/core/E16Map.h`, the plugins'
-copy of the knob map for GLIDE RINGS: rebuild the suite after a layout change. `python3
-docs/manual/build_manual.py` and `python3 docs/manual/build_show_manual.py` put the new layout in the
-manuals.
+Edit `layout.py`: `SOUND` holds each track page's rows 1 and 2 and its GATE or DECAY, `PERFORM` the
+ENERGY page, `LEVELS`, `SPACE_PAGE` and `MACROS_PAGE` SF MIX's pages, `PRESSES_PAGE` the presses.
+Run `python3 make_scene.py` (it checks that every address names one Live target), load the new files
+and map only what changed. It also rewrites `Source/core/E16Map.h`, the plugins' copy of the knob map
+for GLIDE RINGS and their windows' E16 grid: rebuild the suite after a layout change. `python3
+controllers/live/make_set.py` maps a new set, and `python3 docs/manual/build_manual.py` and `python3
+docs/manual/build_show_manual.py` put the new layout in the manuals.

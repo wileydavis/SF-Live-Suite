@@ -1,4 +1,4 @@
--- SF SHOW: GLIDE RINGS. A knob that is travelling (SLOW, SLOW ALL) shows where its sound is now,
+-- SF SHOW and SF MIX: GLIDE RINGS. A knob that is travelling (SLOW, SLOW ALL) shows where its sound is now,
 -- in green, until it arrives; then the ring is the knob's own again. Turn a travelling knob and the
 -- ring shows your hand for a moment. The knobs themselves are the scene's plain CC knobs: if this
 -- script stops, the rings show the knobs' values as before.
@@ -6,9 +6,9 @@
 -- SF CONTROL reports the travelling knobs (E16 RINGS port), as SysEx:
 --   F0 7D 53 46 01 {channel-1, number, value / 128, value % 128} ... F7   where the sound is (0-16383)
 --   F0 7D 53 46 02 {channel-1, number} ... F7                              arrived
--- MAP (make_scene.py writes it from layout.py): three characters per knob, the channel - 1 as one
--- hex digit and the number as two, "---" for a knob that never travels: knobs 1-8 (the same on
--- every page), then knobs 9-16 of pages 1-12.
+-- MAP (make_scene.py writes it from layout.py, one per scene): three characters per knob, the
+-- channel - 1 as one hex digit and the number as two, "---" for a knob that never travels: knobs
+-- 1-16 of page 1, then of page 2, ... page 12.
 -- Lua 5.4 on the E16: integers only, no clock but system.update.
 local MAP = "@MAP@"
 local GREEN = @GREEN@
@@ -19,7 +19,7 @@ local held, hand, here, tick = {}, {}, {}, 0
 -- The addresses of the knobs on page pg, channel * 128 + number (-1: none).
 local function look(pg)
   for i = 1, 16 do
-    local k = ((i <= 8) and (i - 1) or (8 + (pg - 1) * 8 + i - 9)) * 3 + 1
+    local k = ((pg - 1) * 16 + i - 1) * 3 + 1
     local c = MAP:sub(k, k)
     here[i] = (c == "-") and -1 or (tonumber(c, 16) * 128 + tonumber(MAP:sub(k + 1, k + 2), 16))
   end

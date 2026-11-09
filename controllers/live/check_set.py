@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks a Live set's mappings against the E16 scene SF SHOW: every address in
+"""Checks a Live set's mappings against the E16 scenes SF SHOW and SF MIX: every address in
 controllers/e16/layout.py mapped once, to the right parameter on the right track, with the right range;
 and any computer keys mapped. Reads the set, never writes it.
 
@@ -8,7 +8,7 @@ and any computer keys mapped. Reads the set, never writes it.
 Use it on a set of your own (one saved before a mapping existed, or mapped by hand): it lists what to
 map with Cmd-M. SF SHOW.als, the built set, passes with every address mapped and no keys.
 
-A target is found by track name (as in the show template: "01 KICK", "A DUB") and the plugin's name
+A target is found by track name (as in the show template: "1 KICK", "A DUB") and the plugin's name
 ("SF KICK"), VST3 or AU. SF TERROIR counts wherever the scene has SF REVERB (it swaps in on B SPACE).
 Each mapping's range is checked at both ends (an SF parameter from 0; a Live fader or send from its
 -70 dB floor; the top where the scene caps it), and its mode: absolute, as the scene sends (with

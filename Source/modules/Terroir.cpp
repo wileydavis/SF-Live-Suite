@@ -1088,7 +1088,7 @@ private:
         auto& d = bus.d();
         capPhase = 0;
         if (lastPlaying.load()) { setStatus ("STOP LIVE'S TRANSPORT FIRST: THE SWEEP NEEDS THE ROOM QUIET", 2); return; }
-        if (! bus.captureAlive()) { setStatus ("NO SF CAPTURE: PUT IT ON THE ROOM MICS' TRACK, MONITOR IN (94 ROOM IN SF SHOW)", 2); return; }
+        if (! bus.captureAlive()) { setStatus ("NO SF CAPTURE: PUT IT ON THE ROOM MICS' TRACK, MONITOR IN (ROOM IN SF SHOW)", 2); return; }
         const auto st = capture::status (d.capStatus);
         if (capture::busy (st.state))
         {

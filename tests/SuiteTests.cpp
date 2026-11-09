@@ -1129,9 +1129,9 @@ static void testEditor()
     std::printf ("-- EDITOR (the strip)\n");
     SFEditor::testHeightLimit = 100000;           // the whole strip: no screen holds it here (testStripReach does)
     // The track rule GLIDE RINGS and the grid share.
-    CHECK (juce::String (e16::trackFor ("LEAD", "32 STAB")) == "32 STAB", "LEAD on 32 STAB");
+    CHECK (juce::String (e16::trackFor ("LEAD", "9 CHORD")) == "9 CHORD", "LEAD on 9 CHORD");
     CHECK (juce::String (e16::trackFor ("LEAD", "")) == "", "LEAD unnamed: on two tracks");
-    CHECK (juce::String (e16::trackFor ("KICK", "ANY NAME")) == "01 KICK", "KICK: one track, no name needed");
+    CHECK (juce::String (e16::trackFor ("KICK", "ANY NAME")) == "1 KICK", "KICK: one track, no name needed");
     CHECK (juce::String (e16::trackFor ("TERROIR", "")) == "B SPACE", "TERROIR stands in on B SPACE");
     CHECK (e16::trackFor ("GLUE", "") == nullptr, "GLUE isn't on the E16");
     CHECK (e16::listHas ("REVERB|TERROIR", "TERROIR") && e16::listHas ("REVERB|TERROIR", "REVERB") && ! e16::listHas ("REVERB|TERROIR", "REV")
@@ -1194,14 +1194,14 @@ static void testEditor()
     CHECK (grids >= 24, "grids: %d", grids);
     CHECK (worst <= 900, "every strip fits a laptop's screen at first: %d", worst);
 
-    // DELAY on A DUB: TIME, FEEDBACK... on SPACE 9-12, THROW and FREEZE their presses.
+    // DELAY on A DUB: TIME, FEEDBACK... on SF MIX's SPACE 1-4, THROW and FREEZE their presses.
     {
         SFProcessor p (makeModule ("DELAY"));
         juce::AudioProcessor::TrackProperties tp; tp.name = "A DUB"; p.updateTrackProperties (tp);
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
         std::map<std::string, juce::String> at;
         for (auto& x : dynamic_cast<SFEditor&> (*ed).places()) at[p.allSpecs()[(size_t) x.first].id] = x.second;
-        CHECK (at["time"] == "E16 9" && at["feedback"] == "E16 10" && at["throw"] == "E16 9 PRESS" && at["freeze"] == "E16 10 PRESS" && at["mix"] == "PERFORM"
+        CHECK (at["time"] == "E16 1" && at["feedback"] == "E16 2" && at["throw"] == "E16 1 PRESS" && at["freeze"] == "E16 2 PRESS" && at["mix"] == "PERFORM"
                && at["dry"] == "SETUP" && at["m1_src"] == "MOTION" && at["slow"] == "SYSTEM" && at["slew"] == "DETAIL",
                "DELAY's places: %s %s %s %s", at["time"].toRawUTF8(), at["throw"].toRawUTF8(), at["mix"].toRawUTF8(), at["dry"].toRawUTF8());
     }
@@ -1257,7 +1257,7 @@ int main (int argc, char** argv)
     for (auto& id : ids) testModule (id);
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
-                     testThirdReview(); testDrop(); testSongWindow(); testGrooveFollow(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
+                     testThirdReview(); testDrop(); testSongWindow(); testSongGo(); testGrooveFollow(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
                      testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
@@ -1290,6 +1290,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--drop") { testDrop(); }
     else if (std::string (argv[1]) == "--songwindow") { testSongWindow(); }
     else if (std::string (argv[1]) == "--groove") { testGrooveFollow(); }
+    else if (std::string (argv[1]) == "--songgo") { testSongGo(); }
     else if (std::string (argv[1]) == "--dropweight") { testDropWeight(); }
     else if (std::string (argv[1]) == "--authority") { testControlAuthority(); testRecallHistory(); }
     else if (std::string (argv[1]) == "--history") { testRecallHistory(); }

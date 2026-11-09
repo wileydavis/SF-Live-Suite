@@ -19,13 +19,19 @@ namespace sf
 // SLOW ALL: how long your next knob moves take to arrive, in every SF plugin whose own SLOW is
 // CONTROL (the default). OFF = straight there. A move keeps the length it was made with, so
 // turning SLOW ALL never touches a knob that is already travelling. Song recalls follow it too.
-// E16 RINGS: the E16 USB port SF CONTROL tells the SF SHOW scene's script about travelling knobs
+// E16 RINGS: the E16 USB port SF CONTROL tells the E16 scenes' script about travelling knobs
 // on (their rings turn green and follow the sound). OFF: nothing is sent. A port that isn't there
 // is looked for again every 2 s.
+// NEXT SONG and GO [Nov 8]: the song call on the E16 (knob 15 of every SF SHOW page). Turning picks NEXT SONG and
+// changes nothing else, so a knob knocked in passing never changes the song; GO (its press) asks for
+// that song, on the next bar line as a turn of SONG would (Live stopped: at once). GO on the song
+// already asked for does nothing. NEXT SONG follows the song whenever it changes, by any way, so the
+// knob and its ring show the song in force until it is turned. Live sends no Program Change to a
+// VST3: this is how a set of VST3s calls its songs from the stage.
 class ControlModule : public Module, private juce::Timer
 {
 public:
-    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO, SLOWALL, E16RINGS };
+    enum { M1, M2, M3, M4, M5, M6, SONG, STOREALL, PCCH, PCON, POFFSET, KEY, PANIC, STORETO, SLOWALL, E16RINGS, NEXTSONG, SONGGO };
     ControlModule() { startTimerHz (20); }
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
@@ -57,6 +63,9 @@ public:
         sa.song = false; sa.preset = false; p.push_back (sa);
         auto er = choice ("e16_rings", "E16 RINGS", { "OFF", "PORT 1", "PORT 2", "PORT 3" }, 3);
         er.song = false; er.preset = false; er.setup = true; p.push_back (er);
+        // Played, like SLOW ALL: songs and presets leave them alone.
+        auto nx = choice ("next_song", "NEXT SONG", songs, 0); nx.song = false; nx.preset = false; nx.perform = true; p.push_back (nx);
+        auto go = momentary ("song_go", "GO"); go.preset = false; go.perform = true; p.push_back (go);
         return p;
     }
     // VST3 delivers Program Change as a program change: 16 programs = 16 songs.
@@ -151,6 +160,12 @@ public:
             songParamNow = sp;
             if (sp != mirroredSong.exchange (-1) && sp != d.song.load()) publishSong (sp, 0);
         }
+        // GO: NEXT SONG, as asked for now (its press's leading edge); nothing if that song is the one
+        // asked for already. SONG follows, as after a Program Change.
+        const bool go = c.b (SONGGO);
+        if (go && ! goWas)
+            if (const int nx = c.ci (NEXTSONG); nx != d.song.load()) { publishSong (nx, 0); pcSong = nx; }
+        goWas = go;
         // A host program change (VST3), last: it is the newest request.
         if (const int pr = programRequest.exchange (-1); pr >= 0) { publishSong (pr, 0); pcSong = pr; }
 
@@ -208,6 +223,11 @@ public:
         };
         const int song = d.song.load();
         line ("SONG", song < 0 ? "--" : juce::String (song + 1).paddedLeft ('0', 2), ui::kText);
+        // NEXT SONG: amber while it picks a song GO hasn't called yet.
+        const int next = getParam ? juce::jlimit (0, kSongs - 1, (int) std::lround (getParam (NEXTSONG))) : -1;
+        const bool picked = next >= 0 && next != song;
+        line ("NEXT", next < 0 ? juce::String ("--") : juce::String (next + 1).paddedLeft ('0', 2) + (picked ? "  PRESS GO" : ""),
+              picked ? ui::kAmber : ui::kFaint);
         static const char* const keys[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         const int key = d.keyRoot.load();
         line ("KEY", key >= 0 && key < 12 ? juce::String (keys[key]) : juce::String ("OFF"), key >= 0 ? ui::kText : ui::kFaint);
@@ -236,6 +256,14 @@ private:
         // to ACTIVE SONG.
         const auto& d = Bus::get().d();
         if (const int pc = pcSong.exchange (-1); pc >= 0 && d.song.load() == pc) mirrorSong (pc);
+        // NEXT SONG follows the song whenever it changes (GO, SONG, a Program Change, STORE TO, another
+        // plugin's load): a pick not yet called gives way to it.
+        if (const int now = d.song.load(); now != nextFollows)
+        {
+            nextFollows = now;
+            if (now >= 0 && now < kSongs && setParam && getParam && (int) std::lround (getParam (NEXTSONG)) != now)
+                setParam (NEXTSONG, (float) now);
+        }
         if (const int s = storeMirror.exchange (-1); s >= 0 && setParam)
         {
             if (s < kSongs && d.song.load() == s) mirrorSong (s);
@@ -305,7 +333,8 @@ private:
         return since < windowBeats ? barStart : barStart + bpb;
     }
     int lastSongParam = -1, storeTo = -1;
-    bool storeWas = false, panicWas = false, storeHeld = false, storeKeepSong = false;
+    bool storeWas = false, panicWas = false, storeHeld = false, storeKeepSong = false, goWas = false;
+    int nextFollows = -2;                 // the bus song NEXT SONG last followed (message thread)
     bool slowFenceUp = false;              // a SLOW ALL change's fence is on the bus: cleared next block
 };
 ModulePtr makeCONTROL() { return std::make_unique<ControlModule>(); }

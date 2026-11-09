@@ -155,6 +155,20 @@ class Project:
     def set_program(self, seq, slot, pc):
         self.d[self.at(seq, slot) + M_PC] = 0xFF if pc is None else pc - 1
 
+    # The channels: read in every save, where the ONE showed them; written here with no save of the
+    # ONE's to compare yet (README.md, HOW SFSTART WAS CHECKED). One byte each, in the pattern.
+    def set_channel(self, seq, slot, ch):
+        """A Mono pattern's channel, 0-based: 0-15 port A ch 1-16, 16-31 port B."""
+        assert self.kind(seq, slot) == MONO and 0 <= ch < 32, (seq, slot, ch)
+        self.d[self.at(seq, slot) + M_CH] = ch
+
+    def set_track_channels(self, seq, slot, chans):
+        """A multitrack pattern's tracks' channels, index 0 (track 8, the bottom row) first: 0 off,
+        1-32 for 1A .. 16B."""
+        assert self.kind(seq, slot) == MULTI and len(chans) == 8 and all(0 <= c <= 32 for c in chans), (seq, slot, chans)
+        a = self.at(seq, slot) + T_CH
+        self.d[a:a + 8] = bytes(chans)
+
     def empty_slot(self, seq, slot):
         a = self.at(seq, slot)
         self.d[a:a + BLK] = bytes([EMPTY]) + bytes(BLK - 1)

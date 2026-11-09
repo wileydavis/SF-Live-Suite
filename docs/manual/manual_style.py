@@ -58,7 +58,8 @@ class Swatch(Flowable):
 
 class RoutingDiagram(Flowable):
     """The show template's signal flow, drawn in the manual's own type: sources > LIVE BUS > Main >
-    PA and REC (both from Resampling); along the bottom, the room mics > 94 ROOM > the headphone pair."""
+    PA and REC (both from the Main, after its fader); along the bottom, the room mics > ROOM > the
+    headphone pair."""
     H = 244
     def wrap(self, aw, ah): self.aw = aw; return aw, self.H
     def box(self, x, y, w, h, text, subs=(), heavy=False):
@@ -89,26 +90,26 @@ class RoutingDiagram(Flowable):
         bh, gap = 22, 6
         x0, w0 = 26, 112
         top = H - 4
-        ys = [top - bh - i * (bh + gap) for i in range(5)]                 # KICK, LOW, DRUMS, MUSIC, RETURNS
-        src = [("01 KICK", ("SF KICK",)), ("10 LOW", ("SF ENERGY",)), ("20 DRUMS", ("SF ENERGY, SF REPEAT",)),
-               ("30 MUSIC", ("SF ENERGY",)), ("A DUB  B SPACE", ("SF DELAY, SF REVERB",))]
+        ys = [top - bh - i * (bh + gap) for i in range(5)]                 # KICK, DRUMS, LOW, MUSIC, RETURNS
+        src = [("1 KICK", ("SF KICK",)), ("DRUMS 2-5", ("SF ENERGY, SF REPEAT",)), ("LOW 6-7", ("SF ENERGY",)),
+               ("MUSIC 8-11", ("SF ENERGY",)), ("A DUB  B SPACE", ("SF DELAY, SF REVERB",))]
         for (t, sub), y in zip(src, ys): self.box(x0, y, w0, bh, t, sub)
         yb = [ys[4] - 18 - bh, ys[4] - 18 - 2 * bh - gap]                 # BRIDGE, DECK
-        self.box(x0, yb[0], w0, bh, "40 BRIDGE", ("LIVE AUDIO CLIPS",))
-        self.box(x0, yb[1], w0, bh, "41 DECK", ("SF DECK",))
-        # Sends: the groups feed the returns (left of the column, dashed).
+        self.box(x0, yb[0], w0, bh, "BRIDGE", ("LIVE AUDIO CLIPS",))
+        self.box(x0, yb[1], w0, bh, "DECK", ("SF DECK",))
+        # Sends: every instrument track feeds the returns (left of the column, dashed).
         xs = 12
         c.setStrokeColor(GREY); c.setLineWidth(0.8); c.setDash(2.2, 2.2)
-        for y in (ys[2], ys[3]): c.line(x0, y + bh / 2, xs, y + bh / 2)
-        c.line(xs, ys[2] + bh / 2, xs, ys[4] + bh / 2)
+        for y in ys[:4]: c.line(x0, y + bh / 2, xs, y + bh / 2)
+        c.line(xs, ys[0] + bh / 2, xs, ys[4] + bh / 2)
         c.setDash()
         self.arrow(xs, ys[4] + bh / 2, x0, ys[4] + bh / 2, dashed=True)
-        c.saveState(); c.translate(6, (ys[2] + ys[4] + bh) / 2); c.rotate(90)
+        c.saveState(); c.translate(6, (ys[1] + ys[4] + bh) / 2); c.rotate(90)
         c.setFont("Mono", 6.0); c.setFillColor(GREY); c.drawCentredString(0, 0, "SENDS"); c.restoreState()
         # LIVE BUS
         x1, w1, h1 = 160, 96, 44
         yl = (ys[0] + ys[4] + bh) / 2 - h1 / 2
-        self.box(x1, yl, w1, h1, "90 LIVE BUS", ("ISOLATOR BUILD GLUE", "TONE LOWEND ALLOC"))
+        self.box(x1, yl, w1, h1, "LIVE BUS", ("ISOLATOR BUILD GLUE", "TONE LOWEND ALLOC"))
         for y in ys: self.arrow(x0 + w0, y + bh / 2, x1, yl + h1 / 2)
         # MAIN
         x2, w2, h2 = 280, 56, 40
@@ -120,25 +121,27 @@ class RoutingDiagram(Flowable):
         w3 = 122; x3 = aw - w3
         yo = [ym + h2 / 2 + 40, ym + h2 / 2 - bh / 2, ym + h2 / 2 - 40 - bh]
         self.box(x3, yo[0], w3, bh, "UNUSED OUTPUT", ("MAIN'S OWN OUTPUT",))
-        self.box(x3, yo[1], w3, bh, "92 PA", ("RESAMPLING > ROOM EQ > PA",))
-        self.box(x3, yo[2], w3, bh, "93 REC", ("RESAMPLING > RECORDING",))
+        self.box(x3, yo[1], w3, bh, "PA", ("MAIN > ROOM EQ > PA 1/2",))
+        self.box(x3, yo[2], w3, bh, "REC", ("MAIN > RECORDING",))
         self.arrow(x2 + w2, ym + h2 / 2 + 10, x3, yo[0] + bh / 2, dashed=True)
         self.arrow(x2 + w2, ym + h2 / 2, x3, yo[1] + bh / 2)
         self.arrow(x2 + w2, ym + h2 / 2 - 10, x3, yo[2] + bh / 2)
         # The room: its own path, never into the set (SF CAPTURE passes nothing but TERROIR's sweep).
         yr = 2
         self.box(x0, yr, w0, bh, "ROOM MICS", ("INPUTS 1/2",))
-        self.box(x1, yr, w1, bh, "94 ROOM", ("SF CAPTURE",))
+        self.box(x1, yr, w1, bh, "ROOM", ("SF CAPTURE",))
         self.box(x3, yr, w3, bh, "HEADPHONES 3/4", ("CUE; THE CAPTURE SPEAKER",))
         self.arrow(x0 + w0, yr + bh / 2, x1, yr + bh / 2)
         self.arrow(x1 + w1, yr + bh / 2, x3, yr + bh / 2, dashed=True)
 
 class E16Grid(Flowable):
-    """The E16 in SF SHOW: a 4 x 4 grid numbered row by row from the top left. Rows 1-2 are the same on
-    every page; rows 3-4 are drawn as they are on an instrument page. A light blue ring is a volume."""
+    """An E16 page: a 4 x 4 grid numbered row by row from the top left. cells: {encoder: (name, sub,
+    ring colour, quiet)}. bands: [(first row, last row, text, sub)], bracketed at the right with a
+    dashed line between them; note: the line under the grid."""
     CW, RH = 100, 38
     H = 4 * RH + 16
-    def __init__(self, cells): super().__init__(); self.cells = cells
+    def __init__(self, cells, bands=(), note="LIGHT BLUE RING: A LEVEL."):
+        super().__init__(); self.cells, self.bands, self.note = cells, bands, note
     def wrap(self, aw, ah): self.aw = aw; return aw, self.H
     def draw(self):
         c = self.canv
@@ -153,16 +156,19 @@ class E16Grid(Flowable):
                 c.setFillColor(INK); c.setFont("MonoB", 7.2); c.drawCentredString(cx, cy - 2.5, str(i))
                 c.setFillColor(GREY if quiet else INK); c.setFont("MonoB", 7.2); c.drawString(x + 29, cy + 1.6, name)
                 if sub: c.setFillColor(GREY); c.setFont("Mono", 5.9); c.drawString(x + 29, cy - 6.6, sub)
-        yd = top - 2 * self.RH
-        c.setStrokeColor(GREY); c.setLineWidth(0.6); c.setDash(2.2, 2.2); c.line(0, yd, 4 * self.CW, yd); c.setDash()
         xb = 4 * self.CW + 8
-        for (y1, y0, text, sub) in ((top - 3, yd + 3, "EVERY PAGE", "ROWS 1 AND 2"), (yd - 3, top - 4 * self.RH + 3, "THE PAGE", "ROWS 3 AND 4")):
+        for k, (r0, r1, text, sub) in enumerate(self.bands):
+            y1, y0 = top - (r0 - 1) * self.RH - 3, top - r1 * self.RH + 3
+            if k:
+                yd = top - (r0 - 1) * self.RH
+                c.setStrokeColor(GREY); c.setLineWidth(0.6); c.setDash(2.2, 2.2); c.line(0, yd, 4 * self.CW, yd); c.setDash()
             c.setStrokeColor(INK); c.setLineWidth(0.8)
             c.line(xb, y1, xb + 4, y1); c.line(xb + 4, y1, xb + 4, y0); c.line(xb, y0, xb + 4, y0)
             c.setFillColor(INK); c.setFont("MonoB", 7.2); c.drawString(xb + 10, (y0 + y1) / 2 + 1.5, text)
             c.setFillColor(GREY); c.setFont("Mono", 5.9); c.drawString(xb + 10, (y0 + y1) / 2 - 6.5, sub)
-        c.setFillColor(GREY); c.setFont("Mono", 5.9)
-        c.drawString(0, 2, "ROWS 3 AND 4 AS ON AN INSTRUMENT PAGE.  LIGHT BLUE RING: A VOLUME.")
+        if self.note:
+            c.setFillColor(GREY); c.setFont("Mono", 5.9)
+            c.drawString(0, 2, self.note)
 
 # ------------------------------------------------------------------ document
 class Doc(BaseDocTemplate):

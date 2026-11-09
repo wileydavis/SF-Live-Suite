@@ -3,23 +3,37 @@
     python3 controllers/oxi-one/check_project.py PROJECT.oxipro [--start]
 
 Prints each sequencer as the ONE has it (mode, channel, Out, the slots in use and what is in them,
-sequencer 8's Program Change) and what doesn't match the card. --start: the project is SF START, so
-sequencer 8's Program Change should be off; without it, the project is a song's and sequencer 8
-must call it. Exit 1 if anything doesn't match.
+any Program Change) and what doesn't match the card. A part's channel is its Live track's number, on
+port A (controllers/e16/layout.py: one number per track, on the ONE and the E16) [Nov 8]. Songs are
+called from the E16 (encoder 15 of every SF SHOW page: NEXT SONG, its press GO), so a project calls
+none: a Program Change reaches SF CONTROL only as an AU, and the show set's is a VST3. --start: the
+project is SF START, which must send none (an AU of SF CONTROL would take it). Sequencers 7 and 8 are
+spare: reported, not checked. Exit 1 if anything doesn't match.
 """
 import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "e16"))
 import oxipro as X  # noqa: E402
+import layout as L  # noqa: E402
 
-# The rig (README.md, THE PROJECT). Mono channels are stored 0-based: 16 is 1B.
-MONO_PARTS = {2: ("BASS", 16), 3: ("ACID", 17), 4: ("STAB", 18), 5: ("TEXTURE", 19),
-              6: ("VOICE", 20), 7: ("STRIKE", 21), 8: ("CONTROL", 31)}
+# The rig (README.md, THE PROJECT): the Live track each sequencer plays, by its role, on port A and
+# the track's channel. Mono channels are stored 0-based (0 is 1A, 16 is 1B).
+MONO_PARTS = {s: (part, L.PLUGINS[part][2] - 1) for s, part in ((2, "BASS"), (3, "LEAD"), (4, "CHORD"), (5, "PAD"), (6, "VOICE"))}
+SPARE = (7, 8)
+# What SF START puts on the spare sequencers: 7 on 7B, DECK's channel (its hot cues), 8 on 16A, SF
+# CONTROL's (a Program Change, for an AU of it).
+SPARE_CHANNELS = {7: 16 + 7 - 1, 8: 16 - 1}
 # Drum tracks: what each Live track listens to (track channels are stored 1-based: 1 is 1A).
-DRUM_PARTS = {1: "KICK", 2: "CLOSED", 3: "OPEN", 4: "CLAP", 22: "STRIKE"}
-NEEDED_DRUMS = ("KICK", "CLOSED", "OPEN", "CLAP")
+DRUM_PARTS = {L.PLUGINS[part][2]: part for part in ("KICK", "CLOSED HAT", "OPEN HAT", "CLAP", "PERC")}
+NEEDED_DRUMS = ("KICK", "CLOSED HAT", "OPEN HAT", "CLAP")
+# Sequencer 1's tracks, index 0 (the ONE's track 8, the bottom row) first: the kick on the bottom row.
+DRUM_ROWS = ["KICK", "PERC", "CLAP", "OPEN HAT", "CLOSED HAT", None, None, None]
+assert set(MONO_PARTS.values()) == {("BASS", 5), ("LEAD", 7), ("CHORD", 8), ("PAD", 9), ("VOICE", 10)}
+assert DRUM_PARTS == {1: "KICK", 2: "CLOSED HAT", 3: "OPEN HAT", 4: "CLAP", 5: "PERC"}
 
 
 def drum_index(p, part, slot=1):
@@ -38,10 +52,11 @@ def read(p, start=False):
                  + ("every checksum verifies" if not bad else "CHECKSUMS FAIL: " + ", ".join(bad)))
     problems += [f"checksum fails: {b}" for b in bad]
     for s in range(1, X.SEQS + 1):
-        part = "DRUMS" if s == 1 else MONO_PARTS[s][0]
+        part = "DRUMS" if s == 1 else "SPARE" if s in SPARE else MONO_PARTS[s][0]
         slots = [q for q in range(1, X.SLOTS + 1) if p.kind(s, q) != X.EMPTY]
         if not slots:
-            problems.append(f"sequencer {s} ({part}): no pattern at all")
+            if s not in SPARE:
+                problems.append(f"sequencer {s} ({part}): no pattern at all")
             continue
         kind = p.kind(s, 1)
         ch = X.channel_name(p.field(s, 1, X.M_CH)) if kind == X.MONO else "-"
@@ -54,14 +69,13 @@ def read(p, start=False):
             n = p.notes(s, q)
             what = (f"{sum(len(v) for v in n.values())} hits" if k == X.MULTI else f"{len(n)} note" + "s" * (len(n) != 1)) if n else "empty"
             pc = ""
-            if k == X.MONO:
-                v = p.program(s, q)
-                pc = "" if s != 8 and v is None else f", PC {v} (SONG {v:02d})" if v else ", PC off"
+            if k == X.MONO and (v := p.program(s, q)) is not None:
+                pc = f", PC {v} (SONG {v:02d} for an AU of SF CONTROL; the VST3 ignores it)"
             lines.append(f"     slot {q} {p.slot_name(s, q)!r}: {what}{pc}")
-            if X.OUTS.get(p.out(s, q)) != "USB":
+            if X.OUTS.get(p.out(s, q)) != "USB" and s not in SPARE:
                 problems.append(f"sequencer {s} slot {q}: Out {X.OUTS.get(p.out(s, q), p.out(s, q))}, not USB")
-            if k == X.MONO and s != 8 and p.program(s, q) is not None:
-                problems.append(f"sequencer {s} slot {q}: sends PC {p.program(s, q)}; only sequencer 8 calls the song")
+            if k == X.MONO and start and p.program(s, q) is not None:
+                problems.append(f"sequencer {s} slot {q} sends PC {p.program(s, q)}: SF START calls no song")
         if s == 1:
             if kind != X.MULTI:
                 problems.append(f"sequencer 1: {X.MODES.get(kind, kind)}, not MULTITRACK")
@@ -78,7 +92,7 @@ def read(p, start=False):
             for i, v in enumerate(p.tracks(1, 1)):
                 if v and v not in DRUM_PARTS:
                     problems.append(f"sequencer 1 track {8 - i}: {X.track_channel_name(v)}, a channel no drum listens to")
-        else:
+        elif s not in SPARE:
             want = MONO_PARTS[s][1]
             if kind != X.MONO:
                 problems.append(f"sequencer {s} ({part}): {X.MODES.get(kind, kind)}, not MONO")
@@ -87,19 +101,13 @@ def read(p, start=False):
             for q in slots:
                 if p.kind(s, q) == X.MONO and p.field(s, q, X.M_CH) != p.field(s, 1, X.M_CH):
                     problems.append(f"sequencer {s} slot {q}: channel differs from slot 1's")
-    if p.kind(8, 1) == X.MONO:
-        pc = p.program(8, 1)
-        if start and pc is not None:
-            problems.append(f"sequencer 8 slot 1 calls SONG {pc:02d}: SF START calls no song (each copy sets its own)")
-        if not start and pc is None:
-            problems.append("sequencer 8 slot 1 sends no Program Change: loading the project won't call its song")
     return lines, problems
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("project")
-    ap.add_argument("--start", action="store_true", help="the project is SF START: no song called")
+    ap.add_argument("--start", action="store_true", help="the project is SF START: it sends no Program Change")
     a = ap.parse_args()
     with open(a.project, "rb") as f:
         p = X.Project(f.read())

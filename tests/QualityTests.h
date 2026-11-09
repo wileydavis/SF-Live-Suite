@@ -2792,6 +2792,77 @@ static void testSongWindow()
     resetBus();
 }
 
+// NEXT SONG and GO [Nov 8]: the song call on the E16 (encoder 15 of every SF SHOW page, GO its
+// press). A turn of NEXT SONG asks for
+// nothing; GO asks for it, on the next bar line (a turn of SONG's 30 ms); GO again, or GO on the song
+// already in force, asks for nothing; SONG follows GO, and NEXT SONG follows any song change (here a
+// turn of SONG), a pick not yet called giving way. Stopped, GO lands at once, recalled by a plugin.
+static void testSongGo()
+{
+    std::printf ("-- NEXT SONG and GO: the song call on the E16\n");
+    resetBus();
+    auto& d = Bus::get().d();
+    Rig2 ctl ("CONTROL"), f ("FILTER");
+    for (auto* r : { &ctl, &f }) r->head.bpm = 120.0;
+    auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
+    auto dc = [] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n) { for (int ch = 0; ch < 2; ++ch) for (int i = 0; i < n; ++i) b.setSample (ch, i, 0.5f); };
+    auto cycle = [&] { ctl.step (kBlock, quiet); f.step (kBlock, dc); };
+    auto param = [&] (const char* id) { return (int) std::lround (ctl.p->apvts.getRawParameterValue (id)->load()); };
+    auto timer = [&] { juce::MessageManager::getInstance()->runDispatchLoopUntil (150); ctl.p->flushHostNotifications(); cycle(); };
+    for (int k = 0; k < 4; ++k) cycle();
+    timer();
+    const int startSong = d.song.load(), startNext = param ("next_song");
+
+    // Playing, mid-bar: a turn of NEXT SONG asks for nothing.
+    for (auto* r : { &ctl, &f }) { r->head.playing = true; r->ppq = 2.5; }
+    uint32_t seq = d.songSeq.load();
+    ctl.set ("next_song", 4.0f);
+    for (int k = 0; k < 8; ++k) cycle();
+    const bool turnAsked = d.songSeq.load() != seq;
+    // GO: song 5 on the bar line at beat 4.
+    seq = d.songSeq.load();
+    ctl.set ("song_go", 1.0f); cycle();
+    const bool goAsked = d.songSeq.load() != seq && d.song.load() == 4;
+    const double lands = d.songAtPpq.load();
+    // Held on, then again after a release: nothing more.
+    seq = d.songSeq.load();
+    for (int k = 0; k < 4; ++k) cycle();
+    ctl.set ("song_go", 0.0f); cycle(); ctl.set ("song_go", 1.0f); cycle(); ctl.set ("song_go", 0.0f); cycle();
+    const bool againAsked = d.songSeq.load() != seq;
+    while (f.ppq < 4.2) cycle();
+    timer();
+    const int songParamAfter = param ("song"), fSong = f.p->activeSong();
+    std::printf ("   NEXT SONG turned to 05 mid-bar: asked %d (want 0); GO: asked %d, lands on beat %.2f (want 4.00); GO again: asked %d (want 0);"
+                 " after the bar FILTER on song %02d, SONG %02d (want 05)\n", (int) turnAsked, (int) goAsked, lands, (int) againAsked, fSong + 1, songParamAfter + 1);
+    CHECK (startSong < 0 || startNext == startSong, "NEXT SONG %d didn't follow the song in force %d at the start", startNext, startSong);
+    CHECK (! turnAsked && goAsked && std::abs (lands - 4.0) < 1e-6 && ! againAsked, "GO: turn asked %d, GO asked %d (lands %.3f), again asked %d",
+           (int) turnAsked, (int) goAsked, lands, (int) againAsked);
+    CHECK (fSong == 4 && songParamAfter == 4, "after GO's bar: FILTER on %d, SONG %d (want 4)", fSong, songParamAfter);
+
+    // A pick not yet called gives way when the song changes another way (SONG turned in Live).
+    ctl.set ("next_song", 9.0f); cycle(); timer();
+    const int picked = param ("next_song");
+    ctl.set ("song", 2.0f); cycle(); timer();
+    const int followed = param ("next_song");
+    std::printf ("   NEXT SONG 10 picked, then SONG turned to 03: NEXT SONG %02d then %02d (want 10, then 03)\n", picked + 1, followed + 1);
+    CHECK (picked == 9 && followed == 2, "NEXT SONG: picked %d, after SONG 3 %d", picked, followed);
+
+    // GO on the song asked for already: nothing. Stopped: GO lands at once.
+    seq = d.songSeq.load();
+    ctl.set ("song_go", 1.0f); cycle(); ctl.set ("song_go", 0.0f); cycle();
+    const bool sameAsked = d.songSeq.load() != seq;
+    for (auto* r : { &ctl, &f }) r->head.playing = false;
+    ctl.set ("next_song", 6.0f); cycle();
+    seq = d.songSeq.load();
+    ctl.set ("song_go", 1.0f); cycle(); ctl.set ("song_go", 0.0f);
+    for (int k = 0; k < 4; ++k) cycle();
+    const bool stoppedAsked = d.songSeq.load() != seq && d.song.load() == 6 && d.songAtPpq.load() < 0.0;
+    std::printf ("   GO on the song in force: asked %d (want 0); stopped, GO on 07: asked at once %d, FILTER on song %02d (want 07)\n",
+                 (int) sameAsked, (int) stoppedAsked, f.p->activeSong() + 1);
+    CHECK (! sameAsked && stoppedAsked && f.p->activeSong() == 6, "GO: on the song in force asked %d; stopped asked %d, FILTER %d", (int) sameAsked, (int) stoppedAsked, f.p->activeSong());
+    resetBus();
+}
+
 // The drop's weight. A groove of SF plugins at their defaults (KICK; RUMBLE on the kick bus; a rolling
 // BASS; closed hats on the eighths, open hats on the off-beats, a clap on 2 and 4; a held PAD chord),
 // summed as Live sums them (delay-compensated), through the LIVE BUS chain (BUILD > GLUE > TONE >
@@ -3294,7 +3365,7 @@ static void testSlowScope()
     resetBus();
 }
 
-// GLIDE RINGS: a plugin finds its knobs on the E16 scene (by track name, or by module when the scene
+// GLIDE RINGS: a plugin finds its knobs on the E16 scenes (by track name, or by module when the scenes
 // has it on one track), reports the travelling ones with Live's mapping of where the sound is, and
 // SF CONTROL turns that into the scene script's SysEx: a start, moves of 32 or more, a keep-alive
 // every 400 ms, an arrival; at most 14 knobs a message.
@@ -3715,11 +3786,11 @@ static void testGlideRings()
     auto quiet = [] (juce::AudioBuffer<float>&, juce::MidiBuffer&, int) {};
     Rig2 ctl ("CONTROL"), kick ("KICK"), stab ("LEAD"), lead ("LEAD"), dub ("DELAY"), low ("ENERGY");
     auto name = [] (Rig2& r, const char* n) { juce::AudioProcessor::TrackProperties t; t.name = n; r.p->updateTrackProperties (t); };
-    name (stab, "32 Stab");          // Live's name, any case
+    name (stab, "9 Chord");          // Live's name, any case
     name (dub, "A DUB");
     // Live reports a track's context in three calls: an empty name, the name, then the colour with
-    // an empty name. ENERGY sits on three tracks in the scene: it needs the name to survive.
-    name (low, ""); name (low, "10 LOW");
+    // an empty name. ENERGY sits on fourteen tracks in the scenes: it needs the name to survive.
+    name (low, ""); name (low, "LOW");
     { juce::AudioProcessor::TrackProperties t; t.colour = juce::Colours::white; low.p->updateTrackProperties (t); }
     std::vector<Rig2*> all { &ctl, &kick, &stab, &lead, &dub, &low };
     auto cycle = [&] { for (auto* r : all) r->step (kBlock, quiet); };
@@ -3735,7 +3806,7 @@ static void testGlideRings()
     bars (0.1);
     int claimed = 0;
     for (auto& g : d.glides) claimed += g.owner.load() != 0 ? 1 : 0;
-    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 32 STAB, DELAY on A DUB, ENERGY on 10 LOW after Live's\n"
+    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 9 CHORD, DELAY on A DUB, ENERGY on LOW after Live's\n"
                  "   three calls; not the unnamed LEAD)\n", claimed);
     CHECK (claimed == 5, "%d glide slots claimed, want 5", claimed);
 
@@ -3743,11 +3814,11 @@ static void testGlideRings()
     kick.set ("tune", 12.0f); stab.set ("cutoff", 1.0f); lead.set ("cutoff", 1.0f); dub.set ("feedback", 0.70f);
     bars (0.5);
     auto e = entries();
-    CHECK (e.empty() || ! e.count (14 * 128 + 20), "LOW ENERGY reported before it moved");
+    CHECK (e.empty() || ! e.count (14 * 128 + 29), "LOW ENERGY reported before it moved");
     low.set ("energy", 1.0f); bars (0.25);
     e = entries();
-    std::printf ("   LOW ENERGY (ch 14 CC 20) travelling: reported %s\n", e.count (14 * 128 + 20) ? "yes" : "NO");
-    CHECK (e.count (14 * 128 + 20) == 1, "LOW ENERGY not reported: its track name was lost");
+    std::printf ("   LOW ENERGY (ch 14 CC 29) travelling: reported %s\n", e.count (14 * 128 + 29) ? "yes" : "NO");
+    CHECK (e.count (14 * 128 + 29) == 1, "LOW ENERGY not reported: its track name was lost");
     low.set ("energy", low.p->param (low.p->paramIndex ("energy"))->convertFrom0to1 (low.p->param (low.p->paramIndex ("energy"))->getValue()));
     bars (1.1);
     kick.set ("tune", 0.0f); stab.set ("cutoff", 0.4f); dub.set ("feedback", 0.45f); bars (1.1);
@@ -3757,13 +3828,13 @@ static void testGlideRings()
     const int kt = kick.p->paramIndex ("tune"), sc = stab.p->paramIndex ("cutoff"), fb = dub.p->paramIndex ("feedback");
     auto ringOf = [] (Rig2& r, int i, float top) { auto* p = r.p->param (i); return (int) std::lround (juce::jlimit (0.0f, 1.0f, p->convertTo0to1 (r.p->baseValue (i)) / top) * 16383.0f); };
     const float fbTop = dub.p->param (fb)->convertTo0to1 (0.70f);
-    std::printf ("   half a bar in: KICK TUNE ch 1 CC 20 ring %d (want %d), STAB CUTOFF ch 9 CC 20 ring %d (want %d), DUB FEEDBACK ch 12 CC 21 ring %d (want %d), %d knobs reported\n",
-                 e.count (1 * 128 + 20) ? e[1 * 128 + 20] : -1, ringOf (kick, kt, 1.0f), e.count (9 * 128 + 20) ? e[9 * 128 + 20] : -1, ringOf (stab, sc, 1.0f),
-                 e.count (12 * 128 + 21) ? e[12 * 128 + 21] : -1, ringOf (dub, fb, fbTop), (int) e.size());
+    std::printf ("   half a bar in: KICK TUNE ch 1 CC 12 ring %d (want %d), CHORD CUTOFF ch 9 CC 12 ring %d (want %d), DUB FEEDBACK ch 12 CC 45 ring %d (want %d), %d knobs reported\n",
+                 e.count (1 * 128 + 12) ? e[1 * 128 + 12] : -1, ringOf (kick, kt, 1.0f), e.count (9 * 128 + 12) ? e[9 * 128 + 12] : -1, ringOf (stab, sc, 1.0f),
+                 e.count (12 * 128 + 45) ? e[12 * 128 + 45] : -1, ringOf (dub, fb, fbTop), (int) e.size());
     CHECK (e.size() == 3, "%d knobs reported, want 3 (the unnamed LEAD has no knob on the scene)", (int) e.size());
-    CHECK (e.count (1 * 128 + 20) && std::abs (e[1 * 128 + 20] - ringOf (kick, kt, 1.0f)) <= 1, "KICK TUNE ring wrong");
-    CHECK (e.count (9 * 128 + 20) && std::abs (e[9 * 128 + 20] - ringOf (stab, sc, 1.0f)) <= 1, "STAB CUTOFF ring wrong");
-    CHECK (e.count (12 * 128 + 21) && std::abs (e[12 * 128 + 21] - ringOf (dub, fb, fbTop)) <= 1, "DUB FEEDBACK ring wrong (mapped 0-70 %%)");
+    CHECK (e.count (1 * 128 + 12) && std::abs (e[1 * 128 + 12] - ringOf (kick, kt, 1.0f)) <= 1, "KICK TUNE ring wrong");
+    CHECK (e.count (9 * 128 + 12) && std::abs (e[9 * 128 + 12] - ringOf (stab, sc, 1.0f)) <= 1, "CHORD CUTOFF ring wrong");
+    CHECK (e.count (12 * 128 + 45) && std::abs (e[12 * 128 + 45] - ringOf (dub, fb, fbTop)) <= 1, "DUB FEEDBACK ring wrong (mapped 0-70 %%)");
 
     E16Glide sender;
     auto msgs = sender.collect (bus, Bus::nowMs());

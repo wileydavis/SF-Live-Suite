@@ -41,52 +41,65 @@ WHITE, LIGHT, GREY, DARK, BLACK, RED, DARK_RED = 13, 27, 41, 55, 69, 14, 58
 # kind: midi | audio | group | return. out: "main", "group", "pa" (PA_OUT), "none" (Sends Only) or a track name
 # (its Track In). monitor: in | auto | off. devices: (SF module, {parameter id: value}) in chain order.
 # midi: the MIDI From, (ONE port, channel): set in the set, under the names Live gives the OXI One MkII's
-# two USB ports on a Mac (ONE_PORTS). A MIDI track without one (12 RUMBLE) stays on No Input.
+# two USB ports on a Mac (ONE_PORTS). A MIDI track without one (RUMBLE) stays on No Input.
+# One number per track [Nov 8]: an instrument track's number is its MIDI channel, on the OXI One (port A)
+# and on the E16, and its page in the E16 scene SF SHOW (controllers/e16/layout.py). Tracks are named by
+# their role, not their instrument: a track keeps its name and number when another instrument goes on it.
+# The kick sits outside DRUMS (the drum group's REPEAT and ENERGY never take it). A track without a number
+# has no channel of its own: CONTROL listens to port A ch 16 (Program Change, for an AU of SF CONTROL;
+# the set calls its songs from the E16: NEXT SONG, GO), DECK to port B ch 7 (hot cues).
 SHOW = [
-    dict(name="00 CONTROL", kind="midi", colour=BLACK, devices=[("CONTROL", {})], midi=("B", 16)),
-    dict(name="01 KICK", kind="midi", colour=LIGHT, out="90 LIVE BUS", devices=[("KICK", {})], midi=("A", 1)),
-    dict(name="10 LOW", kind="group", colour=WHITE, out="90 LIVE BUS", devices=[("ENERGY", {"profile": "BASS"})]),
-    dict(name="11 BASS", kind="midi", group="10 LOW", colour=LIGHT, devices=[("BASS", {})], midi=("B", 1)),
-    dict(name="12 RUMBLE", kind="midi", group="10 LOW", colour=LIGHT, devices=[("RUMBLE", {"source": "KICK BUS"})],
-         midi=None),                         # it follows the kick
-    dict(name="20 DRUMS", kind="group", colour=WHITE, out="90 LIVE BUS",
+    dict(name="CONTROL", kind="midi", colour=BLACK, devices=[("CONTROL", {})], midi=("A", 16)),
+    dict(name="1 KICK", kind="midi", colour=LIGHT, out="LIVE BUS", devices=[("KICK", {})], midi=("A", 1)),
+    dict(name="DRUMS", kind="group", colour=WHITE, out="LIVE BUS",
          devices=[("ENERGY", {"profile": "DRUMS"}), ("REPEAT", {})]),
-    dict(name="21 CLOSED", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("PERC", {"model": "HAT 909-TYPE"})],
+    dict(name="2 CLOSED HAT", kind="midi", group="DRUMS", colour=LIGHT, devices=[("PERC", {"model": "HAT 909-TYPE"})],
          midi=("A", 2)),
-    dict(name="22 OPEN", kind="midi", group="20 DRUMS", colour=LIGHT,
+    dict(name="3 OPEN HAT", kind="midi", group="DRUMS", colour=LIGHT,
          devices=[("PERC", {"model": "HAT 909-TYPE", "decay": "0.8"})], midi=("A", 3)),
-    dict(name="23 CLAP", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("PERC", {"model": "CLAP"})],
+    dict(name="4 CLAP", kind="midi", group="DRUMS", colour=LIGHT, devices=[("PERC", {"model": "CLAP"})],
          midi=("A", 4)),
-    dict(name="24 STRIKE", kind="midi", group="20 DRUMS", colour=LIGHT, devices=[("STRIKE", {})], midi=("B", 6)),
-    dict(name="30 MUSIC", kind="group", colour=WHITE, out="90 LIVE BUS", devices=[("ENERGY", {"profile": "MUSIC"})]),
-    dict(name="31 ACID", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("LEAD", {"model": "ACID 303-TYPE"})],
-         midi=("B", 2)),
-    dict(name="32 STAB", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("LEAD", {"model": "STAB DUB"})],
-         midi=("B", 3)),
-    dict(name="33 TEXTURE", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("PAD", {"model": "GRANULAR"})],
-         midi=("B", 4)),
-    dict(name="34 VOICE", kind="midi", group="30 MUSIC", colour=LIGHT, devices=[("VOICE", {})], midi=("B", 5)),
-    dict(name="40 BRIDGE", kind="audio", colour=GREY, audio_in="none", monitor="off", devices=[]),
-    dict(name="41 DECK", kind="midi", colour=GREY, devices=[("DECK", {})], midi=("B", 7)),
-    dict(name="90 LIVE BUS", kind="audio", colour=DARK, audio_in="none", monitor="in", sends=False,
+    dict(name="5 PERC", kind="midi", group="DRUMS", colour=LIGHT, devices=[("STRIKE", {})], midi=("A", 5)),
+    dict(name="LOW", kind="group", colour=WHITE, out="LIVE BUS", devices=[("ENERGY", {"profile": "BASS"})]),
+    dict(name="6 BASS", kind="midi", group="LOW", colour=LIGHT, devices=[("BASS", {})], midi=("A", 6)),
+    dict(name="7 RUMBLE", kind="midi", group="LOW", colour=LIGHT, devices=[("RUMBLE", {"source": "KICK BUS"})],
+         midi=None),                         # it follows the kick
+    dict(name="MUSIC", kind="group", colour=WHITE, out="LIVE BUS", devices=[("ENERGY", {"profile": "MUSIC"})]),
+    dict(name="8 LEAD", kind="midi", group="MUSIC", colour=LIGHT, devices=[("LEAD", {"model": "ACID 303-TYPE"})],
+         midi=("A", 8)),
+    dict(name="9 CHORD", kind="midi", group="MUSIC", colour=LIGHT, devices=[("LEAD", {"model": "STAB DUB"})],
+         midi=("A", 9)),
+    dict(name="10 PAD", kind="midi", group="MUSIC", colour=LIGHT, devices=[("PAD", {"model": "GRANULAR"})],
+         midi=("A", 10)),
+    dict(name="11 VOICE", kind="midi", group="MUSIC", colour=LIGHT, devices=[("VOICE", {})], midi=("A", 11)),
+    dict(name="BRIDGE", kind="audio", colour=GREY, audio_in="none", monitor="off", devices=[]),
+    dict(name="DECK", kind="midi", colour=GREY, devices=[("DECK", {})], midi=("B", 7)),
+    dict(name="LIVE BUS", kind="audio", colour=DARK, audio_in="none", monitor="in", sends=False,
          devices=[("ISOLATOR", {}), ("BUILD", {}), ("GLUE", {}), ("TONE", {}), ("LOWEND", {}), ("ALLOC", {"enable": "off"})]),
     # The PA feed: the Main (the set, after SF LIMIT), the venue's correction, then a safety limiter that never
     # touches the set (its peaks are already at -1 dBTP) and only catches what the room EQ's phase pushes past.
-    dict(name="92 PA", kind="audio", colour=RED, audio_in="main", monitor="in", sends=False, out="pa",
+    dict(name="PA", kind="audio", colour=RED, audio_in="main", monitor="in", sends=False, out="pa",
          devices=[("ROOMEQ", {}), ("LIMIT", {"ceiling": "-0.5", "clip": "0", "auto": "off"})]),
-    dict(name="93 REC", kind="audio", colour=DARK_RED, audio_in="main", monitor="off", sends=False, out="none",
+    dict(name="REC", kind="audio", colour=DARK_RED, audio_in="main", monitor="off", sends=False, out="none",
          devices=[]),
     # The room mics (a stereo pair on inputs 1/2): arm it to record the room with the set. SF CAPTURE
     # plays TERROIR's sweep out of the headphone pair (a speaker on it) and records the mics; it never
     # passes them, so its output is silent the rest of the time.
-    dict(name="94 ROOM", kind="audio", colour=DARK_RED, audio_in="ext:S0", monitor="in", sends=False, out="ext:S1",
+    dict(name="ROOM", kind="audio", colour=DARK_RED, audio_in="ext:S0", monitor="in", sends=False, out="ext:S1",
          devices=[("CAPTURE", {})], setup="inputs 1/2 as a stereo pair (Settings > Audio > Input Config)"),
-    dict(name="A DUB", kind="return", colour=GREY, out="90 LIVE BUS", devices=[("DELAY", {"dry": "off"})]),
-    dict(name="B SPACE", kind="return", colour=GREY, out="90 LIVE BUS", devices=[("REVERB", {"dry": "off"})]),
+    dict(name="A DUB", kind="return", colour=GREY, out="LIVE BUS", devices=[("DELAY", {"dry": "off"})]),
+    dict(name="B SPACE", kind="return", colour=GREY, out="LIVE BUS", devices=[("REVERB", {"dry": "off"})]),
 ]
+# The numbered tracks are the scene's, in the scene's order: one list (controllers/e16/layout.py).
+assert [t["name"] for t in SHOW if t["name"].split(" ", 1)[0].isdigit()] == [L.PLUGINS[d][0] for d in L.TRACKS]
+assert all(t["midi"] == ("A", int(t["name"].split(" ", 1)[0])) for t in SHOW if t["name"].split(" ", 1)[0].isdigit() and t["midi"])
+# Every instrument track ends in SF ENERGY, with the profile for its part: the E16's ENERGY knobs (SF
+# SHOW's PERFORM page) [Nov 8]. One list for the scene and the set: controllers/e16/layout.py.
+for _dest, _profile in L.ENERGY_TRACKS.items():
+    next(t for t in SHOW if t["name"] == L.PLUGINS[_dest][0])["devices"].append(("ENERGY", {"profile": _profile}))
 MAIN_DEVICES = [("LIMIT", {})]
 MAIN_COLOUR = DARK
-PA_OUT = "ext:S0"            # 92 PA: outputs 1/2, the only signal on them
+PA_OUT = "ext:S0"            # PA: outputs 1/2, the only signal on them
 # The OXI One MkII's USB ports as Live names them on a Mac: port A is Port 1, port B is Port 2.
 ONE_PORTS = {"A": "OXI ONE MKII (Port 1){28E9-1113-0-in-0}", "B": "OXI ONE MKII (Port 2){28E9-1113-0-in-1}"}
 CUE_OUT = "ext:S1"           # Cue Out 3/4, the headphones (Live: never the Main's pair)
@@ -202,6 +215,9 @@ class Builder:
         self.t_midi = self.pattern(tracks, "MidiTrack")
         self.t_audio = self.pattern(tracks, "AudioTrack")
         self.t_return = self.pattern(tracks, "ReturnTrack")
+        # A group as this Live writes one, when the base has one (Live 12.4's differs from a MIDI
+        # track in more than the slots: no sequencer of its own, the freeze state in another place).
+        self.t_group = self.pattern(tracks, "GroupTrack", optional=True)
         mixer = self.t_audio.find("DeviceChain/Mixer")
         cut = [c.tag for c in mixer].index("Sends")
         self.device_header = [copy.deepcopy(c) for c in list(mixer)[:cut]]   # this Live version's device header
@@ -211,11 +227,19 @@ class Builder:
         self.params = {}              # id(device) -> {param id: (slot element, param json)}
 
     @staticmethod
-    def pattern(tracks, tag):
+    def pattern(tracks, tag, optional=False):
         t = next((x for x in tracks if x.tag == tag), None)
         if t is None:
+            if optional:
+                return None
             raise SystemExit(f"the base set needs a {tag}")
         t = copy.deepcopy(t)
+        for tag_, value in (("SavedPlayingSlot", -1), ("SavedPlayingOffset", 0), ("LinkedTrackGroupId", -1)):
+            if t.find(tag_) is not None:                # Live 12.4: what the base's owner left playing
+                setv(t, tag_, value)
+        for p in [p for p in t.iter() if p.find("KeyMidi") is not None]:   # the base owner's mappings
+            for k in p.findall("KeyMidi"):
+                p.remove(k)
         for path in ("DeviceChain/DeviceChain/Devices", "AutomationEnvelopes/Envelopes", "TakeLanes/TakeLanes"):
             e = t.find(path)
             if e is not None:
@@ -367,8 +391,19 @@ class Builder:
     # -------------------------------------------------------------------------------------- tracks
     def make_track(self, spec, track_id):
         kind = spec["kind"]
-        t = copy.deepcopy(self.t_midi if kind == "midi" else self.t_audio if kind == "audio" else self.t_return)
-        if kind == "group":
+        if kind == "group" and self.t_group is not None:
+            t = copy.deepcopy(self.t_group)
+            slots = t.find("Slots")
+            for c in list(slots):
+                slots.remove(c)
+            for i in range(self.scenes):
+                g = ET.SubElement(slots, "GroupTrackSlot")
+                g.set("Id", str(i))
+                g.append(V("LomId", 0))
+            setv(t, "TrackUnfolded", "true")
+        else:
+            t = copy.deepcopy(self.t_midi if kind in ("midi", "group") else self.t_audio if kind == "audio" else self.t_return)
+        if kind == "group" and self.t_group is None:
             t.tag = "GroupTrack"
             slots = ET.Element("Slots")
             for i in range(self.scenes):
@@ -518,6 +553,10 @@ class Builder:
         pos.set("X", "0")
         pos.set("Y", "0")
         setv(self.live, "HighlightedTrackIndex", 0)
+        grooves = self.live.find("GroovePool/Grooves")         # the base owner's grooves
+        if grooves is not None and not any(e.get("Value") not in (None, "-1") for e in self.root.iter("GrooveId")):
+            for g in list(grooves):
+                grooves.remove(g)
 
     # -------------------------------------------------------------------------------------- mappings
     @staticmethod
@@ -535,8 +574,8 @@ class Builder:
                 t = self.tracks[item.track]
                 if item.mixer == "volume":
                     value = t.find("DeviceChain/Mixer/Volume")
-                elif item.mixer == "send A":
-                    value = t.find("DeviceChain/Mixer/Sends")[0].find("Send")
+                elif item.mixer in ("send A", "send B"):
+                    value = t.find("DeviceChain/Mixer/Sends")[" AB".index(item.mixer[-1]) - 1].find("Send")
                 else:
                     raise SystemExit(f"no mixer control {item.mixer}")
                 if item.max_value is not None:
