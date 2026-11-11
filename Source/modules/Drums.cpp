@@ -25,10 +25,14 @@ static float sampleGateGain (float t, float gateSeconds)
 }
 
 // =====================================================================================  KICK
+// KICK 909-TYPE and KICK 808-TYPE are their circuits [Nov 10] (renderVoice: kick909, kick808); the
+// other models are one pitch-swept body with a click. For the circuit models the table gives the
+// resting pitch (f1), the sweep's start against it (ratio: 909) and time constant (tau), and the
+// decay's time constant; the rest of their rows is unused.
 struct KickModel { const char* name; float f1, ratio, tau, decay, click, clickHz, drive, shape, lp, fm, gain; };
 static const KickModel kKickModels[] = {
-    { "KICK 909-TYPE",    50.0f, 5.5f, 0.007f, 0.35f, 0.60f, 3500.0f, 0.25f, 0.25f,  8000.0f, 0.00f, 1.0f },
-    { "KICK 808-TYPE",    46.0f, 2.4f, 0.020f, 0.90f, 0.08f, 2000.0f, 0.05f, 0.00f,  5000.0f, 0.00f, 0.85f },
+    { "KICK 909-TYPE",    50.0f, 4.5f, 0.009f, 0.35f, 0.60f, 3500.0f, 0.10f, 0.00f, 20000.0f, 0.00f, 1.0f },
+    { "KICK 808-TYPE",    49.5f, 2.2f, 0.002f, 0.45f, 0.08f, 2000.0f, 0.02f, 0.00f, 20000.0f, 0.00f, 1.0f },
     { "KICK SINE",        48.0f, 3.0f, 0.012f, 0.50f, 0.05f, 3000.0f, 0.00f, 0.00f, 12000.0f, 0.00f, 0.62f },
     { "KICK INDUSTRIAL",  52.0f, 7.0f, 0.006f, 0.45f, 0.70f, 4500.0f, 0.85f, 0.30f,  9000.0f, 0.00f, 0.6f },
     { "KICK MODULAR",     55.0f, 4.0f, 0.015f, 0.30f, 0.30f, 2500.0f, 0.30f, 0.60f,  3000.0f, 0.35f, 0.72f },
@@ -102,6 +106,10 @@ public:
         Svf res;
         float srate = 1.0f, gate = 1.0e9f;
         SampleRegion reg;                   // SAMPLE: the part of the sample this hit plays
+        // 909 and 808 circuits: accent (0..1), the 808's bridged-T, pulse shaper, tone low-pass and
+        // the retrigger, the 909's click filters; both a DC blocker at the output.
+        float accent = 1.0f, shift = 1.2f, sigh = 0.2f, sighTau = 0.1f, toneK = 1.0f, clickNz = 0.0f, clickLp = 0.0f, dcX = 0.0f, dcY = 0.0f, toneZ = 0.0f;
+        Svf bridgedT, clickBp;
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.01f, decay)) : 0.0f; }
     };
 
@@ -158,6 +166,23 @@ public:
         v.shape = m.shape; v.fm = m.fm;
         v.lp = m.lp * std::pow (0.6f, (float) gen);
         v.srate = semis (tune);
+        // The circuits: velocity is the accent (the 808's trigger pulse 4-14 V; the 909's envelope hit
+        // harder), on top of VEL SENS's level.
+        v.accent = clamp01 (vel);
+        if (model == 0)                     // 909: the sweep's start, a little higher on an accent
+            v.f0 = v.f1 * (1.0f + (m.ratio - 1.0f) * std::pow (2.0f, (c.v (PUNCH) - 0.5f) * 1.6f) * (0.85f + 0.3f * v.accent));
+        if (model == 1)
+        {
+            // 808: the attack's jump (PUNCH: a little under an octave to an octave and a half over the
+            // resting pitch, "more than an octave" as built), the sigh (about 20 % at a full accent,
+            // PITCH TIME its pace), TONE's low-pass (CLICK: 120 Hz to 7 kHz).
+            v.shift = 0.8f + 1.0f * c.v (PUNCH);
+            v.f0 = v.f1 * (1.0f + v.shift);
+            v.sigh = 0.22f * (0.35f + 0.65f * v.accent);
+            v.sighTau = 0.1f * std::pow (2.0f, (c.v (PTIME) - 0.5f) * 2.0f);
+            v.toneK = 1.0f - std::exp (-kTwoPi * 120.0f * std::pow (58.0f, c.v (CLICK)) / (float) osr);
+        }
+        if (model == 0) { v.clickBp.set (4500.0f, 0.9f, osr); }
         if (model == kNumKickModels - 1)
             if (auto s = smp)
             {
@@ -185,6 +210,81 @@ public:
         }
     }
 
+    // TR-909 bass drum. A triangle VCO, reset at the trigger to the middle of its rise, swept from f0
+    // down to f1 (PITCH TIME: the 909's TUNE, the sweep's time constant), through a diode limiter with
+    // a DC bias, so it rounds into a sine and clips on its underside; a VCA with a 1.5 ms rise and
+    // DECAY's fall; ATTACK (CLICK) a 1 ms pulse plus a noise burst through a band-pass around
+    // 4.5 kHz (4 ms). An accent hits it all harder: louder, a higher start, more click. (Owen
+    // Vallis's reading of the schematic: the triangle through a diode limiter, the phase reset, a DC
+    // bias, three envelopes, the filtered attack noise.)
+    float kick909 (Voice& v, float t)
+    {
+        const float f = v.f1 + (v.f0 - v.f1) * std::exp (-t / v.tau);
+        if (v.t == 0.0) v.phase = 0.25;               // the reset: the triangle's zero, rising
+        const float ph = (float) v.phase;
+        const float tri = 4.0f * std::abs (ph - std::floor (ph + 0.5f)) - 1.0f;
+        constexpr float kBias = -0.18f, kDrive = 1.8f;
+        const float shaped = (fastTanh (kDrive * (tri + kBias)) - fastTanh (kDrive * kBias)) / fastTanh (kDrive);
+        const float amp = (1.0f - std::exp (-t / 0.0015f)) * std::exp (-t / v.decay);
+        float click = 0.0f;
+        if (t < 0.03f && v.click > 0.0f)
+        {
+            const float pulse = t < 0.001f ? 1.0f : 0.0f;
+            v.clickLp += 0.25f * (pulse - v.clickLp);   // the pulse, its edges rounded
+            const float nz = v.clickBp.tickBP (rng.next()) * std::exp (-t / 0.004f);
+            click = (0.55f * v.clickLp + 0.9f * nz) * v.click * (0.6f + 0.4f * v.accent);
+        }
+        v.phase += f / osr;
+        if (v.phase > 1.0) v.phase -= 1.0;
+        v.t += 1.0 / osr;
+        if (t > v.decay * 9.0f + 0.05f) v.active = false;
+        float y = (shaped * amp + click) * v.vel;
+        if (v.drive > 0.0f) { const float g = 1.0f + v.drive * 6.0f; y = fastTanh (y * g) / std::sqrt (g) * 1.3f; }
+        return dcBlock (v, y);
+    }
+
+    // TR-808 bass drum, after Werner, Abel and Smith (DAFx-14): a 1 ms trigger pulse (4-14 V with the
+    // accent) through the pulse shaper (a low shelf: its rising edge whole, then settling to a
+    // quarter; the falling edge swings below ground and a diode clamps it), into the bridged-T, a
+    // band-pass ringing at about 49.5 Hz whose damping DECAY sets (the feedback buffer). For the first
+    // ~6 ms the envelope generator lowers the bridged-T's resistance: the centre frequency jumps more
+    // than an octave (PUNCH) and falls back as the envelope does (the trigger, then ~5 ms); then the
+    // retriggering pulse kicks the network's centre once more, clamped to a diode drop, so the same
+    // at any accent. Leakage through it makes the pitch sigh down over the first 300 ms (48-58 Hz in
+    // their measurement: deeper with the accent, PITCH TIME its pace). TONE (CLICK) is the passive
+    // low-pass after it; a high-pass takes the DC.
+    float kick808 (Voice& v, float t)
+    {
+        constexpr float kPulse = 0.001f, kShelf = 0.25f, kShelfTau = 0.0004f, kClamp = 0.05f, kRetrig = 0.006f;
+        const float a = 0.29f + 0.71f * v.accent;     // 4-14 V
+        float e;
+        if (t < kPulse) e = a * (kShelf + (1.0f - kShelf) * std::exp (-t / kShelfTau));
+        else e = std::max (-kClamp, a * (1.0f - kShelf) * (std::exp (-t / kShelfTau) - std::exp (-(t - kPulse) / kShelfTau)));
+        if (t >= kRetrig && t < kRetrig + 0.0005f) e += kClamp * 0.8f;   // the retriggering pulse
+        const float env = t < kPulse ? 1.0f : std::exp (-(t - kPulse) / 0.0015f);
+        const float hz = v.f1 * (1.0f + v.shift * env) * (1.0f + v.sigh * std::exp (-t / v.sighTau));
+        if ((v.tick++ & 3) == 0)
+        {
+            const float q = kPi * hz * v.decay;        // the ring's time constant: DECAY
+            v.bridgedT.set (hz, std::min (q, 400.0f), osr);
+        }
+        // Peak gain Q at resonance; a pulse of area A ms rings at about A * w0: scaled to about A.
+        const float ring = v.bridgedT.tickBP (e) * (1.0f / (0.0005f * kTwoPi * v.f1));
+        v.toneZ += v.toneK * (ring - v.toneZ);
+        v.t += 1.0 / osr;
+        if (t > v.decay * 9.0f + 0.05f) v.active = false;
+        float y = v.toneZ * v.vel;
+        if (v.drive > 0.0f) { const float g = 1.0f + v.drive * 6.0f; y = fastTanh (y * g) / std::sqrt (g) * 1.3f; }
+        return dcBlock (v, y);
+    }
+    // 12 Hz high-pass (the output's coupling capacitor).
+    float dcBlock (Voice& v, float x)
+    {
+        const float r = 1.0f - kTwoPi * 12.0f / (float) osr;
+        v.dcY = x - v.dcX + r * v.dcY; v.dcX = x;
+        return v.dcY;
+    }
+
     // One sample at the oversampled rate (osr).
     float renderVoice (Voice& v, const SampleData* s)
     {
@@ -202,6 +302,8 @@ public:
             v.t += 1.0 / osr;
             v.phase += v.srate * 0.5;
         }
+        else if (v.model == 0) y = kick909 (v, t);
+        else if (v.model == 1) y = kick808 (v, t);
         else
         {
             const float f = v.f1 + (v.f0 - v.f1) * std::exp (-t / v.tau);

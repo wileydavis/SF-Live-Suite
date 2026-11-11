@@ -2293,7 +2293,7 @@ static void testDrop()
                      inCut, after, sineDb, silentReports, dropReport, kDrop - kRef);
         CHECK (cg == 6.25 && bg == 10.0, "the cut's sixteenth %.3f (want 6.25), the drop's beat %.3f (want 10)", cg, bg);
         CHECK (tapOff > cutAt - 0.1 * ms && tapOff < cutAt + 3.5 * ms && percOff > cutAt - 0.1 * ms && percOff < cutAt + 3.5 * ms
-               && tapOn > backAt - 0.1 * ms && tapOn < backAt + 0.3 * ms && std::abs (kickOn - kickRef) < 0.05 * ms,
+               && tapOn > backAt - 0.1 * ms && tapOn < backAt + 0.3 * ms && std::abs (kickOn - kickRef) < 0.3 * ms,      // (the 909's attack noise moves the crossing a little)
                "the cut and the way back: TAP %.4f-%.4f, PERC %.4f (cut %.4f, back %.4f); the kick's attack %.3f ms after its note (beat 5's %.3f)", tapOff, tapOn, percOff, cutAt, backAt, kickOn / ms, kickRef / ms);
         CHECK (inCut < -120.0 && std::abs (after - sineDb) < 0.3 && silentReports == 0 && dropReport == 1 && std::abs (kDrop - kRef) < 0.3,
                "in the cut %.1f dB, after %.2f dB, reports in the cut %d, drop %d, drop's kick %+.2f dB", inCut, after, silentReports, dropReport, kDrop - kRef);

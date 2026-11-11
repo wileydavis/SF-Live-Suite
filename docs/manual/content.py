@@ -58,8 +58,8 @@ MODULES["KICK"] = dict(
         "Set the song's KEY on SF CONTROL and the kick tunes itself to the key root (KEY FOLLOW).",
     ],
     models=[
-        ("KICK 909-TYPE", "Fast pitch drop, noise click, short body. The default techno kick."),
-        ("KICK 808-TYPE", "Low, long, tuned boom with little click."),
+        ("KICK 909-TYPE", "The 909's circuit: a triangle oscillator reset on every hit, swept down fast to about 50 Hz and rounded by a biased diode limiter (a sine with a clipped underside), with a noise-and-pulse attack. PITCH TIME is the 909's TUNE (how fast the sweep falls), PUNCH how high it starts, CLICK the 909's ATTACK. An accent (velocity) hits harder: louder, higher, more click. The default techno kick."),
+        ("KICK 808-TYPE", "The 808's circuit: a 1 ms trigger pulse rings a bridged-T resonator at about 49.5 Hz. For the first few milliseconds its pitch jumps more than an octave (PUNCH), then it sighs down from about 58 Hz over the first 300 ms (deeper on an accent; PITCH TIME its pace). DECAY is the 808's DECAY, CLICK its TONE (the low-pass after it)."),
         ("KICK SINE", "Clean sine with a moderate sweep. Deep and minimal (dub techno)."),
         ("KICK INDUSTRIAL", "Steep sweep, heavy drive and clip. Hard and compressed."),
         ("KICK MODULAR", "Triangle core with noise FM and a resonant low-pass sweep (DFAM-like)."),

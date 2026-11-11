@@ -348,8 +348,83 @@ static void testNrg()
     CHECK (w0 < 1.0 && w1 > 30.0 && w1 < 90.0, "WARP: %.1f cents at 0, %.1f at full", w0, w1);
 }
 
+// The 909's and 808's bass drums as circuits [Nov 10]. SFTests --kicks.
+static void testKicks()
+{
+    using namespace emu;
+    std::printf ("-- KICK 909-TYPE and 808-TYPE: the circuits\n");
+    auto hit = [] (int model, int vel, float decay = 0.5f, float click = 0.5f)
+    {
+        resetBus();
+        Rig2 r ("KICK");
+        r.set ("model", (float) model); r.set ("decay", decay); r.set ("click", click); r.set ("drive", 0.0f); r.set ("filter", 0.5f);
+        std::vector<float> out;
+        bool on = false;
+        for (int s = 0; s < (int) (kSr * 2.0); s += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (! on) { m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) vel), 0); on = true; } });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+        }
+        return out;
+    };
+    // Instantaneous frequency from successive zero crossings (either direction), around t seconds.
+    auto freqAt = [] (const std::vector<float>& x, double t)
+    {
+        std::vector<double> z;
+        for (size_t i = 1; i < x.size(); ++i)
+            if ((x[i - 1] <= 0.0f) != (x[i] <= 0.0f)) z.push_back ((double) i - 1 + x[i - 1] / (x[i - 1] - x[i]));
+        const double at = t * kSr;
+        for (size_t k = 1; k < z.size(); ++k)
+            if (z[k] >= at) return kSr / (2.0 * (z[k] - z[k - 1]));
+        return 0.0;
+    };
+    auto peakIn = [] (const std::vector<float>& x, double t0, double t1) { float p = 0; for (size_t i = (size_t) (t0 * kSr); i < (size_t) (t1 * kSr) && i < x.size(); ++i) p = std::max (p, std::fabs (x[i])); return p; };
+    // A full period's frequency (two half periods: the 909's clipped underside skews each half).
+    auto periodAt = [&] (const std::vector<float>& x, double t) { const double a = freqAt (x, t), b = freqAt (x, t + 0.5 / std::max (20.0, a)); return 2.0 / (1.0 / a + 1.0 / b); };
+    auto meanOf = [] (const std::vector<float>& x) { double m = 0.0; for (float v : x) m += v; return m / (double) x.size(); };
+    auto bandDb = [] (const std::vector<float>& x, double t0, double t1, double lo)   // energy above lo Hz (one-pole high-pass, twice)
+    {
+        const float a = std::exp (-6.2831853f * (float) lo / (float) kSr);
+        float h1 = 0, p1 = 0, h2 = 0, p2 = 0; double e = 0.0;
+        for (size_t i = 0; i < x.size() && i < (size_t) (t1 * kSr); ++i)
+        {
+            h1 = a * (h1 + x[i] - p1); p1 = x[i];
+            h2 = a * (h2 + h1 - p2); p2 = h1;
+            if (i >= (size_t) (t0 * kSr)) e += (double) h2 * h2;
+        }
+        return 10.0 * std::log10 (e + 1e-30);
+    };
+    // 808: the resting pitch, the attack's jump, the sigh (deeper with the accent), DECAY.
+    {
+        const auto hard = hit (1, 127), soft = hit (1, 40), shortD = hit (1, 127, 0.25f), longD = hit (1, 127, 0.75f);
+        const double rest = periodAt (hard, 0.9), jump = freqAt (hard, 0.0015), s30 = periodAt (hard, 0.03), s300 = periodAt (hard, 0.3), soft30 = periodAt (soft, 0.03);
+        const double dS = 20.0 * std::log10 (peakIn (shortD, 0.5, 0.52) / peakIn (shortD, 0.05, 0.07)), dL = 20.0 * std::log10 (peakIn (longD, 0.5, 0.52) / peakIn (longD, 0.05, 0.07));
+        std::printf ("   808: resting %.1f Hz; the attack's first half period %.0f Hz; the sigh %.1f Hz at 30 ms (soft hit %.1f), %.1f at 300 ms; 50 ms to 500 ms: DECAY 25 %% %.1f dB, 75 %% %.1f dB; peak %.2f, mean %.5f\n",
+                     rest, jump, s30, soft30, s300, dS, dL, peakIn (hard, 0.0, 0.2), meanOf (hard));
+        CHECK (std::abs (rest - 49.5) < 1.0 && jump > rest * 1.3 && s30 > rest * 1.1 && s300 < rest * 1.03 && s30 > soft30 + 0.5 && dS < dL - 8.0
+               && peakIn (hard, 0.0, 0.2) < 1.2f && std::abs (meanOf (hard)) < 1e-3,
+               "808: rest %.1f, jump %.0f, sigh %.1f / %.1f (soft %.1f), decay %.1f / %.1f dB", rest, jump, s30, s300, soft30, dS, dL);
+    }
+    // 909: the sweep, the waveshaper's clipped underside, ATTACK's click.
+    {
+        const auto x = hit (0, 127), dry = hit (0, 127, 0.5f, 0.0f), loud = hit (0, 127, 0.5f, 1.0f);
+        const double f2 = freqAt (x, 0.002), f100 = periodAt (x, 0.1);
+        // The DC bias into the diode limiter: even harmonics a symmetric shaper wouldn't make.
+        const double h1 = toneAmp (x, (int) (0.06 * kSr), (int) (0.16 * kSr), f100), h2 = toneAmp (x, (int) (0.06 * kSr), (int) (0.16 * kSr), 2.0 * f100);
+        const double h3 = toneAmp (x, (int) (0.06 * kSr), (int) (0.16 * kSr), 3.0 * f100);
+        const double pos = 20.0 * std::log10 (h2 / h1), neg = 20.0 * std::log10 (h3 / h1);
+        const double clickDb = bandDb (loud, 0.0, 0.006, 2000.0) - bandDb (dry, 0.0, 0.006, 2000.0), lateDb = bandDb (loud, 0.05, 0.2, 2000.0) - bandDb (dry, 0.05, 0.2, 2000.0);
+        std::printf ("   909: %.0f Hz at 2 ms, %.1f Hz at 100 ms; the body's second and third harmonics %.1f and %.1f dB; ATTACK full against off, above 2 kHz: first 6 ms %+.1f dB, 50-200 ms %+.1f dB; mean %.5f\n",
+                     f2, f100, pos, neg, clickDb, lateDb, meanOf (x));
+        CHECK (f2 > 3.0 * f100 && std::abs (f100 - 50.0) < 5.0 && pos > -35.0 && pos < -10.0 && neg > -45.0 && neg < -10.0 && clickDb > 12.0 && std::abs (lateDb) < 1.0
+               && peakIn (x, 0.0, 0.2) < 1.2f && std::abs (meanOf (x)) < 1e-3,
+               "909: %.0f / %.1f Hz, harmonics %.1f / %.1f dB, click %+.1f / %+.1f dB", f2, f100, pos, neg, clickDb, lateDb);
+    }
+}
+
 static void testEmulation()
 {
     testAcid();
     testNrg();
+    testKicks();
 }

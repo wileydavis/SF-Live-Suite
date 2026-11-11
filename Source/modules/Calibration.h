@@ -11,7 +11,7 @@
 namespace sf::cal
 {
 // KICK: 909, 808, SINE, INDUSTRIAL, MODULAR, DUB, SAMPLE
-inline constexpr float kick[7] = { -4.63f, -5.89f, -3.16f, -2.91f, -2.67f, -4.76f, 0.0f };
+inline constexpr float kick[7] = { -5.07f, -8.68f, -3.16f, -2.91f, -2.67f, -4.76f, 0.0f };
 // PERC: HAT 909, HAT 808, HAT 606, RIDE 909, CRASH, CLAP, RIM, COWBELL, CLAVE, SHAKER, METAL FM, MODAL, SAMPLE
 inline constexpr float perc[13] = { -1.24f, 6.90f, 0.13f, -3.18f, -10.24f, -1.64f, 2.09f, -1.89f, -5.45f, -3.18f, -11.87f, 8.45f, 0.0f };
 // RUMBLE: REVERB, DELAY, SUB DRONE, DISTORTED, DUB BOOM, SAMPLE
