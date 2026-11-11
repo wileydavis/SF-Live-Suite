@@ -450,7 +450,7 @@ static void testTerroirTempo()
 static void testStripReach()
 {
     std::printf ("-- Every strip's controls within reach at any window height (Nov 6 audit B05)\n");
-    const int allOpen = SFEditor::kFoldMotion | SFEditor::kFoldSystem | SFEditor::kFoldSetup | SFEditor::kFoldSample;
+    const int allOpen = SFEditor::kFoldMotion | SFEditor::kFoldSystem | SFEditor::kFoldSetup | SFEditor::kFoldSample | SFEditor::kFoldLayer;
     std::function<void (juce::Component&, std::vector<juce::Component*>&)> deep = [&] (juce::Component& c, std::vector<juce::Component*>& out)
     {
         for (auto* k : c.getChildren()) { out.push_back (k); deep (*k, out); }

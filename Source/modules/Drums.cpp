@@ -61,8 +61,8 @@ public:
                  pct ("density", "DENSITY", 0.0f).prim(),
                  levelParam (-3.0f).prim(),
                  choice ("model", "MODEL", kickModelNames(), 0),
-                 choice ("layer_model", "LAYER MODEL", kickModelNames(), 1),
-                 pct ("layer", "LAYER", 0.0f).slow(),
+                 choice ("layer_model", "LAYER MODEL", kickModelNames(), 1).layerGroup(),
+                 pct ("layer", "LAYER", 0.0f).slow().layerGroup(),
                  pct ("pitch_time", "PITCH TIME", 0.5f).slow(),
                  pct ("vel_sens", "VEL SENS", 0.5f),
                  choice ("echo_space", "ECHO SPACE", echoSpaceNames(), 1),
@@ -72,8 +72,8 @@ public:
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
                  toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
         // LAYER SPLIT (Kit.h): one kick's lows, the other's punch and click.
-        p.push_back (knob ("split", "SPLIT", 0.0f, 1.0f, 0.5f, "SPLIT"));
-        p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f));
+        p.push_back (knob ("split", "SPLIT", 0.0f, 1.0f, 0.5f, "SPLIT").layerGroup());
+        p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f).layerGroup());
         jassert ((int) p.size() == SPLITHZ + 1);
         return p;
     }

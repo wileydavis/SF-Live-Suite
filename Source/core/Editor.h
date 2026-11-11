@@ -59,7 +59,7 @@ public:
 
     // The strip: 4 columns of 70 (the E16's 4 x 4), an 8 pixel margin.
     static constexpr int kW = 296, kMargin = 8, kCols = 4, kColW = 70, kHeader = 56, kTitleH = 16;
-    enum Fold { kFoldDetail = 1, kFoldMotion = 2, kFoldSystem = 4, kFoldSetup = 8, kFoldSample = 16 };
+    enum Fold { kFoldDetail = 1, kFoldMotion = 2, kFoldSystem = 4, kFoldSetup = 8, kFoldSample = 16, kFoldLayer = 32 };
 
     // What the strip shows, for tests: the E16 page (-1: no grid), the track the grid is for, every
     // shown parameter's place ("E16 <encoder 1-16>", "E16 <encoder> PRESS", or the group's title), and
@@ -127,8 +127,8 @@ private:
     SFProcessor& proc;
     SFLookAndFeel lnf;
     std::vector<std::unique_ptr<SFCell>> cells;
-    Group perform, detail, sample, motion, system, setup;
-    std::array<Group*, 6> groups { &perform, &detail, &sample, &motion, &system, &setup };
+    Group perform, detail, layer, sample, motion, system, setup;
+    std::array<Group*, 7> groups { &perform, &detail, &layer, &sample, &motion, &system, &setup };
     std::array<GridCell, 16> grid {};
     int page = -1, uiShown = 0, ticks = 0;
     juce::String track, note;

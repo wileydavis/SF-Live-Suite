@@ -52,6 +52,7 @@ story += bullets(["<b>Header:</b> SONG, the OUT meter (FAULT, PANIC), PRESET, ST
                   "<b>E16:</b> the plugin's page of the E16 scenes (PERF or MIX, named beside the page), as the E16 shows it: its own encoders lit where they sit, the others dark. The rings fill as the E16's do (16 LEDs, from just left of the bottom, clockwise) in the scenes' colours: white, light blue for a level, green for SLOW ALL. A press sits under its knob (THROW, FREEZE, DROP, ROLL, GO); click it. A plugin the scenes have on several tracks (LEAD, PERC, ENERGY) finds its encoders by the track's name, which only the VST3 knows; without it, a line says so and its knobs go to PERFORM. A plugin the scenes don't use has no grid.",
                   "<b>PERFORM:</b> the rest of the performance row, and what else is played (DECK's PLAY and CUE, CONTROL's PANIC).",
                   "<b>The display</b>, then <b>DETAIL</b>: the sound's other controls, MODEL first.",
+                  "<b>LAYER</b> (KICK, BASS, LEAD, PAD): the second layer, LAYER MODEL, LAYER, SPLIT and SPLIT HZ, folded, how it is set on its title line.",
                   "<b>MOTION</b>, <b>SYSTEM</b> (SLOW, MACRO) and <b>SETUP</b> (how the plugin sits in the set: ALLOC, KEY FOLLOW, DRY ...) come folded, their settings on their title line. Click a group's title line to open or fold it; the plugin keeps it so, with the set.",
                   "<b>Taller than the screen</b> (some strips pass 1000 pixels with every group open): the window stops at the screen's height and the strip scrolls under the header, by the thin bar at the right or the wheel. While it scrolls, the wheel scrolls and turns no knob; a group you open at the bottom scrolls into view.",
                   "<b>On every knob:</b> green, the sound travelling to where you set it (SLOW), and the ringed LED is where it is going; a green dot outside the ring, where MACRO or MOTION have it now; the value in cyan while you touch it. A knob whose middle is neutral (FILTER, TUNE) fills from the top either way, except in the E16 grid, which fills as the E16 does."])
@@ -516,7 +517,8 @@ for group, mods in order:
             return "HOLD"
         played = lambda p: p["primary"] or p.get("perform")
         for label, rows in (("PERFORM", [p for p in sp if played(p)]),
-                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and not p.get("sample") and p["id"] != "model"]),
+                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and not p.get("sample") and not p.get("layer") and p["id"] != "model"]),
+                            ("LAYER", [p for p in sp if not played(p) and p.get("layer")]),
                             ("SAMPLE", [p for p in sp if not played(p) and p.get("sample")]),
                             ("SETUP", [p for p in sp if not played(p) and p.get("setup")])):
             if not rows: continue

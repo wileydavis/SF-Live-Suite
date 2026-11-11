@@ -318,6 +318,7 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     auto name = [] (Group& g, const char* title, int bit, bool foldedAtFirst) { g.title = title; g.bit = bit; g.foldedAtFirst = foldedAtFirst; };
     name (perform, "PERFORM", 0, false);
     name (detail, "DETAIL", kFoldDetail, false);
+    name (layer, "LAYER", kFoldLayer, true);
     name (sample, "SAMPLE", kFoldSample, true);
     name (motion, "MOTION", kFoldMotion, true);
     name (system, "SYSTEM", kFoldSystem, true);
@@ -439,6 +440,7 @@ void SFEditor::build()
                   : i >= firstSys ? &system
                   : s.primary || s.perform ? &perform
                   : s.inSample ? &sample
+                  : s.inLayer ? &layer
                   : s.setup ? &setup : &detail;
         SFCell::Look lk;
         lk.big = gr == &perform;
@@ -558,6 +560,7 @@ int SFEditor::layout()
         y = display.getBottom() + 8;
     }
     place (detail);
+    place (layer);
     place (sample);
     place (motion);
     place (system);

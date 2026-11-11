@@ -607,6 +607,42 @@ static void testLayerSplit()
     }
 }
 
+// DRIFT [Nov 10]: SFTests --drift. SINE SUB (mono: its one oscillator wanders, no slot offset) held
+// 12 s on A1, its pitch in half-second windows.
+static void testDrift()
+{
+    using namespace emu;
+    std::printf ("-- DRIFT: analog voices off tune and wandering\n");
+    auto cents = [] (float drift)
+    {
+        resetBus();
+        Rig2 r ("BASS");
+        r.set ("model", 5.0f); r.set ("drift", drift); r.set ("filter", 0.5f); r.set ("density", 0.0f);
+        std::vector<float> x;
+        bool on = false;
+        for (int s = 0; s < (int) (kSr * 12.0); s += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (! on) { m.addEvent (juce::MidiMessage::noteOn (1, 33, (juce::uint8) 100), 0); on = true; } });
+            for (int i = 0; i < kBlock; ++i) x.push_back (r.buf.getSample (0, i));
+        }
+        std::vector<double> c;
+        for (double t = 0.5; t + 0.5 <= 12.0; t += 0.5)
+        {
+            std::vector<double> u;                         // rising zero crossings
+            for (size_t i = (size_t) (t * kSr); i + 1 < (size_t) ((t + 0.5) * kSr); ++i)
+                if (x[i] <= 0.0f && x[i + 1] > 0.0f) u.push_back ((double) i + x[i] / (x[i] - x[i + 1]));
+            c.push_back (u.size() > 2 ? 1200.0 * std::log2 (kSr * (double) (u.size() - 1) / (u.back() - u.front()) / 55.0) : 1e9);
+        }
+        return c;
+    };
+    const auto c0 = cents (0.0f), c1 = cents (1.0f);
+    const auto [lo0, hi0] = std::minmax_element (c0.begin(), c0.end());
+    const auto [lo1, hi1] = std::minmax_element (c1.begin(), c1.end());
+    std::printf ("   SINE SUB on A1 over 12 s: DRIFT 0 %+.2f .. %+.2f cents, DRIFT full %+.2f .. %+.2f cents\n", *lo0, *hi0, *lo1, *hi1);
+    CHECK (*hi0 - *lo0 < 0.05 && std::abs (*lo0) < 0.2, "DRIFT 0 moved: %.2f .. %.2f cents", *lo0, *hi0);
+    CHECK (*hi1 - *lo1 > 1.0 && std::max (std::abs (*lo1), std::abs (*hi1)) < 4.5, "DRIFT full: %.2f .. %.2f cents", *lo1, *hi1);
+}
+
 static void testEmulation()
 {
     testAcid();

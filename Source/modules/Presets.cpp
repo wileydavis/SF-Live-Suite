@@ -52,6 +52,8 @@ std::vector<Preset> kick()
         { "DEEP/LONG 808",        { { "model", 1 }, { "tune", -2 }, { "decay", 0.7f }, { "punch", 0.4f }, { "click", 0.1f }, { "drive", 0.1f } } },
         { "DEEP/SINE SUB",        { { "model", 2 }, { "tune", -3 }, { "decay", 0.65f }, { "punch", 0.35f }, { "click", 0.15f }, { "drive", 0.05f } } },
         { "DEEP/WARM LAYER",      { { "model", 0 }, { "layer_model", 1 }, { "layer", 0.45f }, { "tune", -2 }, { "decay", 0.6f }, { "punch", 0.45f }, { "click", 0.25f }, { "drive", 0.15f } } },
+        { "LAYER/808 BODY 909 TOP", { { "model", 0 }, { "layer_model", 1 }, { "layer", 1.0f }, { "split", 1.0f }, { "split_hz", 120 }, { "tune", -1 }, { "decay", 0.55f }, { "punch", 0.5f }, { "click", 0.45f }, { "drive", 0.12f } } },
+        { "LAYER/SINE SUB 909 TOP", { { "model", 0 }, { "layer_model", 2 }, { "layer", 0.85f }, { "split", 1.0f }, { "split_hz", 90 }, { "decay", 0.5f }, { "punch", 0.55f }, { "click", 0.35f }, { "drive", 0.15f } } },
         { "HYPNOTIC/TIGHT",       { { "model", 0 }, { "decay", 0.3f }, { "punch", 0.55f }, { "click", 0.5f }, { "drive", 0.2f }, { "pitch_time", 0.4f } } },
         { "HYPNOTIC/MUTED",       { { "model", 5 }, { "decay", 0.4f }, { "punch", 0.4f }, { "click", 0.0f }, { "drive", 0.1f }, { "filter", 0.42f } } },
         { "HYPNOTIC/PULSE",       { { "model", 4 }, { "decay", 0.35f }, { "punch", 0.5f }, { "click", 0.3f }, { "drive", 0.25f } } },
@@ -86,6 +88,12 @@ std::vector<Preset> perc()
         { "SHAKER/OFFBEAT",       { { "model", 9 }, { "decay", 0.4f }, { "spread", 0.4f } } },
         { "METAL/FM PING",        { { "model", 10 }, { "decay", 0.4f }, { "tone", 0.6f } } },
         { "METAL/MODAL TOM",      { { "model", 11 }, { "decay", 0.5f }, { "tone", 0.4f }, { "tune", -5 } } },
+        { "SNARE/808",            { { "model", 13 }, { "decay", 0.45f }, { "tone", 0.5f } } },
+        { "SNARE/909 SNAPPY",     { { "model", 14 }, { "decay", 0.5f }, { "tone", 0.75f } } },
+        { "SNARE/909 DUB ECHO",   { { "model", 14 }, { "decay", 0.45f }, { "tone", 0.5f }, { "density", 0.35f }, { "echo_space", 5 } } },
+        { "TOM/808 LOW",          { { "model", 15 }, { "tune", -5 }, { "decay", 0.6f } } },
+        { "TOM/808 HIGH",         { { "model", 15 }, { "tune", 7 }, { "decay", 0.45f } } },
+        { "TOM/909 MID",          { { "model", 16 }, { "decay", 0.5f }, { "tone", 0.4f } } },
     };
 }
 
@@ -100,6 +108,8 @@ std::vector<Preset> rumble()
         { "DUB/BOOM",             { { "model", 4 }, { "size", 0.75f }, { "dark", 0.7f }, { "grit", 0.2f }, { "pump", 0.7f } } },
         { "TIGHT/GATED",          { { "model", 0 }, { "size", 0.6f }, { "grit", 0.3f }, { "pump", 0.7f }, { "gate", 0.4f } } },
         { "ROLLING/1/16",         { { "model", 0 }, { "size", 0.55f }, { "grit", 0.35f }, { "pump", 0.7f }, { "density", 0.5f }, { "echo_space", 1 } } },
+        { "BERLIN/RUMBLE",        { { "model", 3 }, { "size", 0.75f }, { "dark", 0.7f }, { "grit", 0.45f }, { "pump", 0.85f } } },
+        { "BERLIN/DEEP ROLL",     { { "model", 0 }, { "size", 0.85f }, { "dark", 0.8f }, { "grit", 0.3f }, { "pump", 0.8f }, { "density", 0.4f }, { "echo_space", 1 } } },
     };
 }
 
@@ -121,6 +131,9 @@ std::vector<Preset> bass()
         { "OFFBEAT/DUB",          { { "model", 6 }, { "cutoff", 0.35f }, { "res", 0.35f }, { "env_amt", 0.5f }, { "gate", 0.25f } } },
         { "OFFBEAT/BRIGHT",       { { "model", 6 }, { "cutoff", 0.5f }, { "res", 0.4f }, { "env_amt", 0.6f }, { "gate", 0.25f }, { "drive", 0.2f } } },
         { "LAYER/SUB + LADDER",   { { "model", 0 }, { "layer_model", 5 }, { "layer", 0.6f }, { "cutoff", 0.3f }, { "res", 0.3f }, { "env_amt", 0.4f } } },
+        { "LAYER/SINE UNDER 303", { { "model", 3 }, { "layer_model", 5 }, { "layer", 0.8f }, { "split", 1.0f }, { "split_hz", 140 }, { "cutoff", 0.3f }, { "res", 0.75f }, { "env_amt", 0.6f }, { "accent", 0.7f } } },
+        { "ACID/WAREHOUSE",       { { "model", 3 }, { "cutoff", 0.32f }, { "res", 0.82f }, { "env_amt", 0.65f }, { "accent", 0.85f }, { "decay", 0.35f }, { "drive", 0.35f } } },
+        { "ROLLING/ANALOG DRIFT", { { "model", 0 }, { "cutoff", 0.3f }, { "res", 0.3f }, { "env_amt", 0.4f }, { "gate", 0.35f }, { "drift", 0.6f } } },
     };
 }
 
@@ -130,11 +143,13 @@ std::vector<Preset> lead()
         { "ACID/LINE",            { { "model", 0 }, { "cutoff", 0.35f }, { "res", 0.75f }, { "env_amt", 0.6f }, { "accent", 0.7f } } },
         { "ACID/RESONANT",        { { "model", 0 }, { "cutoff", 0.5f }, { "res", 0.9f }, { "env_amt", 0.7f }, { "drive", 0.3f } } },
         { "ACID/WANDERING",       Values { { "model", 0 }, { "cutoff", 0.38f }, { "res", 0.8f }, { "env_amt", 0.6f } } + mot ("LEAD", 1, 7, 6, "cutoff", 0.2f) },
+        { "ACID/WAREHOUSE",       { { "model", 0 }, { "cutoff", 0.3f }, { "res", 0.85f }, { "env_amt", 0.7f }, { "accent", 0.9f }, { "decay", 0.3f }, { "drive", 0.4f } } },
         { "MONO/101 LEAD",        { { "model", 1 }, { "cutoff", 0.5f }, { "res", 0.35f }, { "env_amt", 0.4f }, { "glide", 0.3f } } },
         { "MONO/MS20 SCREAM",     { { "model", 2 }, { "cutoff", 0.45f }, { "res", 0.6f }, { "env_amt", 0.5f }, { "drive", 0.3f } } },
         { "STAB/DUB CHORD",       { { "model", 3 }, { "cutoff", 0.4f }, { "res", 0.3f }, { "env_amt", 0.5f }, { "space", 0.6f } } },
         { "STAB/DUB DARK",        { { "model", 3 }, { "cutoff", 0.28f }, { "res", 0.25f }, { "env_amt", 0.35f }, { "space", 0.7f } } },
         { "STAB/DUB ECHO 1/8D",   { { "model", 3 }, { "cutoff", 0.4f }, { "density", 0.45f }, { "echo_space", 5 } } },
+        { "STAB/DUB CHORD DRIFT", { { "model", 3 }, { "cutoff", 0.4f }, { "res", 0.3f }, { "env_amt", 0.5f }, { "space", 0.7f }, { "drift", 0.5f }, { "density", 0.35f }, { "echo_space", 5 } } },
         { "STAB/DETROIT",         { { "model", 4 }, { "cutoff", 0.5f }, { "res", 0.25f }, { "env_amt", 0.4f }, { "space", 0.5f } } },
         { "STAB/DETROIT MIN9",    { { "model", 4 }, { "cutoff", 0.5f }, { "chord", 3 } } },
         { "ORGAN/M1 HOUSE",       { { "model", 5 }, { "color", 0.6f } } },
@@ -150,6 +165,7 @@ std::vector<Preset> pad()
     return {
         { "STRINGS/WARM",         { { "model", 0 }, { "cutoff", 0.5f } } },
         { "STRINGS/DARK",         { { "model", 0 }, { "cutoff", 0.35f }, { "filter", 0.45f } } },
+        { "STRINGS/ANALOG DRIFT", { { "model", 0 }, { "cutoff", 0.45f }, { "drift", 0.7f } } },
         { "POLY/SOFT",            { { "model", 1 }, { "cutoff", 0.45f } } },
         { "POLY/SLOW BLOOM",      Values { { "model", 1 }, { "attack", 0.6f }, { "cutoff", 0.4f } } + mot ("PAD", 1, 7, 7, "cutoff", 0.15f) },
         { "WAVETABLE/VOWEL",      { { "model", 2 }, { "color", 0.7f } } },
@@ -157,6 +173,7 @@ std::vector<Preset> pad()
         { "GRANULAR/CLOUD",       { { "model", 3 }, { "color", 0.6f }, { "detune", 0.7f } } },
         { "DUB/WASH",             { { "model", 4 }, { "cutoff", 0.45f }, { "space", 0.7f } } },
         { "DUB/CHORD MIN7",       { { "model", 4 }, { "chord", 2 }, { "cutoff", 0.4f } } },
+        { "DUB/DRIFTING MIN7",    { { "model", 4 }, { "chord", 2 }, { "cutoff", 0.4f }, { "space", 0.7f }, { "drift", 0.6f } } },
         { "TAPE/LOOP",            { { "model", 5 }, { "cutoff", 0.5f } } },
         { "TAPE/WORN",            { { "model", 5 }, { "cutoff", 0.4f }, { "drive", 0.25f } } },
         { "NOISE/BED",            { { "model", 6 }, { "color", 0.4f }, { "cutoff", 0.5f } } },

@@ -178,10 +178,11 @@ class SynthModule : public Module
 {
 public:
     // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
-    // ACID and WARP, then SPLIT and SPLIT HZ [Nov 10], after the sample's four (ids are appended, never moved).
+    // ACID and WARP, then SPLIT, SPLIT HZ and DRIFT [Nov 10], after the sample's four (ids are
+    // appended, never moved).
     enum { CUTOFF, RES, ENVAMT, GATE, DENS, FILT, DRIVE, LEVEL, MODEL, DECAY, ATTACK, ACCENT, GLIDE, TUNE, DETUNE, COLOR,
            LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART, ACID = SSTART + 4, WARP,
-           SPLIT, SPLITHZ, kParams };
+           SPLIT, SPLITHZ, DRIFT, kParams };
 
     SynthModule (const char* idName, int role, std::vector<SynthModel> m, float cutDef, float resDef, float envDef, float gateDef, float pDepth)
         : name (idName), roleId (role), models (std::move (m)), dCut (cutDef), dRes (resDef), dEnv (envDef), dGate (gateDef), dPocket (pDepth) {}
@@ -209,8 +210,8 @@ public:
                  knob ("tune", "TUNE", -24.0f, 24.0f, 0.0f, "st"),
                  pct ("detune", "DETUNE", 0.5f).slow(),
                  pct ("color", "COLOR", 0.5f).slow(),
-                 choice ("layer_model", "LAYER MODEL", mn, std::min<int> (1, (int) mn.size() - 1)),
-                 pct ("layer", "LAYER", 0.0f),
+                 choice ("layer_model", "LAYER MODEL", mn, std::min<int> (1, (int) mn.size() - 1)).layerGroup(),
+                 pct ("layer", "LAYER", 0.0f).layerGroup(),
                  choice ("chord", "CHORD", chordNames(), 0),
                  pct ("space", "SPACE", 0.5f).slow(),
                  pct ("pocket_depth", "POCKET DEPTH", dPocket).slow(),
@@ -223,8 +224,10 @@ public:
         p.push_back (pct ("acid", "ACID", 0.0f).slow().dir (1));
         p.push_back (pct ("warp", "WARP", 0.0f).slow().dir (1));
         // LAYER SPLIT (Kit.h): which layer plays the lows, which the mids and highs.
-        p.push_back (knob ("split", "SPLIT", 0.0f, 1.0f, 0.5f, "SPLIT"));
-        p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f));
+        p.push_back (knob ("split", "SPLIT", 0.0f, 1.0f, 0.5f, "SPLIT").layerGroup());
+        p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f).layerGroup());
+        // Analog drift (updateControls).
+        p.push_back (pct ("drift", "DRIFT", 0.0f).slow());
         jassert ((int) p.size() == kParams);
         return p;
     }
@@ -250,6 +253,9 @@ public:
         for (auto& d : dec4) d.set (HalfbandDesign::forStage (rate, 1));
         for (auto& d : dec4b) d.set (HalfbandDesign::forStage (rate, 1));
         split.prepare (rate);
+        // DRIFT: each voice slot's own tuning, cutoff and pace, the same every time (its own generator).
+        Noise dr { 0x5BD1E995u };
+        for (auto& d : slotDrift) { d.tune = dr.next(); d.cut = dr.next(); d.ph = dr.uni(); d.rate = 0.7f + 0.6f * dr.uni(); }
         out.prepare (rate, mb, roleId, name.c_str(), true);
         ens.prepare (rate);
         events.reserve (2048);
@@ -269,6 +275,7 @@ public:
         for (auto& d : dec4b) d.reset();
         bLive = 0;
         split.reset();
+        driftClock = 0.0;
         ens.reset();
         out.reset();
         activeVoices = 0;
@@ -476,6 +483,7 @@ public:
         }
         ens.process (L, R, c.n, ensembleAmt * c.v (SPACE) * 2.0f);
         split.monoLows (L, R, c.n, k0, k1);
+        driftClock += (double) c.n / sr;
         out.process (c, io, FILT, -1, c.v (PDEPTH), c.v (PSHAPE), c.b (ALLOCON), LEVEL);
         int act = 0; for (auto& v : voices) act += v.active ? 1 : 0;
         activeVoices = act;
@@ -700,7 +708,21 @@ private:
         const float fe = v.fenv.v;
         const float keyTrack = std::log2 (std::max (20.0f, v.freq) / 130.0f) * 0.3f;
         k.cutT = clamp01 (cutK + envA * fe * 0.6f + keyTrack * 0.1f) * std::pow (0.75f, (float) v.gen);
-        const float cutHz = expMap (k.cutT, 35.0f, 18000.0f);
+        // DRIFT: analog voices are never quite alike, nor still. A poly model's voices each sit off
+        // tune (up to 5 cents) and off cutoff (up to a fifth of an octave), the slot's own, as on a
+        // poly synth's voice cards; every voice wanders (up to 4 cents, a slow pair of drifts 6 and
+        // 14 s long at their own pace; a mono model's one oscillator wanders one way whatever the
+        // slot, so its notes join up, and its cutoff wanders with it).
+        float driftSt = 0.0f, driftOct = 0.0f;
+        if (const float dr = c.v (DRIFT); dr > 0.0f)
+        {
+            const auto& d = slotDrift[m.mono ? 0 : (size_t) (&v - voices.data())];
+            const float t = (float) driftClock * d.rate;
+            const float w = 0.6f * std::sin (kTwoPi * (0.071f * t + d.ph)) + 0.4f * std::sin (kTwoPi * (0.17f * t + 2.3f * d.ph));
+            driftSt = dr * (0.04f * w + (m.mono ? 0.0f : 0.05f * d.tune));
+            driftOct = dr * (m.mono ? 0.1f * w : 0.2f * d.cut);
+        }
+        const float cutHz = expMap (k.cutT, 35.0f, 18000.0f) * (driftOct != 0.0f ? std::exp2 (driftOct) : 1.0f);
         switch (m.filt)
         {
             case F_LADDER: v.ladder.set (cutHz, k.res * 0.98f, vr); break;
@@ -725,8 +747,8 @@ private:
             // accent's share of the envelope in about 20 ms and drains in 0.15-0.5 s (RESONANCE's
             // second gang), so accents close together climb on each other.
             const float em = clamp01 (c.v (ENVAMT) * m.envMul), dark = 0.3466f * (float) v.gen + 0.1625f;
-            k.acidL0 = 5.2262f + 1.7042f * cutK - 0.6838f * em - dark;
-            k.acidL1 = 5.5592f + 2.1779f * cutK + 1.9922f * em - dark;
+            k.acidL0 = 5.2262f + 1.7042f * cutK - 0.6838f * em - dark + 0.6931f * driftOct;
+            k.acidL1 = 5.5592f + 2.1779f * cutK + 1.9922f * em - dark + 0.6931f * driftOct;
             k.acidRes = clamp01 (c.v (RES) * m.resMul);
             k.acidSweep = 0.6931f * (1.0f + 2.0f * k.acidRes);
             k.acidFbK = 0.96f * std::pow (k.acidRes, 0.7f);
@@ -756,6 +778,7 @@ private:
             v.drift += 0.3f * (float) n * invOsr; if (v.drift > 1.0f) v.drift -= 1.0f;
             k.subMul *= semis (m.wow * (0.12f * std::sin (kTwoPi * v.drift) + 0.03f * std::sin (kTwoPi * v.drift * 17.0f)));
         }
+        if (driftSt != 0.0f) k.subMul *= semis (driftSt);
         // WARP: tape wow (two slow sines, up to 35 cents) and flutter (6.3 Hz, 5 cents).
         if (const float warp = c.v (WARP); warp > 0.0f)
         {
@@ -1083,6 +1106,10 @@ private:
     static constexpr int kBDrain = 64;
     int bLive = 0;
     LayerSplit split;
+    // DRIFT: each voice slot's tuning and cutoff (-1..1), its drift's phase and pace; the drift's clock (s).
+    struct SlotDrift { float tune = 0, cut = 0, ph = 0, rate = 1; };
+    std::array<SlotDrift, 2 * kPlayVoices> slotDrift {};
+    double driftClock = 0.0;
     juce::AudioBuffer<float> grainSrc;
     Mips grainMips;
     std::atomic<int> activeVoices { 0 };
