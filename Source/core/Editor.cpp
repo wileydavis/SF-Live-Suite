@@ -107,7 +107,7 @@ public:
         // from its first LED, as the E16 does): BIP / SLOT knobs, and ranges either side of 0 (TUNE).
         if (! look.e16 && s.type == PType::Float)
         {
-            if (s.unit == "BIP" || s.unit == "SLOT") centrePos = 0.5f;
+            if (s.unit == "BIP" || s.unit == "SLOT" || s.unit == "SPLIT") centrePos = 0.5f;
             else if (s.min < 0.0f && s.max > 0.0f && std::abs (s.min + s.max) < 1e-3f * (s.max - s.min))
                 centrePos = p.param (idx)->convertTo0to1 (0.0f);
         }

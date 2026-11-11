@@ -281,6 +281,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SFProcessor::makeLayout()
                     if (unit == "SLOT") return std::abs (v - 0.5f) < 0.04f ? juce::String ("AUTO")
                                              : v < 0.5f ? "SHARE " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 1.0f, (0.46f - v) / 0.46f) * 100.0f)) + " %"
                                                         : "HAND " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 1.0f, (v - 0.54f) / 0.46f) * 100.0f)) + " %";
+                    if (unit == "SPLIT") return std::abs (v - 0.5f) < 0.02f ? juce::String ("OFF")
+                                              : (v < 0.5f ? "MODEL LOWS " : "LAYER LOWS ") + juce::String (juce::roundToInt (std::min (1.0f, (std::abs (v - 0.5f) - 0.02f) / 0.48f) * 100.0f)) + " %";
                     if (unit == "BIP") return std::abs (v - 0.5f) < 0.02f ? juce::String ("OFF") : (v < 0.5f ? "LP " : "HP ") + juce::String (juce::roundToInt (std::abs (v - 0.5f) * 200.0f));
                     if (unit == "Hz")  return v >= 1000.0f ? juce::String (v / 1000.0f, 2) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz";
                     if (unit == "ms")  return v >= 1000.0f ? juce::String (v / 1000.0f, 2) + " s" : juce::String (v, v < 10.0f ? 1 : 0) + " ms";

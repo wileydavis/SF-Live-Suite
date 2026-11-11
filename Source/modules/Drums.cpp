@@ -44,13 +44,15 @@ static std::vector<std::string> kickModelNames() { std::vector<std::string> v; f
 class KickModule : public Module
 {
 public:
-    // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
-    enum { TUNE, DECAY, PUNCH, CLICK, DRIVE, FILT, DENS, LEVEL, MODEL, LAYERMODEL, LAYER, PTIME, VELSENS, ESPACE, ESWING, KEYTRACK, RES, ALLOCON, KEYFOLLOW, SSTART };
+    // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams); then
+    // SPLIT and SPLIT HZ [Nov 10] (ids are appended, never moved).
+    enum { TUNE, DECAY, PUNCH, CLICK, DRIVE, FILT, DENS, LEVEL, MODEL, LAYERMODEL, LAYER, PTIME, VELSENS, ESPACE, ESWING, KEYTRACK, RES, ALLOCON, KEYFOLLOW, SSTART,
+           SPLIT = SSTART + 4, SPLITHZ };
     std::string id() const override { return "KICK"; }
     bool instrument() const override { return true; }
     std::vector<ParamSpec> params() const override
     {
-        return withRegion ({ knob ("tune", "TUNE", -12.0f, 12.0f, 0.0f, "st").prim(),
+        auto p = withRegion ({ knob ("tune", "TUNE", -12.0f, 12.0f, 0.0f, "st").prim(),
                  pct ("decay", "DECAY", 0.5f).prim().dir (1),
                  pct ("punch", "PUNCH", 0.5f).prim().dir (1),
                  pct ("click", "CLICK", 0.5f).prim(),
@@ -69,6 +71,11 @@ public:
                  pct ("res", "FILTER RES", 0.1f),
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
                  toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
+        // LAYER SPLIT (Kit.h): one kick's lows, the other's punch and click.
+        p.push_back (knob ("split", "SPLIT", 0.0f, 1.0f, 0.5f, "SPLIT"));
+        p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f));
+        jassert ((int) p.size() == SPLITHZ + 1);
+        return p;
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL OR LAYER MODEL: SAMPLE)"; }
@@ -82,6 +89,8 @@ public:
         sr = rate;
         osr = 2.0 * rate;
         dec.set (HalfbandDesign::forStage (rate, 0));
+        decB.set (HalfbandDesign::forStage (rate, 0));
+        split.prepare (rate);
         out.prepare (rate, mb, ROLE_KICK, "KICK", false);
         events.reserve (2048);
         reset();
@@ -91,13 +100,15 @@ public:
         echoes.reset();
         for (auto& v : voices) v.active = false;
         dec.reset();
+        decB.reset();
+        split.reset();
         out.reset();
     }
 
     struct Voice
     {
         bool active = false;
-        int model = 0;
+        int model = 0, layer = 0;           // layer: 0 MODEL's, 1 the LAYER MODEL's (LAYER SPLIT)
         double t = 0.0, phase = 0.0;
         float vel = 1, f0 = 200, f1 = 50, tau = 0.01f, decay = 0.3f, click = 0, clickHz = 3000, drive = 0, shape = 0, lp = 8000, fm = 0;
         float fade = 1.0f, fadeStep = 0.0f, cal = 1.0f, mix = 1.0f;
@@ -153,6 +164,7 @@ public:
         const float decScale = std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f) * std::pow (0.6f, (float) gen);
         v = Voice();
         v.active = true; v.model = model;
+        v.layer = publish ? 0 : 1;          // the main voice publishes the kick; the layer's doesn't
         v.vel = vel * m.gain;               // drives the voice's saturation
         v.mix = layerGain;                  // main / layer balance, applied after it
         v.cal = cal::at (cal::kick, model);
@@ -345,6 +357,10 @@ public:
         const int model = c.ci (MODEL), layerModel = c.ci (LAYERMODEL);
         const float layer = c.v (LAYER);
         const float velSens = c.v (VELSENS);
+        // LAYER SPLIT: SPLIT across the block; MODEL's gain against the layer as trigger gives it.
+        const float k0 = c.v0 (SPLIT), k1 = c.v (SPLIT);
+        split.set (c.v (SPLITHZ), 1.0f / (1.0f + layer), LayerSplit::amount (k1));
+        const bool splitOff = split.off (LayerSplit::amount (k0), LayerSplit::amount (k1));
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
         for (int i = 0; i < c.n; ++i)
@@ -363,10 +379,13 @@ public:
                 if (layer > 0.01f) trigger (c, layerModel, vel, ev.gen, ev.note, ev.gain * layer / (1.0f + layer), false, i, smp, ev.gain);
                 lastHit = 1.0f;
             }
-            float y0 = 0.0f, y1 = 0.0f;
-            for (auto& v : voices) if (v.active) y0 += renderVoice (v, smp);
-            for (auto& v : voices) if (v.active) y1 += renderVoice (v, smp);
-            const float y = dec.down (y0, y1);
+            // MODEL's voices and the layer's sum apart, each through its own halfband, then split
+            // (or added: with no layer, exactly the sound there was before the split).
+            float y0 = 0.0f, y1 = 0.0f, b0 = 0.0f, b1 = 0.0f;
+            for (auto& v : voices) if (v.active) (v.layer == 1 ? b0 : y0) += renderVoice (v, smp);
+            for (auto& v : voices) if (v.active) (v.layer == 1 ? b1 : y1) += renderVoice (v, smp);
+            const float ya = dec.down (y0, y1), yb = decB.down (b0, b1);
+            const float y = splitOff ? ya + yb : split.tick (ya, yb, LayerSplit::amount (k0 + (k1 - k0) * (float) i / (float) c.n));
             L[i] = y; R[i] = y;
             hist.push (std::fabs (y));
         }
@@ -405,7 +424,8 @@ private:
     SampleStrip strip;
     struct DecimHist { std::atomic<float> v[512] {}; int w = 0, k = 0; float acc = 0; void push (float x) { acc = std::max (acc, x); if (++k >= 512) { v[w].store (std::min (1.0f, acc)); w = (w + 1) % 512; k = 0; acc = 0; } } };
     double sr = 48000.0, osr = 96000.0;
-    Halfband dec;
+    Halfband dec, decB;                 // MODEL's voices, the layer's
+    LayerSplit split;
     static constexpr int kVoices = 8;
     std::array<Voice, kVoices> voices;
     EchoScheduler echoes;

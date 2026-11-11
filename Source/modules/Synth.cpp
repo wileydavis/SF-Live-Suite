@@ -178,9 +178,10 @@ class SynthModule : public Module
 {
 public:
     // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
-    // ACID and WARP [Nov 10] after the sample's four (ids are appended, never moved).
+    // ACID and WARP, then SPLIT and SPLIT HZ [Nov 10], after the sample's four (ids are appended, never moved).
     enum { CUTOFF, RES, ENVAMT, GATE, DENS, FILT, DRIVE, LEVEL, MODEL, DECAY, ATTACK, ACCENT, GLIDE, TUNE, DETUNE, COLOR,
-           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART, ACID = SSTART + 4, WARP, kParams };
+           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART, ACID = SSTART + 4, WARP,
+           SPLIT, SPLITHZ, kParams };
 
     SynthModule (const char* idName, int role, std::vector<SynthModel> m, float cutDef, float resDef, float envDef, float gateDef, float pDepth)
         : name (idName), roleId (role), models (std::move (m)), dCut (cutDef), dRes (resDef), dEnv (envDef), dGate (gateDef), dPocket (pDepth) {}
@@ -221,6 +222,9 @@ public:
         // The E16's NRG page [Nov 10]: ACID on the 303's track, WARP on the PAD's (any model takes them).
         p.push_back (pct ("acid", "ACID", 0.0f).slow().dir (1));
         p.push_back (pct ("warp", "WARP", 0.0f).slow().dir (1));
+        // LAYER SPLIT (Kit.h): which layer plays the lows, which the mids and highs.
+        p.push_back (knob ("split", "SPLIT", 0.0f, 1.0f, 0.5f, "SPLIT"));
+        p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f));
         jassert ((int) p.size() == kParams);
         return p;
     }
@@ -242,7 +246,10 @@ public:
         osr = 2.0 * rate;
         waves = WaveSet::get (osr);
         dec.prepare (rate);
+        decB.prepare (rate);
         for (auto& d : dec4) d.set (HalfbandDesign::forStage (rate, 1));
+        for (auto& d : dec4b) d.set (HalfbandDesign::forStage (rate, 1));
+        split.prepare (rate);
         out.prepare (rate, mb, roleId, name.c_str(), true);
         ens.prepare (rate);
         events.reserve (2048);
@@ -258,6 +265,10 @@ public:
         numDown = 0;
         dec.reset();
         for (auto& d : dec4) d.reset();
+        decB.reset();
+        for (auto& d : dec4b) d.reset();
+        bLive = 0;
+        split.reset();
         ens.reset();
         out.reset();
         activeVoices = 0;
@@ -375,6 +386,10 @@ public:
         }
         size_t e = 0;
         auto* L = io.getWritePointer (0); auto* R = io.getWritePointer (1);
+        // LAYER SPLIT: SPLIT across the block; MODEL's gain against the layer as noteOn gives it.
+        const float k0 = c.v0 (SPLIT), k1 = c.v (SPLIT);
+        const float sv0 = LayerSplit::amount (k0), sv1 = LayerSplit::amount (k1);
+        split.set (c.v (SPLITHZ), 1.0f / (1.0f + layer * 0.5f), sv1);
         for (int i0 = 0; i0 < c.n;)
         {
             // Sub-blocks end at the next event: every note starts on its own sample.
@@ -400,18 +415,30 @@ public:
             if (e < events.size()) n = std::min (n, std::max (1, events[e].offset - i0));
             std::fill (L2, L2 + 2 * n, 0.0f);
             std::fill (R2, R2 + 2 * n, 0.0f);
+            // The layer's voices sum on their own (LAYER SPLIT), down through their own halfbands
+            // while any sounds and for kBDrain sub-blocks after (the filters ring out into the sum).
+            bool anyB = false;
+            for (auto& v : voices) if (v.active && v.layer == 1) { anyB = true; break; }
+            if (anyB) bLive = kBDrain;
+            const bool runB = bLive > 0;
+            if (runB)
+            {
+                std::fill (Lb2, Lb2 + 2 * n, 0.0f); std::fill (Rb2, Rb2 + 2 * n, 0.0f);
+                std::fill (Lb4, Lb4 + 4 * n, 0.0f); std::fill (Rb4, Rb4 + 4 * n, 0.0f);
+            }
             bool any4 = false;
             const bool onGrid = (c.samplePos + i0) % kSub == 0;
             acidOwned[0] = acidOwned[1] = false;
             for (auto& v : voices)
                 if (v.active)
                 {
+                    const bool b = v.layer == 1;
                     if (v.os == 4)
                     {
-                        if (! any4) { std::fill (L4, L4 + 4 * n, 0.0f); std::fill (R4, R4 + 4 * n, 0.0f); any4 = true; }
-                        render (c, v, L4, R4, 4 * n, smp, onGrid);
+                        if (! b && ! any4) { std::fill (L4, L4 + 4 * n, 0.0f); std::fill (R4, R4 + 4 * n, 0.0f); any4 = true; }
+                        render (c, v, b ? Lb4 : L4, b ? Rb4 : R4, 4 * n, smp, onGrid);
                     }
-                    else render (c, v, L2, R2, 2 * n, smp, onGrid);
+                    else render (c, v, b ? Lb2 : L2, b ? Rb2 : R2, 2 * n, smp, onGrid);
                 }
             // 4x voices: down to 2x (always run, so the filters' state stays continuous).
             if (! any4) { std::fill (L4, L4 + 4 * n, 0.0f); std::fill (R4, R4 + 4 * n, 0.0f); }
@@ -422,6 +449,24 @@ public:
             }
             dec.process (0, L2, L + i0, n);
             dec.process (1, R2, R + i0, n);
+            if (runB)
+            {
+                for (int i = 0; i < 2 * n; ++i)
+                {
+                    Lb2[i] += dec4b[0].down (Lb4[2 * i], Lb4[2 * i + 1]);
+                    Rb2[i] += dec4b[1].down (Rb4[2 * i], Rb4[2 * i + 1]);
+                }
+                decB.process (0, Lb2, Lb, n);
+                decB.process (1, Rb2, Rb, n);
+                if (! anyB && --bLive == 0) { decB.reset(); for (auto& d : dec4b) d.reset(); }
+            }
+            // The two layers together: split, or (off) their plain sum.
+            if (! split.off (sv0, sv1))
+                for (int i = 0; i < n; ++i)
+                    split.tick (L[i0 + i], R[i0 + i], runB ? Lb[i] : 0.0f, runB ? Rb[i] : 0.0f,
+                                LayerSplit::amount (k0 + (k1 - k0) * (float) (i0 + i) / (float) c.n));
+            else if (runB)
+                for (int i = 0; i < n; ++i) { L[i0 + i] += Lb[i]; R[i0 + i] += Rb[i]; }
             // ACID 303-TYPE's accent sweep drains while no note of its holds it.
             for (int l = 0; l < 2; ++l)
                 if (! acidOwned[l] && acidCap[l] > 0.0f)
@@ -430,6 +475,7 @@ public:
             i0 += n;
         }
         ens.process (L, R, c.n, ensembleAmt * c.v (SPACE) * 2.0f);
+        split.monoLows (L, R, c.n, k0, k1);
         out.process (c, io, FILT, -1, c.v (PDEPTH), c.v (PSHAPE), c.b (ALLOCON), LEVEL);
         int act = 0; for (auto& v : voices) act += v.active ? 1 : 0;
         activeVoices = act;
@@ -1029,6 +1075,14 @@ private:
     Halfband dec4[2];
     static constexpr int kSub = 32;
     float L2[2 * kSub] {}, R2[2 * kSub] {}, L4[4 * kSub] {}, R4[4 * kSub] {};
+    // LAYER SPLIT: the layer's own sums (2x, 4x, base rate) and halfbands; bLive counts the
+    // sub-blocks its halfbands still run (kBDrain after its last voice); the split itself.
+    Decimator2x decB;
+    Halfband dec4b[2];
+    float Lb2[2 * kSub] {}, Rb2[2 * kSub] {}, Lb4[4 * kSub] {}, Rb4[4 * kSub] {}, Lb[kSub] {}, Rb[kSub] {};
+    static constexpr int kBDrain = 64;
+    int bLive = 0;
+    LayerSplit split;
     juce::AudioBuffer<float> grainSrc;
     Mips grainMips;
     std::atomic<int> activeVoices { 0 };

@@ -41,6 +41,8 @@ SYNTH = {
     "space": "Ensemble chorus amount, for the models that have one (strings, poly pad, stabs, hoover, organ).",
     "acid": "One knob for the squelch (the E16's NRG 12, on 8 LEAD): RES towards 95 %, ENV AMT towards 90 %, ACCENT towards full, DRIVE +35 % and CUTOFF +10 %, each from where its own knob is (never down). Made for ACID 303-TYPE; any model takes it. 0 = off.",
     "warp": "One knob for a melting texture (the E16's NRG 14, on 10 PAD): tape wow (up to 35 cents, two slow drifts) and flutter (5 cents), every voice on its own phase and pace so a chord smears; DETUNE and SPACE pushed up too (on GRANULAR: the grains scatter wider). 0 = off.",
+    "split": "Which layer plays the lows and which the mids and highs, crossing over at SPLIT HZ. Centre: OFF, both play everything (the sound as without it). Left: MODEL owns the lows, the LAYER MODEL the rest; right: the LAYER MODEL owns the lows (a sub under an acid line or a stab). At full SPLIT each band is as loud as its layer alone (the LAYER MODEL at LAYER's level; at 100 % as loud as MODEL), and the lows are mono. With LAYER at 0 the layer is silent, so SPLIT cuts MODEL's lows (right) or its mids and highs (left).",
+    "split_hz": "Where SPLIT crosses over, 50-800 Hz (150 Hz). Around 100-200 Hz for a sub under a bass line, higher to give a stab the mids and highs only.",
     "smp_start": "Where the sample starts playing, from 0 % (its start) to 100 %. Drag the START line on the display or turn this. A SAMPLE note takes it as it is when the note starts (a legato slide plays on); GRANULAR's grains follow it as it moves. Inside the sample it fades in for at least 1 ms, so a cut never clicks.",
 }
 
@@ -74,6 +76,8 @@ MODULES["KICK"] = dict(
         "drive": "Saturation on the kick, added to the model's own.",
         "layer_model": "Second model hit with every note (e.g. 909 click on an 808 body).",
         "layer": "Level of the LAYER MODEL. Main and layer always add up to the level of one kick.",
+        "split": "Which kick plays the lows and which the punch and click, crossing over at SPLIT HZ. Centre: OFF, both whole. Left: MODEL's lows, the LAYER MODEL's top; right: the LAYER MODEL's lows (an 808 body under a 909's click). At full SPLIT each band is as loud as its kick alone (the layer at LAYER's level). Through the crossover the lows land about 3 ms after the top at 150 Hz.",
+        "split_hz": "Where SPLIT crosses over, 50-800 Hz (150 Hz).",
         "pitch_time": "How fast the pitch sweep falls. Short = snappy, long = laser.",
         "vel_sens": "How much velocity changes the level. 0 = every hit equal.",
         "key_track": "On: the note number sets the pitch (C1 = TUNE). Off: every note plays the same kick.",

@@ -488,6 +488,125 @@ static void testPercCircuits()
     }
 }
 
+// LAYER SPLIT [Nov 10] (Kit.h's LayerSplit): SFTests --split.
+static void testLayerSplit()
+{
+    using namespace emu;
+    std::printf ("-- LAYER SPLIT: which layer plays the lows, which the mids and highs\n");
+    struct St { std::vector<float> l, r; };
+    // One note on a fresh module, held, from its fourth block (the knobs settled, as in a set);
+    // SPLIT to moveTo at moveAt and back to the centre at backAt (samples, on block starts).
+    auto play = [] (const char* id, const std::vector<std::pair<const char*, float>>& set, int note, double secs,
+                    int moveAt = -1, float moveTo = 0.5f, int backAt = -1)
+    {
+        resetBus();
+        Rig2 r (id);
+        for (const auto& [k, v] : set) r.set (k, v);
+        St o;
+        bool on = false;
+        for (int s = 0; s < (int) (kSr * secs); s += kBlock)
+        {
+            if (s == moveAt) r.set ("split", moveTo);
+            if (s == backAt) r.set ("split", 0.5f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (! on && s >= 4 * kBlock) { m.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0); on = true; } });
+            for (int i = 0; i < kBlock; ++i) { o.l.push_back (r.buf.getSample (0, i)); o.r.push_back (r.buf.getSample (1, i)); }
+        }
+        return o;
+    };
+    // Energy (dB) above or below hz (two Butterworth sections), t0 to t1 seconds.
+    auto band = [] (const std::vector<float>& x, double t0, double t1, float hz, bool high)
+    {
+        sf::Svf a, b; a.set (hz, 0.7071f, kSr); b.set (hz, 0.7071f, kSr);
+        double e = 0.0;
+        for (size_t i = 0; i < x.size() && i < (size_t) (t1 * kSr); ++i)
+        {
+            const float y = high ? b.tickHP (a.tickHP (x[i])) : b.tickLP (a.tickLP (x[i]));
+            if (i >= (size_t) (t0 * kSr)) e += (double) y * y;
+        }
+        return 10.0 * std::log10 (e + 1e-30);
+    };
+    auto db = [] (double a) { return 20.0 * std::log10 (a + 1e-12); };
+
+    // BASS: SINE SUB (MODEL) and ACID 303-TYPE's saw (LAYER MODEL: one oscillator, rendered at 4x)
+    // at LAYER 100 % on A1 (55 Hz). Left: the sine's 55 Hz and the 303's harmonics, each as loud as
+    // alone; right: the 303's 55 Hz as alone and no harmonics (the sine has none). The centre is the
+    // plain sum (the 303 at LAYER's 2/3) and anywhere inside the OFF zone is the same sound to the
+    // sample. SPLIT HZ moves the crossover.
+    {
+        const std::vector<std::pair<const char*, float>> base { { "cutoff", 0.9f }, { "env_amt", 0.0f }, { "filter", 0.5f }, { "density", 0.0f }, { "drive", 0.0f }, { "color", 0.0f } };
+        auto with = [&] (std::vector<std::pair<const char*, float>> extra) { auto v = base; v.insert (v.end(), extra.begin(), extra.end()); return v; };
+        auto both = [&] (float split, float hz = 150.0f) { return play ("BASS", with ({ { "model", 5.0f }, { "layer_model", 3.0f }, { "layer", 1.0f }, { "split", split }, { "split_hz", hz } }), 33, 1.6); };
+        const auto sine = play ("BASS", with ({ { "model", 5.0f }, { "layer", 0.0f } }), 33, 1.6);
+        const auto mono = play ("BASS", with ({ { "model", 3.0f }, { "layer", 0.0f } }), 33, 1.6);
+        const auto left = both (0.0f), right = both (1.0f), centre = both (0.5f), nearC = both (0.515f), right400 = both (1.0f, 400.0f);
+        const int a0 = (int) (0.6 * kSr), a1 = (int) (1.5 * kSr);
+        auto f = [&] (const St& x, double hz) { return db (toneAmp (x.l, a0, a1, hz)); };
+        auto hi = [&] (const St& x) { return band (x.l, 0.6, 1.5, 500.0f, true); };
+        std::printf ("   BASS 55 Hz: sine alone %.1f dB, 303 alone %.1f; left %.1f, right %.1f. Over 500 Hz: 303 alone %.1f dB, sine alone %.1f; left %.1f, right %.1f, centre %.1f\n",
+                     f (sine, 55.0), f (mono, 55.0), f (left, 55.0), f (right, 55.0), hi (mono), hi (sine), hi (left), hi (right), hi (centre));
+        CHECK (std::abs (f (left, 55.0) - f (sine, 55.0)) < 1.0 && std::abs (hi (left) - hi (mono)) < 1.0, "left: 55 Hz %.1f against %.1f, highs %.1f against %.1f",
+               f (left, 55.0), f (sine, 55.0), hi (left), hi (mono));
+        // Right, over 500 Hz: only the sine's own (its model's drive), as loud as alone.
+        CHECK (std::abs (f (right, 55.0) - f (mono, 55.0)) < 1.0 && hi (right) < hi (mono) - 15.0 && std::abs (hi (right) - hi (sine)) < 1.5,
+               "right: 55 Hz %.1f against %.1f, highs %.1f against the 303's %.1f and the sine's %.1f", f (right, 55.0), f (mono, 55.0), hi (right), hi (mono), hi (sine));
+        CHECK (std::abs (hi (centre) - (hi (mono) + db (2.0 / 3.0))) < 0.5, "centre: highs %.1f, not the plain sum's %.1f", hi (centre), hi (mono) + db (2.0 / 3.0));
+        bool same = centre.l.size() == nearC.l.size();
+        for (size_t i = 0; same && i < centre.l.size(); ++i) same = centre.l[i] == nearC.l[i] && centre.r[i] == nearC.r[i];
+        CHECK (same, "SPLIT inside the OFF zone changed the sound");
+        const double h150 = f (right, 220.0), h400 = f (right400, 220.0);
+        std::printf ("   the 303's 220 Hz under the right split: SPLIT HZ 150 %.1f dB, 400 %.1f dB\n", h150, h400);
+        CHECK (h400 > h150 + 8.0, "SPLIT HZ: 220 Hz %.1f dB at 150, %.1f at 400", h150, h400);
+    }
+    // KICK: the 909 (MODEL) and the 808 (LAYER MODEL) at LAYER 100 %. Right: the 808's lows and the
+    // 909's click and punch, each as on its own; left: the 909's lows, the 808's top.
+    {
+        auto kick = [&] (std::vector<std::pair<const char*, float>> s) { s.push_back ({ "drive", 0.0f }); s.push_back ({ "filter", 0.5f }); return play ("KICK", s, 36, 1.0); };
+        const auto k909 = kick ({ { "model", 0.0f }, { "layer", 0.0f } }), k808 = kick ({ { "model", 1.0f }, { "layer", 0.0f } });
+        const auto kr = kick ({ { "model", 0.0f }, { "layer_model", 1.0f }, { "layer", 1.0f }, { "split", 1.0f } });
+        const auto kl = kick ({ { "model", 0.0f }, { "layer_model", 1.0f }, { "layer", 1.0f }, { "split", 0.0f } });
+        auto lo = [&] (const St& x) { return band (x.l, 0.0, 0.8, 80.0f, false); };
+        auto top = [&] (const St& x) { return band (x.l, 0.0, 0.8, 1000.0f, true); };
+        std::printf ("   KICK under 80 Hz: 909 %.1f dB, 808 %.1f; right %.1f, left %.1f. Over 1 kHz: 909 %.1f, 808 %.1f; right %.1f, left %.1f\n",
+                     lo (k909), lo (k808), lo (kr), lo (kl), top (k909), top (k808), top (kr), top (kl));
+        CHECK (std::abs (lo (kr) - lo (k808)) < 1.5 && std::abs (top (kr) - top (k909)) < 1.5, "kick right: lows %.1f against %.1f, top %.1f against %.1f", lo (kr), lo (k808), top (kr), top (k909));
+        CHECK (std::abs (lo (kl) - lo (k909)) < 1.5 && std::abs (top (kl) - top (k808)) < 2.0, "kick left: lows %.1f against %.1f, top %.1f against %.1f", lo (kl), lo (k909), top (kl), top (k808));
+        CHECK (kr.l == kr.r, "the kick is mono");
+    }
+    // PAD: STRING MACHINE in both layers (unison and ensemble: wide), C2. Split, its lows are mono.
+    {
+        auto pad = [&] (float split) { return play ("PAD", { { "model", 0.0f }, { "layer_model", 0.0f }, { "layer", 1.0f }, { "split", split }, { "split_hz", 400.0f }, { "filter", 0.5f }, { "density", 0.0f } }, 36, 2.4); };
+        auto sideOver = [&] (const St& x)
+        {
+            std::vector<float> m (x.l.size()), d (x.l.size());
+            for (size_t i = 0; i < x.l.size(); ++i) { m[i] = 0.5f * (x.l[i] + x.r[i]); d[i] = 0.5f * (x.l[i] - x.r[i]); }
+            const int a0 = (int) (1.2 * kSr), a1 = (int) (2.2 * kSr);
+            return db (toneAmp (d, a0, a1, 65.41)) - db (toneAmp (m, a0, a1, 65.41));
+        };
+        const double off = sideOver (pad (0.5f)), on = sideOver (pad (0.0f));
+        std::printf ("   PAD: the side at 65 Hz against the mid, off %.1f dB, split %.1f dB\n", off, on);
+        CHECK (on < off - 25.0, "mono lows: side %.1f dB split, %.1f off", on, off);
+    }
+    // Into the split and out of it mid-note: a fade, no click. SINE SUB in both layers (a click
+    // would be many times the sines' steepest step).
+    {
+        const int moveAt = 75 * kBlock, backAt = 150 * kBlock;
+        const auto x = play ("BASS", { { "model", 5.0f }, { "layer_model", 5.0f }, { "layer", 1.0f }, { "filter", 0.5f }, { "density", 0.0f } }, 33, 1.2, moveAt, 0.0f, backAt);
+        auto steep = [&] (int a, int b) { float m = 0.0f; for (int i = std::max (1, a); i < b; ++i) m = std::max (m, std::fabs (x.l[(size_t) i] - x.l[(size_t) i - 1])); return m; };
+        const float calm = std::max ({ steep ((int) (0.3 * kSr), moveAt), steep (moveAt + 2400, backAt), steep (backAt + 2400, (int) (1.15 * kSr)) });
+        const float move = std::max (steep (moveAt, moveAt + 2400), steep (backAt, backAt + 2400));
+        std::printf ("   SPLIT 0 to full and back mid-note: steepest step %.5f against %.5f held\n", move, calm);
+        CHECK (move < calm * 1.3f, "SPLIT clicks: step %.5f against %.5f", move, calm);
+    }
+    // The value as Live shows it.
+    {
+        Rig2 r ("BASS");
+        auto* prm = r.p->apvts.getParameter ("split");
+        const auto a = prm->getText (prm->convertTo0to1 (0.0f), 64), b = prm->getText (prm->convertTo0to1 (0.5f), 64), c = prm->getText (prm->convertTo0to1 (1.0f), 64);
+        std::printf ("   SPLIT reads %s / %s / %s\n", a.toRawUTF8(), b.toRawUTF8(), c.toRawUTF8());
+        CHECK (a == "MODEL LOWS 100 %" && b == "OFF" && c == "LAYER LOWS 100 %", "SPLIT's text: %s / %s / %s", a.toRawUTF8(), b.toRawUTF8(), c.toRawUTF8());
+    }
+}
+
 static void testEmulation()
 {
     testAcid();

@@ -112,6 +112,99 @@ struct RoleOutput
     }
 };
 
+// LAYER SPLIT [Nov 10] (KICK, BASS, LEAD, PAD): which of the two layers plays the lows and which
+// the mids and highs, split at SPLIT HZ by a 4th-order Linkwitz-Riley crossover on each layer.
+//   SPLIT centre: off, the plain sum (no crossover: nothing changes);
+//         left:   MODEL owns the lows, the LAYER MODEL the mids and highs;
+//         right:  the LAYER MODEL owns the lows, MODEL the rest.
+// Turning it fades the other layer's lows and the owner's mids and highs out (at full SPLIT each band
+// is only its owner's) and brings the bands up so that at full SPLIT each is as loud as the layer
+// playing it is on its own: MODEL as it is alone, the layer at LAYER's level against it (at 100 %
+// as loud as MODEL). The crossover turns the phase of everything near SPLIT HZ (its two bands add up
+// flat, to an all-pass), so leaving or reaching the centre fades between the plain sum and the split
+// over 10 ms rather than switching (after a reset, in silence, it starts where SPLIT is). monoLows: the stereo synths' lows under SPLIT HZ go mono with
+// SPLIT (their unison, spread and ensemble stay in the mids and highs): the side signal high-passed.
+struct LayerSplit
+{
+    static constexpr float kDead = 0.02f;      // OFF, as the editor shows it (the E16's centre, 64, is 0.504)
+    // SPLIT (0..1) as a signed amount: -1 MODEL owns the lows .. 0 off .. +1 the layer does.
+    static float amount (float knob)
+    {
+        const float d = knob - 0.5f, a = std::abs (d);
+        return a < kDead ? 0.0f : std::copysign (std::min (1.0f, (a - kDead) / (0.5f - kDead)), d);
+    }
+    void prepare (double rate) { sr = rate; rStep = 1.0f / (float) (0.01 * rate); hz = -1.0f; reset(); }
+    void reset() { for (auto& x : xo) x.reset(); for (auto& f : side) f.reset(); r = 0.0f; sideOn = false; fresh = true; }
+    // Per block: SPLIT HZ; MODEL's gain against the layer as the voices have it (1 with no layer);
+    // the amount at the block's end (the first block after a reset starts there: nothing sounds).
+    void set (float splitHz, float mainGain, float sv1)
+    {
+        if (splitHz != hz) { hz = splitHz; for (auto& x : xo) x.set (hz, sr); for (auto& f : side) f.set (hz, 0.7071f, sr); }
+        a = mainGain;
+        if (fresh) { r = sv1 != 0.0f ? 1.0f : 0.0f; fresh = false; }
+    }
+    // Off for the whole block (both ends in the centre, nothing fading): the plain sum.
+    bool off (float sv0, float sv1) const { return sv0 == 0.0f && sv1 == 0.0f && r == 0.0f; }
+    // The layers, stereo: MODEL's in (l, rr) on entry, the layer's in (bl, br); the result in (l, rr).
+    void tick (float& l, float& rr, float bl, float br, float sv)
+    {
+        if (! ramp (sv)) { l += bl; rr += br; return; }
+        float al, ah, arl, arh, bll, blh, brl, brh;
+        xo[0].split (l, al, ah); xo[1].split (rr, arl, arh); xo[2].split (bl, bll, blh); xo[3].split (br, brl, brh);
+        const G g = gains (sv);
+        const float yl = g.aLo * al + g.aHi * ah + g.bLo * bll + g.bHi * blh;
+        const float yr = g.aLo * arl + g.aHi * arh + g.bLo * brl + g.bHi * brh;
+        l = l + bl + r * (yl - l - bl);
+        rr = rr + br + r * (yr - rr - br);
+    }
+    // The layers, mono (KICK).
+    float tick (float ma, float mb, float sv)
+    {
+        if (! ramp (sv)) return ma + mb;
+        float al, ah, bl, bh;
+        xo[0].split (ma, al, ah); xo[2].split (mb, bl, bh);
+        const G g = gains (sv);
+        return ma + mb + r * (g.aLo * al + g.aHi * ah + g.bLo * bl + g.bHi * bh - ma - mb);
+    }
+    // After everything the synth makes stereo: the side signal under SPLIT HZ out, as far as SPLIT
+    // is turned (either way). At the centre it is exactly what came in.
+    void monoLows (float* L, float* R, int n, float knob0, float knob1)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            const float s = std::abs (amount (knob0 + (knob1 - knob0) * (float) i / (float) n));
+            if (s == 0.0f) { if (sideOn) { for (auto& f : side) f.reset(); sideOn = false; } continue; }
+            sideOn = true;
+            const float m = 0.5f * (L[i] + R[i]), d = 0.5f * (L[i] - R[i]);
+            const float dHi = side[1].tickHP (side[0].tickHP (d));
+            const float d2 = d + s * (dHi - d);
+            L[i] = m + d2; R[i] = m - d2;
+        }
+    }
+private:
+    struct G { float aLo, aHi, bLo, bHi; };
+    // Each band's owner up, the other down: s = 1 leaves only the owner, at n = 1 / a (MODEL as it
+    // is alone, the layer at LAYER's level against it).
+    G gains (float sv) const
+    {
+        const float s = std::abs (sv), n = 1.0f / (1.0f - s * (1.0f - a)), keep = n * (1.0f - s);
+        return sv > 0.0f ? G { keep, n, n, keep } : G { n, keep, keep, n };
+    }
+    // The fade between the plain sum and the split; false while it is all plain sum.
+    bool ramp (float sv)
+    {
+        if (sv != 0.0f) r = std::min (1.0f, r + rStep);
+        else if (r > 0.0f && (r -= rStep) <= 0.0f) { r = 0.0f; for (auto& x : xo) x.reset(); }
+        return r > 0.0f;
+    }
+    Crossover xo[4];                           // MODEL L, R; the layer L, R (mono: 0 and 2)
+    Svf side[2];
+    float r = 0.0f;                            // the split's share against the plain sum (0..1)
+    bool sideOn = false, fresh = true;
+    float hz = -1.0f, a = 1.0f, rStep = 0.001f;
+    double sr = 48000.0;
+};
+
 // KEY: semitones that move a pitch of `hz` to the nearest note of pitch class keyRoot (C = 0).
 inline float keySnap (float hz, int keyRoot)
 {
