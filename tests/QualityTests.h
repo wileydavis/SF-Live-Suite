@@ -162,11 +162,17 @@ static void testOversampling()
     }
 
     std::printf ("-- oversampling: synth alias floor (sustained note, filter open)\n");
-    struct Case { const char* id; int model; const char* name; int note; float color; float detune = 0.0f; };
+    struct Case { const char* id; int model; const char* name; int note; float color; float detune = 0.0f; double floor = 70.0; };
     const Case cases[] = { { "LEAD", 0, "ACID SAW", 72, 0.0f }, { "LEAD", 0, "ACID SAW", 84, 0.0f }, { "LEAD", 0, "ACID SAW", 96, 0.0f },
                            { "LEAD", 0, "ACID SQUARE", 84, 1.0f }, { "BASS", 1, "MONO 101", 72, 0.5f }, { "LEAD", 2, "MS20", 84, 0.5f },
                            { "LEAD", 8, "SYNC", 84, 0.6f }, { "LEAD", 7, "FM BELL", 84, 0.5f, 0.5f }, { "PAD", 0, "STRING MACHINE", 84, 0.5f },
-                           { "BASS", 2, "SUB OSC", 72, 0.5f } };
+                           { "BASS", 2, "SUB OSC", 72, 0.5f },
+                           // [Nov 10] The bright ends: SYNC and FM with COLOR full, high (DETUNE 50 % puts FM's
+                           // modulator on its ratio). FM BELL at C7 folded its sidebands past 48 kHz back to 13 kHz
+                           // at -43 dB when FM ran at 2x; now 4x. SYNC at C7 with the slave five times up (10.5 kHz):
+                           // its BLEP edges leave 70 dB, held to 65.
+                           { "LEAD", 8, "SYNC", 96, 1.0f, 0.0f, 65.0 }, { "LEAD", 8, "SYNC", 96, 0.5f }, { "BASS", 4, "FM", 72, 1.0f, 0.5f },
+                           { "LEAD", 7, "FM BELL", 96, 1.0f, 0.5f } };
     for (const auto& cs : cases)
     {
         resetBus();
@@ -202,7 +208,7 @@ static void testOversampling()
         }
         const double db = 20.0 * std::log10 (worst / ref + 1e-30);
         std::printf ("   %-6s %-15s %5.0f Hz: worst alias %.1f dB below the loudest partial\n", cs.id, cs.name, f0, -db);
-        CHECK (db < -70.0, "%s %s aliases at %.1f dB", cs.id, cs.name, db);
+        CHECK (db < -cs.floor, "%s %s aliases at %.1f dB", cs.id, cs.name, db);
     }
 }
 
@@ -560,6 +566,36 @@ static void testMotion()
         }
         std::printf ("   KICK source, depth 40 %%: FILTER moves %.2f .. %.2f with the kicks\n", lo, hi);
         CHECK (hi - lo > 0.2f, "MOTION KICK source did not follow SF KICK");
+    }
+    // STEPS [Nov 10]: 1/4 steps, depth 50 % on FILTER: the value in the middle of each beat repeats
+    // every 8 beats, and the 8 are not alike. ENVELOPE 1 BAR: up at the bar line, nearly down at its end.
+    {
+        auto midBeats = [] (int src, int rate, int beats)
+        {
+            resetBus();
+            Rig2 r ("FILTER");
+            const int fi = r.p->paramIndex ("filter");
+            r.set ("filter", 0.5f); r.set ("m1_src", (float) src); r.set ("m1_rate", (float) rate); r.set ("m1_target", 1.0f); r.set ("m1_depth", 0.5f);
+            const double blockBeats = r.bps() * kBlock;
+            std::vector<float> at ((size_t) beats * 4, -1.0f);   // every quarter beat
+            while (r.ppq < beats + 1.0)
+            {
+                r.step (kBlock, nullptr);
+                const double q = r.ppq * 4.0;
+                const int k = (int) std::lround (q);
+                if (k < (int) at.size() && std::abs (q - k) * 0.25 <= blockBeats * 0.5) at[(size_t) k] = r.p->currentValue (fi);
+            }
+            return at;
+        };
+        const auto st = midBeats (10, 2, 24);           // STEPS, 1/4
+        float rep = 0.0f, lo = 1.0f, hi = 0.0f;
+        for (int b = 0; b < 16; ++b) rep = std::max (rep, std::abs (st[(size_t) (4 * b + 2)] - st[(size_t) (4 * (b + 8) + 2)]));
+        for (int b = 0; b < 8; ++b) { lo = std::min (lo, st[(size_t) (4 * b + 2)]); hi = std::max (hi, st[(size_t) (4 * b + 2)]); }
+        std::printf ("   STEPS 1/4: beats 8 apart differ by at most %.4f; the 8 steps span %.2f .. %.2f\n", rep, lo, hi);
+        CHECK (rep < 1e-3f && hi - lo > 0.2f, "STEPS: repeat %.4f, span %.2f .. %.2f", rep, lo, hi);
+        const auto env = midBeats (11, 4, 8);           // ENVELOPE, 1 BAR
+        std::printf ("   ENVELOPE 1 BAR, depth 50 %% from FILTER 50 %%: beat 1 + 1/4 %.3f, beat 4 + 3/4 %.3f\n", env[1], env[15]);
+        CHECK (env[1] > 0.85f && env[15] < 0.56f && env[15] >= 0.5f, "ENVELOPE: %.3f after the bar line, %.3f at its end", env[1], env[15]);
     }
 }
 

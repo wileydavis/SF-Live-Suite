@@ -6,6 +6,8 @@
 //   RAMP UP / RAMP DOWN                unipolar, from the knob upward (DEPTH > 0) over RATE
 //   KICK                               SF KICK reports; RATE sets the release
 //   INPUT (effects) / NOTES (instr.)   input level / note velocity; RATE sets the release
+//   STEPS [Nov 10]                     bipolar: eight seeded steps of RATE each, looping (a pattern)
+//   ENVELOPE [Nov 10]                  unipolar: up in 2 % of RATE, falling over the rest, every RATE
 #include "Bus.h"
 #include "Module.h"
 #include <cmath>
@@ -14,11 +16,13 @@
 
 namespace sf
 {
-enum MotionSrc { MOT_OFF = 0, MOT_SINE, MOT_TRI, MOT_SQUARE, MOT_RAMP_UP, MOT_RAMP_DOWN, MOT_RANDOM, MOT_DRIFT, MOT_KICK, MOT_INPUT, kNumMotionSrc };
+// STEPS and ENVELOPE are appended: a saved source keeps its number.
+enum MotionSrc { MOT_OFF = 0, MOT_SINE, MOT_TRI, MOT_SQUARE, MOT_RAMP_UP, MOT_RAMP_DOWN, MOT_RANDOM, MOT_DRIFT, MOT_KICK, MOT_INPUT,
+                 MOT_STEPS, MOT_ENV, kNumMotionSrc };
 
 inline std::vector<std::string> motionSourceNames (bool instrument)
 {
-    return { "OFF", "SINE", "TRIANGLE", "SQUARE", "RAMP UP", "RAMP DOWN", "RANDOM", "DRIFT", "KICK", instrument ? "NOTES" : "INPUT" };
+    return { "OFF", "SINE", "TRIANGLE", "SQUARE", "RAMP UP", "RAMP DOWN", "RANDOM", "DRIFT", "KICK", instrument ? "NOTES" : "INPUT", "STEPS", "ENVELOPE" };
 }
 // Rates 0-10 are straight; 11-20 (appended, so saved rates keep their place) run against the bar:
 // 3/16 5/16 7/16 cycle across the beat, 1/4D 1/2D (dotted) and 1/4T 1/2T (triplet) across the bar,
@@ -42,7 +46,8 @@ inline double motionRateBeats (int i, double beatsPerBar)
     if (i < 18) return odd[i - 11];
     return oddBars[i - 18] * beatsPerBar;
 }
-inline bool motionBipolar (int src) { return src == MOT_SINE || src == MOT_TRI || src == MOT_SQUARE || src == MOT_RANDOM || src == MOT_DRIFT; }
+inline bool motionBipolar (int src) { return src == MOT_SINE || src == MOT_TRI || src == MOT_SQUARE || src == MOT_RANDOM || src == MOT_DRIFT || src == MOT_STEPS; }
+inline constexpr int kMotionSteps = 8;
 
 class Motion
 {
@@ -71,6 +76,21 @@ public:
             case MOT_RAMP_UP:   target = (float) phase (ppqEnd, period); break;
             case MOT_RAMP_DOWN: target = 1.0f - (float) phase (ppqEnd, period); break;
             case MOT_RANDOM:    target = 2.0f * hash01 (step (ppqEnd, period)) - 1.0f; break;
+            // STEPS: RANDOM's values, but eight of them, over and over: a pattern that repeats every
+            // eight RATEs (its own values, apart from RANDOM's: -1 - the step).
+            case MOT_STEPS:
+            {
+                const int64_t k = step (ppqEnd, period);
+                target = 2.0f * hash01 (-1 - (k - kMotionSteps * (int64_t) std::floor ((double) k / kMotionSteps))) - 1.0f;
+                break;
+            }
+            // ENVELOPE: up in 2 % of RATE, then falling (e^-t, 22 % of RATE: 1 % left at the end), every RATE.
+            case MOT_ENV:
+            {
+                const float p = (float) phase (ppqEnd, period);
+                target = p < 0.02f ? p / 0.02f : std::exp (-(p - 0.02f) / 0.22f);
+                break;
+            }
             case MOT_DRIFT:
             {
                 // Catmull-Rom through seeded points, one per period: smooth, never repeats.

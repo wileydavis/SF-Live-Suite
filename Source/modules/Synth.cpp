@@ -1,6 +1,6 @@
 // BASS, LEAD, PAD: one synth engine, role-specific model lists and defaults.
 // Voices render oversampled from band-limited mipmapped tables (saw, square, triangle, PWM as the
-// difference of two saws, BLEP-corrected hard sync): 2x for the linear-filter models, 4x for the
+// difference of two saws, BLEP-corrected hard sync): 2x for the linear-filter models, 4x for FM, the
 // models with a driven ladder / MS20 filter and for hard sync. DRIVE and the MS20 saturation use
 // antiderivative anti-aliasing on top.
 // Halfband decimators bring the sums back down: no audible aliasing at any pitch.
@@ -302,7 +302,7 @@ public:
         float vel = 1.0f, gain = 1.0f, freq = 110.0f, target = 110.0f, glideCoef = 0.0f, accent = 0.0f;
         float vel0 = 1.0f;                // the note's own velocity (0..1), to play it again on a MODEL change
         float pitch = 60.0f, pitchTuned = 60.0f;   // the note (with chord interval) and the tuned pitch it plays at
-        double rate = 96000.0;            // render rate: 2x, or 4x for ladder / MS20 models
+        double rate = 96000.0;            // render rate: 2x, or 4x (os: setupVoice)
         int os = 2;
         double ph[8] {}, ph2[8] {}, subPh = 0.0, modPh = 0.0, spos = 0.0;
         float pan[8] {};
@@ -571,7 +571,10 @@ private:
             v = Voice();
             v.reg = blockReg;                  // SAMPLE: from START (a legato slide plays on where it is)
             v.spos = v.reg.start;
-            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.filt == F_DIODE || m.engine == E_SYNC) ? 4 : 2;
+            // 4x: the driven ladders and MS20, the 303's filter, hard sync, and FM [Nov 10] (a high
+            // bell's sidebands reach past 48 kHz: at 2x they folded back into the audible band, 45 dB
+            // down at C7; SFTests --alias).
+            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.filt == F_DIODE || m.engine == E_SYNC || m.engine == E_FM) ? 4 : 2;
             v.rate = sr * v.os;
             v.freq = wasActive ? keepFreq : noteHz (note);
             for (int k = 0; k < 8; ++k) { v.ph[k] = rng.uni(); v.ph2[k] = rng.uni(); v.pan[k] = 0.5f + (k == 0 ? 0.0f : ((k & 1) ? -0.35f : 0.35f) * (0.5f + 0.5f * rng.uni())); }
