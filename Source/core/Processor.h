@@ -201,6 +201,11 @@ private:
     int panicPos = 240, panicInPos = 240;   // PANIC output / input gain, in samples of the 5 ms ramp
     bool panicDown = false;
     int panicLen = 240;
+    // SF BUILD's cut (DROP): the bus's, read whole once per host block; this block's window (-1:
+    // none); the first note just before the way back (it comes back 1 ms before that); the gain.
+    sf::DropCut cutRead;
+    double cutA = -1.0, cutB = -1.0, cutEarly = -1.0, cutAtSeen = -2.0;
+    float cutGain = 1.0f;
     double pendingAt = -1.0;               // ppq of the bar line the pending song lands on (-1 = own)
     bool pendingJumped = false;            // the pending song already lost its bar line to a jump back
     bool recalledInBlock = false;          // a recall landed in this host block (SF CONTROL's STORE ALL waits)

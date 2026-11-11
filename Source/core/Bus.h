@@ -141,6 +141,34 @@ struct BusData
     std::atomic<uint64_t> capStatus;              // capture::pack (request, state, error)
     std::atomic<float> capProgress, capPeak;      // 0..1 through the take; the input's peak so far (linear)
     std::atomic<int64_t> captureSeenMs, capOwnerSeenMs;
+
+    // SF BUILD's DROP, the cut (v12). DROP pressed: every SF instrument (not DECK or CONTROL) and
+    // every STRIP and TAP (ROLE not DECK) goes silent from cutAtPpq; pressed again: back from
+    // cutBackPpq, the drop's kick. Both are song positions of the music (a plugin's own song
+    // position less its latency: where its notes are), so the returns (DUB, SPACE) take no new
+    // input and ring out. BUILD plans them where every plugin can still reach them: the next
+    // sixteenth, then the next beat. A seqlock: cutSeq is odd while BUILD writes. from / wall
+    // reject a cut after a jump back (as for kick reports); buildSeenSec is BUILD's heartbeat
+    // (Bus::nowSec): a cut is let go when BUILD has not run for a second.
+    std::atomic<uint32_t> cutSeq;
+    std::atomic<double> cutAtPpq;             // -1 = no cut
+    std::atomic<double> cutBackPpq;           // -1 = not asked back yet
+    std::atomic<double> cutFromPpq;           // song position (Live's) when BUILD planned it
+    std::atomic<double> cutWall;              // Bus::nowSec then
+    std::atomic<double> buildSeenSec;
+};
+
+// A cut as a plugin reads it: the seqlock's fields, read whole (or the last whole read kept).
+struct DropCut
+{
+    double at = -1.0, back = -1.0, from = 0.0, wall = 0.0;
+    void read (const BusData& d)
+    {
+        const uint32_t s1 = d.cutSeq.load (std::memory_order_acquire);
+        if ((s1 & 1u) != 0u) return;
+        const DropCut r { d.cutAtPpq.load(), d.cutBackPpq.load(), d.cutFromPpq.load(), d.cutWall.load() };
+        if (d.cutSeq.load (std::memory_order_acquire) == s1) *this = r;
+    }
 };
 
 class Bus

@@ -336,6 +336,7 @@ void SFProcessor::prepareToPlay (double sampleRate, int)
     panicDown = false;
     panicLen = std::max (64, (int) std::lround (0.005 * sr));
     panicPos = panicInPos = panicLen;
+    cutGain = 1.0f; cutEarly = -1.0; cutAtSeen = -2.0;
     streamPos = 0;
     firstBlock = true;
 }
@@ -450,6 +451,18 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // for SLOW ALL: a length left there must not slow the next set's knobs.
     const bool controlOn = bus.controlAlive();
     slowAllNow = controlOn ? slowAllFor (d, c.playing, ppq0, total * bps, slowPassed) : 0;
+    // SF BUILD's cut (DROP), once per host block. Let go while the transport is stopped, after a
+    // jump back past the press or a jump the wall clock doesn't follow (a loop wrapped), and when
+    // BUILD has not run for a second (deleted, switched off).
+    cutRead.read (d);
+    {
+        const double now = sf::Bus::nowSec(), secPerBeat = 60.0 / c.bpm;
+        const bool buildOn = now - d.buildSeenSec.load() < 1.0;
+        const bool current = cutRead.at >= 0.0 && ppq0 >= cutRead.from - 1e-6 && now - cutRead.wall <= (ppq0 - cutRead.from) * secPerBeat + 0.5;
+        cutA = c.playing && buildOn && current ? cutRead.at : -1.0;
+        cutB = cutA >= 0.0 ? cutRead.back : -1.0;
+        if (cutA != cutAtSeen) { cutAtSeen = cutA; cutEarly = -1.0; }
+    }
 
     // Song recall, store and panic requests from SF CONTROL (or this plugin's own buttons).
     if (! seqInit)
@@ -762,6 +775,22 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
     updateParams (c, n, motionIn);
     c.p = cur.data();
     c.p0 = prev.data();
+    // SF BUILD's cut: whether this plugin takes part, and where it comes back. A note of its own up
+    // to 30 ms before the way back brings it back 1 ms before that note: a part that plays a little
+    // early keeps its attack.
+    c.cutAt = cutA >= 0.0 && module->takesDropCut (c) ? cutA : -1.0;
+    c.backAt = -1.0;
+    if (c.cutAt >= 0.0 && cutB >= 0.0)
+    {
+        const double bpsC = c.beatsPerSample(), before = 0.030 * c.bpm / 60.0, ms = 0.001 * c.bpm / 60.0;
+        for (const auto m : chunkMidi)
+        {
+            const bool on = m.numBytes >= 3 && (m.data[0] & 0xf0) == 0x90 && m.data[2] > 0;
+            const double q = c.ppq + m.samplePosition * bpsC;
+            if (on && q >= cutB - before && q < cutB) cutEarly = cutEarly < 0.0 ? q - ms : std::min (cutEarly, q - ms);
+        }
+        c.backAt = cutEarly >= 0.0 ? std::min (cutB, cutEarly) : cutB;
+    }
     if (module->instrument()) mainView.clear();
     else if (muteIn) { mainView.clear(); panicInPos = 0; }
     else if (panicInPos < panicLen)
@@ -814,6 +843,21 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
     }
     else
     {
+        // SF BUILD's cut: down over 3 ms, back up over 0.25 ms (as the old GAP), by the song position
+        // of the music each sample carries (this plugin's own less its latency).
+        if (c.cutAt >= 0.0 || cutGain < 1.0f)
+        {
+            const double bpsC = c.beatsPerSample(), lat = (double) module->latency();
+            const float down = 1.0f / (0.003f * (float) sr), up = 1.0f / (0.00025f * (float) sr);
+            for (int i = 0; i < n; ++i)
+            {
+                cutGain = c.inCut (c.ppq + ((double) i - lat) * bpsC) ? std::max (0.0f, cutGain - down) : std::min (1.0f, cutGain + up);
+                if (cutGain >= 1.0f) continue;
+                for (int ch = 0; ch < mainView.getNumChannels(); ++ch) mainView.getWritePointer (ch)[i] *= cutGain;
+                if (extra != nullptr)
+                    for (int ch = 0; ch < extra->getNumChannels(); ++ch) extra->getWritePointer (ch)[i] *= cutGain;
+            }
+        }
         // PANIC: fade out over 5 ms (however the chunks fall; a second press mid-fade carries
         // on), then clear every voice, tail and delay line. Silent while held; fades back in
         // over 5 ms on release.

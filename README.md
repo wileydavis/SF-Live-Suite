@@ -132,6 +132,15 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 7. **Levels.** Default LEVELs are calibrated per role (KICK -15 LUFS ... PAD -22). Faders at 0 dB should give a balanced rough mix with headroom into GLUE and LIMIT.
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
 9. **A sample's part.** Drop a one-shot on SF KICK (MODEL: SAMPLE): its waveform appears under OUTPUT. Drag END in and turn FADE OUT up (the SAMPLE group): the kick gets shorter and ends without a click. On SF PAD's GRANULAR with a field recording, hold a chord and drag START: the texture wanders through the file.
+10. **The drop.** With a groove playing, press 16 on any PERF page: everything stops on the next sixteenth and the reverb and echo tails ring on (SF BUILD shows CUT). Press it again: everything comes back on the next kick (DROP ON KICK, then RETURN KNOB). The kick should land whole, the bass and pads with it.
+
+### Changes in the Nov 10 update
+
+Rebuild and install the whole suite: the SF BUS moved to v12, so old and new builds don't talk to each other.
+
+- **DROP is played.** Press 16 on any PERF page (SF BUILD's DROP): from the next sixteenth every SF instrument stops at its source and the returns ring out (SPACE's reverb, DUB's echoes, BUILD's own wash for TAIL). Press it again: the drop comes in on the next beat, on the kick. The gap is as long as you play it, so **GAP is gone**: in Live's parameter list it shows as UNUSED and does nothing. DECK, BRIDGE and tracks without an SF instrument play on (give one SF STRIP or TAP to stop with the rest). Live stopping, a loop wrapping, PANIC or BUILD switched off end a cut at once.
+- **ACID 303-TYPE is the 303's circuit:** its diode ladder filter, envelope, accent sweep (accents close together climb, more with RES), slide and square. CUTOFF, RES and ENV AMT now act like the 303's CUTOFF, RESONANCE and ENV MOD, so stored ACID settings sound different: check them by ear. Levels recalibrated.
+- **A sample for LAYER MODEL** loads the same way as for MODEL (LOAD, or drop it on the window): one sample per plugin; the drop hint now says so.
 
 ### Changes in the second Nov 8 update
 

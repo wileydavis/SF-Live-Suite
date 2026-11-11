@@ -179,7 +179,9 @@ public:
                     if (v.reg.start > 0.0 || v.reg.end < (double) s->length()) decr = std::max (0.02f, std::min (decr, (float) (v.reg.length() / s->sr) / v.srate));
                 }
             // The hit's velocity (not the voice's mix gain): layering must not make pockets shallower.
-            c.bus->publishKick ({ c.ppqAt (offset), std::min (1.0f, vel * fade), f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
+            // None for a kick silent in SF BUILD's cut: nothing ducks to it (the returns ring on).
+            if (! c.inCut (c.ppqAt (offset)))
+                c.bus->publishKick ({ c.ppqAt (offset), std::min (1.0f, vel * fade), f0r, f1r, v.tau, std::min (decr, lp < 200.0f ? 0.05f : decr), hp, lp });
         }
     }
 

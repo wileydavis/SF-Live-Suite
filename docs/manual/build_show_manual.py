@@ -217,20 +217,23 @@ class SongFlow(Flowable):
 
 # ------------------------------------------------------------------ 7: the drop
 class DropTimeline(Flowable):
-    """A drop with GAP 1/2, TAIL 1 BAR, DROP DUCK 6 dB, DUCK TIME 1 BAR: two bars either side of the
-    drop's bar line. What BUILD, the mix, the tail, the kick and every Pocket part do."""
-    LANE, GAPY = 24, 7
-    LANES = [("BUILD", "WHAT THE KNOB DOES"), ("DISPLAY", "SF BUILD'S SCREEN"), ("THE MIX", "ALL OF LIVE BUS"),
-             ("TAIL", "NOISE AND WASH"), ("KICK", "SF KICK"), ("PARTS", "EVERY POCKET STAGE")]
+    """A played drop [Nov 10]: DROP pressed half a bar before the drop's beat (the cut, on the next
+    sixteenth), DROP again just before it (the drop on that beat's kick). TAIL 1 BAR, DROP DUCK 6 dB,
+    DUCK TIME 1 BAR. Two bars either side of the drop: what BUILD, the parts, the returns, the tail,
+    the kick and every Pocket part do."""
+    LANE, GAPY = 21, 6
+    LANES = [("BUILD", "WHAT THE KNOB DOES"), ("DISPLAY", "SF BUILD'S SCREEN"), ("THE PARTS", "EVERY SF INSTRUMENT"),
+             ("RETURNS", "SPACE AND DUB"), ("TAIL", "NOISE AND WASH"), ("KICK", "SF KICK"), ("DROP DUCK", "EVERY POCKET STAGE")]
     def wrap(self, aw, ah):
-        self.aw = aw; self.H = len(self.LANES) * (self.LANE + self.GAPY) + 30; return aw, self.H
+        self.aw = aw; self.H = len(self.LANES) * (self.LANE + self.GAPY) + 42; return aw, self.H
     def draw(self):
         c, aw, L, G = self.canv, self.aw, self.LANE, self.GAPY
         x0, x1 = 92, aw - 6
         X = lambda b: x0 + (b + 8) / 16 * (x1 - x0)
-        top = self.H - 4
+        top = self.H - 16
         lane_y = lambda k: top - (k + 1) * L - k * G           # lane k bottom
-        # Bars and the drop line
+        cut, again = -2.0, -0.6                                 # the cut's sixteenth; the second press
+        # Beats and the drop line
         for b in range(-8, 9):
             c.setStrokeColor(LIGHT if b % 4 else GREY); c.setLineWidth(0.4 if b % 4 else 0.6)
             c.line(X(b), lane_y(len(self.LANES) - 1) - 4, X(b), top)
@@ -241,46 +244,63 @@ class DropTimeline(Flowable):
             y = lane_y(k)
             label(c, 0, y + L / 2 + 1, name, 7.2, INK, "MonoB", "l")
             label(c, 0, y + L / 2 - 7, sub, 5.6, GREY, "Mono", "l")
-        # BUILD: the knob up over the build; the effect stops where the gap starts.
+        # The presses, over the top lane.
+        for xp, t in ((X(cut - 0.2), "DROP"), (X(again), "DROP AGAIN")):
+            c.setFillColor(INK); p = c.beginPath(); p.moveTo(xp, top + 1); p.lineTo(xp - 4, top + 7); p.lineTo(xp + 4, top + 7); p.close(); c.drawPath(p, stroke=0, fill=1)
+            label(c, xp, top + 9, t, 5.6, INK, "MonoB")
+        # BUILD: the knob up over the build; the effect ends at the cut; off after the drop until the knob is down.
         y = lane_y(0)
         c.setStrokeColor(INK); c.setLineWidth(1.2)
-        c.line(X(-8), y + 3, X(-2), y + L - 2); c.line(X(-2), y + L - 2, X(-2), y + 1); c.line(X(-2), y + 1, X(8), y + 1)
-        knock(c, X(-2) + 4, y + L - 8, "STOPS WHERE THE GAP STARTS")
-        knock(c, X(0) + 6, y + 6, "OFF UNTIL KNOB 4 IS BACK BELOW 5 %")
-        # DISPLAY: DROP pressed, DROP ON BAR, GAP, RETURN KNOB.
+        c.line(X(-8), y + 3, X(cut), y + L - 2); c.line(X(cut), y + L - 2, X(cut), y + 1); c.line(X(cut), y + 1, X(8), y + 1)
+        knock(c, X(cut) + 4, y + L - 8, "ENDS AT THE CUT")
+        knock(c, X(0) + 6, y + 6, "OFF UNTIL KNOB 16 IS BACK BELOW 5 %")
+        # DISPLAY: CUT, DROP ON KICK, RETURN KNOB.
         y = lane_y(1)
-        xp = X(-5.5)
-        c.setFillColor(INK); p = c.beginPath(); p.moveTo(xp, y + L - 2); p.lineTo(xp - 4, y + L + 4); p.lineTo(xp + 4, y + L + 4); p.close(); c.drawPath(p, stroke=0, fill=1)
-        label(c, xp, y + L + 6, "DROP PRESSED", 5.6, INK, "MonoB")
-        for (b0, b1, t, fill) in ((-5.5, -2, "DROP ON BAR", GREEN), (-2, 0, "GAP", GREEN), (0, 8, "RETURN KNOB", AMBER)):
+        for (b0, b1, t, fill) in ((cut - 0.2, again, "CUT", GREEN), (again, 0, "", GREEN), (0, 8, "RETURN KNOB", AMBER)):
             c.setFillColor(fill); c.setStrokeColor(INK); c.setLineWidth(0.5); c.rect(X(b0), y + 4, X(b1) - X(b0), L - 8, stroke=1, fill=1)
-            label(c, (X(b0) + X(b1)) / 2, y + L / 2 - 2, t, 6.0, INK, "MonoB")
-        # THE MIX: silent in the gap, back on the bar line.
+            if t: label(c, (X(b0) + X(b1)) / 2, y + L / 2 - 2, t, 6.0, INK, "MonoB")
+        knock(c, X(again) - 2, y - 3, "DROP ON KICK", 5.2, INK, "MonoB", "r")
+        # THE PARTS: silent at their source from the cut; back 10 ms before the drop's kick.
         y = lane_y(2)
-        c.setFillColor(INK); c.rect(X(-8), y + 5, X(-2) - X(-8), L - 10, stroke=0, fill=1); c.rect(X(0), y + 5, X(8) - X(0), L - 10, stroke=0, fill=1)
-        c.setStrokeColor(GREY); c.setDash(2, 2); c.setLineWidth(0.6); c.rect(X(-2), y + 5, X(0) - X(-2), L - 10, stroke=1, fill=0); c.setDash()
-        label(c, (X(-2) + X(0)) / 2, y + L / 2 - 2, "SILENT", 6.0, GREY, "MonoB")
-        # TAIL: from the gap, fading over one bar, DROP DUCK lower past the bar line.
+        c.setFillColor(INK); c.rect(X(-8), y + 5, X(cut) - X(-8), L - 10, stroke=0, fill=1); c.rect(X(0), y + 5, X(8) - X(0), L - 10, stroke=0, fill=1)
+        c.setStrokeColor(GREY); c.setDash(2, 2); c.setLineWidth(0.6); c.rect(X(cut), y + 5, X(0) - X(cut), L - 10, stroke=1, fill=0); c.setDash()
+        label(c, (X(cut) + X(0)) / 2, y + L / 2 - 2, "SILENT", 6.0, GREY, "MonoB")
+        # RETURNS: no new input in the cut: they ring out; with the parts again after the drop.
         y = lane_y(3)
+        pts = [(X(-8), y + L - 5), (X(cut), y + L - 5)]
+        for k in range(0, 41):
+            b = cut + (0 - cut) * k / 40
+            pts.append((X(b), y + 2 + (L - 7) * math.exp(-(b - cut) * 0.9)))
+        pts += [(X(0), y + L - 5), (X(8), y + L - 5)]
+        p = c.beginPath(); p.moveTo(X(-8), y + 2)
+        for (px, py) in pts: p.lineTo(px, py)
+        p.lineTo(X(8), y + 2); p.close()
+        c.setFillColor(LIGHT); c.setStrokeColor(INK); c.setLineWidth(0.8); c.drawPath(p, stroke=1, fill=1)
+        knock(c, X(cut) + 4, y + L / 2 + 3, "THE TAILS RING ON")
+        # TAIL: BUILD's noise and wash from the cut, fading over one bar, DROP DUCK lower past the drop.
+        y = lane_y(4)
         pts = []
         for k in range(0, 81):
-            b = -2 + 4 * k / 80
-            g = 0.5 + 0.5 * math.cos(math.pi * (b + 2) / 4)
+            b = cut + 4 * k / 80
+            g = 0.5 + 0.5 * math.cos(math.pi * (b - cut) / 4)
             if b >= 0: g *= 0.5
             pts.append((X(b), y + 2 + g * (L - 4)))
-        p = c.beginPath(); p.moveTo(X(-2), y + 2)
+        p = c.beginPath(); p.moveTo(X(cut), y + 2)
         for (px, py) in pts: p.lineTo(px, py)
-        p.lineTo(X(2), y + 2); p.close()
+        p.lineTo(X(cut + 4), y + 2); p.close()
         c.setFillColor(LIGHT); c.setStrokeColor(INK); c.setLineWidth(0.8); c.drawPath(p, stroke=1, fill=1)
-        knock(c, X(0) + 5, y + L - 6, "DROP DUCK: 6 dB LOWER")
-        knock(c, X(-8) + 3, y + L / 2 - 2, "UNTIL THE GAP: PART OF THE MIX")
-        # KICK: every beat, none in the gap.
-        y = lane_y(4)
-        c.setStrokeColor(INK); c.setLineWidth(1.6)
-        for b in list(range(-8, -2)) + list(range(0, 8)):
-            c.line(X(b), y + 3, X(b), y + L - 3)
-        # PARTS: dip under each kick for one bar after the drop: full for half of it, easing out.
+        knock(c, X(0) + 5, y + L - 6, "DROP DUCK: 6 DB LOWER")
+        knock(c, X(-8) + 3, y + L / 2 - 2, "UNTIL THE CUT: THE BUILD")
+        # KICK: every beat; silent (and unreported) in the cut; the drop's kick whole.
         y = lane_y(5)
+        c.setStrokeColor(INK); c.setLineWidth(1.6)
+        for b in list(range(-8, int(cut))) + list(range(0, 8)):
+            c.line(X(b), y + 3, X(b), y + L - 3)
+        c.setStrokeColor(LIGHT); c.setLineWidth(1.2)
+        for b in range(int(cut), 0):
+            c.line(X(b), y + 3, X(b), y + L - 3)
+        # DROP DUCK: dip under each kick for one bar after the drop: full for half of it, easing out.
+        y = lane_y(6)
         base, full = y + L - 3, (L - 6) * 0.5
         c.setStrokeColor(INK); c.setLineWidth(1.0)
         p = c.beginPath(); p.moveTo(X(-8), base); p.lineTo(X(0), base)
@@ -553,7 +573,7 @@ story += bullets(["<b>1-8, its sound:</b> the instrument's own knobs (chapter 5 
                   "<b>9-12, on every track:</b> GATE (DECAY where the instrument has none), DENSITY, FILTER, LEVEL. The hand learns one layout.",
                   "<b>13-14, its sends</b> into A DUB and B SPACE, post-fader, mapped up to 0 dB.",
                   "<b>15, NEXT SONG:</b> turn it to pick the next song: nothing changes. <b>Press it: GO</b>, the song lands on the next bar line (chapter 6).",
-                  "<b>16, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page. The drop lands on the next bar line (chapter 7).",
+                  "<b>16, BUILD:</b> turn it up over a build. <b>Press it: DROP</b>, on every page: the music stops on the next sixteenth and the tails ring; press again and the drop comes in on the next kick (chapter 7).",
                   "<b>Press 1: SLOW ALL.</b> A quick press flips knob 1 to SLOW ALL on SF CONTROL (the ring turns green): turn it to set how long your next moves take, OFF (at once) to 128 BAR. Press again: the page's own knob 1. Knobs already travelling keep going."])
 story.append(CondPageBreak(E16Grid.H + 30))
 story.append(P("NRG, page 12:"))
@@ -669,22 +689,24 @@ story.append(table([["PHASE", "WHAT CARRIES IT", "WHERE"],
     [0.9 * inch, 3.75 * inch, W - 4.65 * inch], mono_first=True))
 story.append(P("A starting plan, not a rule: hypnotic sets hold a phase far longer than feels safe.", "smallgrey"))
 story.append(H2T("BUILDS AND DROPS"))
-story.append(P("BUILD is one knob for a whole-mix build (16, on every PERF page): a rising high-pass, a noise riser, a reverb wash and width. Press it during the build (DROP): the drop lands on the next bar line. Three settings on SF BUILD shape the landing; the drawing shows GAP 1/2, TAIL 1 BAR, DROP DUCK 6 dB, DUCK TIME 1 BAR."))
+story.append(P("BUILD is one knob for a whole-mix build (16, on every PERF page): a rising high-pass, a noise riser, a reverb wash and width. The drop is played on its press (DROP): press once and the music stops, leaving the tails; press again and the drop comes in on the next kick. The gap is as long as you play it. The drawing: DROP half a bar before the drop, DROP again just before it; TAIL 1 BAR, DROP DUCK 6 dB, DUCK TIME 1 BAR."))
 story.append(DropTimeline())
 story.append(Spacer(1, 6))
-story += bullets(["<b>GAP</b> (OFF to 1 BAR): everything through BUILD goes silent for that long before the bar line, the whole LIVE BUS with its returns (BRIDGE and DECK play on). Press DROP later than that and the gap starts on the next 1/16.",
-                  "<b>TAIL</b> (CUT to 2 BARS): the riser's noise and the wash ring on after the build stops, fading out. Shorter than the GAP, it dies away in the silence; longer, it carries into the drop, DROP DUCK lower.",
-                  "<b>DROP DUCK</b> (0-12 dB, off by default) and <b>DUCK TIME</b> (1/4 to 4 BARS): after the drop every SF part with Pocket dips under each kick, whatever its POCKET DEPTH: bass, lead, pad, voice, rumble, both returns. The first kicks stand alone on top of everything that comes back, with less weight than a kick brought back by hand: the bass and rumble around them are gone. A roll into the drop doesn't duck; the duck starts with the first kick on the bar.",
-                  "<b>LAND ON</b> (KICK or BAR LINE): KICK, the default, lands the drop where BUILD hears the kick. BUILD measures how late each kick reaches it against Live's beat (the readout under its bar: KICK +80 MS) and moves the gap and the drop by that much: the silence breaks 10 ms before the kick. On Nov 7 the kick reached BUILD 80 ms after Live's beat: the drop opened that early, and the bass, the pads and the last kick's tail came back before the kick, like any other beat. It needs four kicks that agree (KICK --: Live's bar line until then) and keeps the last value through a breakdown with no kick. BAR LINE: 10 ms before Live's bar line, whatever the kick does.",
+story += bullets(["<b>DROP</b>, the first press: from the next sixteenth every SF instrument stops at its source (KICK, PERC, STRIKE, RUMBLE, BASS, LEAD, PAD, VOICE, and STRIP and TAP unless their ROLE is DECK). Their sends go quiet, so SPACE's reverb and DUB's echoes ring out; the build ends there and its noise and wash ring for TAIL. DECK and BRIDGE play on. The parts keep playing silently: the drop comes in mid-pattern, as a mute would. SF KICK reports nothing while silent, so no tail ducks to a kick nobody hears.",
+                  "<b>DROP again</b>: the drop comes in on the next beat, on the kick. The parts come back 10 ms before it, so the kick keeps its attack; a part with a note up to 30 ms early comes back just before that note. Two quick presses give a sixteenth's cut into the next beat. A third press while the drop waits changes nothing; a press after the drop cuts again.",
+                  "Live stopping, a jump back (an Arrangement loop wrapping), PANIC, or SF BUILD switched off end the cut at once (within a second for BUILD switched off).",
+                  "<b>TAIL</b> (CUT to 2 BARS): the riser's noise and the wash ring on after the build ends at the cut, fading out; longer than the gap, they carry into the drop, DROP DUCK lower.",
+                  "<b>DROP DUCK</b> (0-12 dB, off by default) and <b>DUCK TIME</b> (1/4 to 4 BARS): after the drop every SF part with Pocket dips under each kick, whatever its POCKET DEPTH: bass, lead, pad, voice, rumble, both returns. The first kicks stand alone on top of everything that comes back, with less weight than a kick brought back by hand: the bass and rumble around them are gone.",
+                  "<b>LAND ON</b> (KICK or BAR LINE): KICK, the default, puts the cut and the drop where SF KICK's kicks land against Live's beat (a sequencer clocked by Live plays late: the OXI One about 40 ms), and BUILD's readout under its bar shows where the kick reaches it (KICK +80 MS). Until the kick is found, and on BAR LINE: Live's beat.",
                   "After a drop the build stays off until BUILD (16) is back below 5 % (display: RETURN KNOB). Bring it down in your own time: nothing re-builds."])
-story.append(table([["RECIPE", "GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHAT IT DOES"],
-    ["HARD STOP", "1/4", "CUT", "OFF", "-", "A beat of true silence, then everything on the one."],
-    ["BREATH", "1/2", "1/4", "OFF", "-", "The riser rings into the silence and dies before the kick."],
-    ["CARRY", "OFF", "1 BAR", "6 dB", "1 BAR", "No silence: the wash runs under the first bar, ducked."],
-    ["LONG FALL", "1 BAR", "1/2", "9 dB", "2 BARS", "A full bar of air; the new section breathes for two bars."],
-    ["SNAP", "OFF", "CUT", "OFF", "-", "The build snaps off on the bar line; nothing else changes."]],
-    [0.95 * inch, 0.45 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch, W - 3.4 * inch]))
-story.append(P("Defaults: GAP OFF, TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR, LAND ON KICK. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
+story.append(table([["RECIPE", "THE GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHAT IT DOES"],
+    ["HARD STOP", "1 BEAT", "CUT", "OFF", "-", "DROP on the beat before, DROP again: a beat of air, then everything on the one."],
+    ["BREATH", "2 BEATS", "1/4", "OFF", "-", "The riser rings into the gap and dies before the kick; the reverb hangs."],
+    ["TAP", "1/16", "1 BAR", "6 dB", "1 BAR", "Two quick presses just before the one: a sixteenth's cut, the wash under the first bar, ducked."],
+    ["LONG FALL", "1 BAR+", "1/2", "9 dB", "2 BARS", "DROP a bar out and wait: the space rings; DROP again when it feels right."],
+    ["SNAP", "-", "-", "OFF", "-", "No DROP: turn BUILD down on the bar line; nothing else changes."]],
+    [0.95 * inch, 0.6 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch, W - 3.55 * inch]))
+story.append(P("Defaults: TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR, LAND ON KICK. UNUSED in Live's list was GAP. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
 story.append(H2T("ENERGY AND MACROS"))
 story += bullets(["The ENERGY knobs on NRG are the fastest way to move a whole set: small moves, often. The group knobs (12-14) move a section, a track's own knob one part. A negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
                   "Six macros on MIX's MACROS page, each followed by the plugins that subscribe to it (MACRO SRC, MACRO AMT on each plugin). A starting plan:"])
@@ -768,10 +790,10 @@ story += numbered(["Every SF plugin from the same build: SF CONTROL shows BUS SH
                    "NEXT SONG and GO recall the song: every track on the same bar, and a recalled knob is yours the moment you turn it.",
                    "The interface's output down: the room silent, REC still recording.",
                    "The PA pair carries PA and nothing else; Cue reaches the headphones and not the PA.",
-                   "DROP, a THROW and ROLL each held for three seconds: on for the whole hold, off on release.",
+                   "A THROW and ROLL each held for three seconds: on for the whole hold, off on release. DROP held for three seconds: one press (the cut), not two.",
                    "The shared E16 knobs don't jump (chapter 4); a PERF track page selects its track, NRG leaves it.",
                    "SLOW ALL where you want it for the opening (knob 1 pressed; OFF for direct moves), then back to the page's own knob.",
-                   "A drop rehearsed with the night's GAP, TAIL and DROP DUCK settings.",
+                   "A drop rehearsed with the night's TAIL and DROP DUCK settings: DROP, the tails, DROP again on the one.",
                    "A minute recorded on REC with a deep ROOM EQ cut: the cut isn't in the recording.",
                    "Soundcheck the busiest passage: SF LIMIT INPUT for 1-3 dB of limiting there, AUTO on, DOWN ONLY.",
                    "The room mics on ROOM: IN L and IN R move on its SF CAPTURE, the same gain on both, well under the top at the loudest."])
@@ -792,7 +814,7 @@ story.append(table([["SYMPTOM", "CHECK"],
     ["Every instrument plays every part", "A track's MIDI From is All Ins or All Channels."],
     ["Nothing ducks", "SF CONTROL: BUS SHARED and KICK REPORTING. The kick must be SF KICK."],
     ["Pump early or late", "Live buffer 512 or less; then POCKET OFFSET by ear. (The ONE's clock moves every part alike: not this.)"],
-    ["The drop opens before the kick", "SF BUILD: LAND ON KICK, and its readout shows a value (KICK --: four kicks haven't agreed yet; GAP silences the beat before)."],
+    ["The drop comes in before the kick", "SF BUILD: LAND ON KICK, with SF KICK playing before the cut (where its kicks land sets the drop: until four agree, Live's beat)."],
     ["Songs don't change", "Turn NEXT SONG (15), then press it (GO): SF CONTROL shows NEXT in amber, PRESS GO, until you do. The song must be stored (SONG nn EMPTY otherwise). SF CONTROL from this build: an older one has no NEXT SONG."],
     ["E16 rings don't follow", "Remote on for E16 Port 1's output."],
     ["An E16 press does nothing", "A scene file from before Nov 8 is loaded: load the current PERF and MIX. A toggle that flips back: Remote is on for two E16 ports."],

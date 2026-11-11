@@ -45,6 +45,7 @@ public:
                  pct ("sensitivity", "SENSITIVITY", 0.5f) };
     }
     int latency() const override { return Pocket::kLatency; }
+    bool takesDropCut (const Ctx& c) const override { return c.ci (ROLE) != ROLE_DECK; }   // a source, as an instrument
     double tailSeconds() const override { return 10.0; }
 
     void prepare (double rate, int mb) override

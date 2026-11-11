@@ -180,6 +180,7 @@ public:
     }
     std::string id() const override { return "DECK"; }
     bool instrument() const override { return true; }
+    bool takesDropCut (const Ctx&) const override { return false; }   // whole tracks: not SF BUILD's cut
     std::vector<std::string> extraOutputs() const override { return { "CUE" }; }
     std::vector<ParamSpec> params() const override
     {

@@ -36,6 +36,7 @@ public:
     ~ControlModule() override { stopTimer(); }
     std::string id() const override { return "CONTROL"; }
     bool instrument() const override { return true; }
+    bool takesDropCut (const Ctx&) const override { return false; }
     std::vector<ParamSpec> params() const override
     {
         std::vector<ParamSpec> p;
@@ -732,6 +733,7 @@ public:
                  pct ("pocket_shape", "POCKET SHAPE", 0.3f).prim(), levelParam().prim() };
     }
     int latency() const override { return Pocket::kLatency; }
+    bool takesDropCut (const Ctx& c) const override { return c.ci (ROLE) != ROLE_DECK; }   // a source, as an instrument
     void prepare (double rate, int mb) override { pocket.prepare (rate, mb); tap.prepare (rate); }
     void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer&) override
     {

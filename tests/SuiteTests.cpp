@@ -56,6 +56,7 @@ static void resetBus()
     d.songAtPpq = -1.0;
     d.panicHeld = 0;
     d.dropPpq = -1.0; d.dropDb = 0.0f; d.storeSong = -1;
+    d.cutSeq = 0; d.cutAtPpq = -1.0; d.cutBackPpq = -1.0; d.cutFromPpq = 0.0; d.cutWall = 0.0; d.buildSeenSec = -1.0e9;
     d.slowAll = 0; d.slowAllPrev = 0; d.slowAllFromPpq = -1.0;
     for (auto& g : d.glides) { g.owner = 0; g.count = 0; g.seenMs = 0; }
     d.capStatus = 0; d.capCancel = 0; d.captureSeenMs = 0; d.capOwnerSeenMs = 0; d.capProgress = 0.0f; d.capPeak = 0.0f;

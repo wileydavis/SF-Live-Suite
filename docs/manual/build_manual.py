@@ -335,7 +335,7 @@ story.append(H2("THE E16"))
 story.append(P("Two E16 scenes run the whole rig, in the repository under controllers/e16 with their address map (sf-show-map.csv) and loading steps (README); SF SHOW.als has every address mapped. <b>PERF</b> is the show: pages 1-11 are the tracks (page n is track n, titled with its code), page 12 is NRG. <b>MIX</b> holds the levels, the returns and the macros. On the E16 every track goes by a three-letter code: KCK, CHH, OHH, CLP, PRC, BAS, RMB, LED, CRD, PAD, VOX, and the groups DRM, LOW, MUS (an ENERGY knob reads KCK NRG, a volume KCK VOL). The E16 is a 4 &times; 4 grid, numbered row by row from the top left. A track's page:"))
 PRESS_DOES = {"SLOW ALL": "a quick press flips knob 1 to SLOW ALL on SF CONTROL (green ring): how long your next moves take, OFF to 128 BAR; another press flips it back",
               "GO": "calls the song NEXT SONG picked, on the next bar line (nothing if it is already the song in force)",
-              "DROP": "the drop lands on the next bar line (BUILD's GAP before it)", "ENERGY": "the knob back to the centre, neutral",
+              "DROP": "first press: everything stops on the next sixteenth, the tails ring; second press: the drop on the next kick", "ENERGY": "the knob back to the centre, neutral",
               "THROW": "sends into the effect while held", "FREEZE": "holds the effect until pressed again",
               "ROLL": "the drums roll while held"}
 def press_text(p, full=True):
@@ -427,7 +427,7 @@ story.append(table([["SYSTEM", "RESPONSIBLE FOR"],
 story.append(Spacer(1, 6))
 story += bullets(["The roles stay put for the whole set: a new track changes what they play, not where they are.",
                   "A song and a ONE project are independent: turn NEXT SONG (15) to the next song, press it on the bar before the change, and load any project's patterns on the ONE.",
-                  "Rehearse song recall, SF REPEAT and SF BUILD's drop (GAP, TAIL, DROP DUCK) in your Live before relying on them in a transition."])
+                  "Rehearse song recall, SF REPEAT and SF BUILD's drop (the cut and the way back, TAIL, DROP DUCK) in your Live before relying on them in a transition."])
 
 story.append(H2("RECORDING AND REHEARSAL"))
 story += bullets(["Instrument tracks on Monitor In: they play from the ONE whether or not they're armed.",

@@ -84,7 +84,9 @@ not yet held up against an E16. If yours lights either differently, change its R
 RING_NAME) in `layout.py`, run `make_scene.py` and rebuild.
 
 **Presses:** on every PERF page, knob 1's press swaps it to SLOW ALL (below), 15's is **GO** (the
-song NEXT SONG picked lands on the next bar line) and 16's is **DROP**. On NRG, every ENERGY knob's
+song NEXT SONG picked lands on the next bar line) and 16's is **DROP** (first press: every SF
+instrument stops on the next sixteenth and the returns ring out; second press: the drop on the next
+kick; SF BUILD). On NRG, every ENERGY knob's
 press sends it back to the centre (neutral; with SLOW ALL on it glides there), except knob 1's. MIX:
 the SPACE page's presses throw and freeze the returns; MACROS 9's rolls REPEAT.
 
@@ -282,8 +284,9 @@ controls are SF REVERB's, in the same order, so MIX's SPACE page fits as it is.
 2. **Knob 1.** A quick press: the ring turns green; turn it: SLOW ALL moves on SF CONTROL and the
    page's first knob stays put. Press again: white, and the turn moves the first knob. Do it on two
    pages.
-3. **Holds.** Hold DROP, a THROW and ROLL for three seconds each: the parameter stays on for the
-   whole hold and goes off on release. On NRG, press an ENERGY knob turned away from the centre:
+3. **Holds.** Hold a THROW and ROLL for three seconds each: the parameter stays on for the
+   whole hold and goes off on release. Hold DROP for three seconds with a groove playing: one cut
+   (the music stops, the tails ring), not a cut and its drop; press it again for the drop. On NRG, press an ENERGY knob turned away from the centre:
    it goes back to the centre, and so does its ring. (A long press on the E16 also opens its own
    functions, such as group status; if one interferes, make that press a toggle in `layout.py`.)
 4. **Shared knobs.** On page 1 (KCK), turn NEXT SONG (15) fully left. Go to page 6 (BAS) and turn it

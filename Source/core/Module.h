@@ -101,6 +101,11 @@ struct Ctx
     const char* trackName = "";  // Live track name (VST3 only; empty if unknown)
     uint32_t trackNameSeq = 0;
     std::atomic<uint64_t>* uid = nullptr;   // this plugin instance's id, saved with the set (ALLOC's order)
+    // SF BUILD's cut (DROP), for a plugin that takes part (Module::takesDropCut): silent from cutAt
+    // until backAt, song positions of the music (this plugin's own position less its latency);
+    // -1: no cut / not asked back yet.
+    double cutAt = -1.0, backAt = -1.0;
+    bool inCut (double q) const     { return cutAt >= 0.0 && q >= cutAt && (backAt < 0.0 || q < backAt); }
 
     double beatsPerSample() const   { return bpm / 60.0 / sr; }
     double samplesPerBeat() const   { return sr * 60.0 / bpm; }
@@ -141,6 +146,9 @@ public:
                           juce::AudioBuffer<float>* extra, juce::MidiBuffer& midi) = 0;
     virtual int latency() const                     { return 0; }
     virtual double tailSeconds() const              { return 2.0; }
+    // Silent through SF BUILD's cut (DROP): every instrument but DECK and CONTROL; STRIP and TAP
+    // unless their ROLE is DECK. c.p holds this chunk's parameters.
+    virtual bool takesDropCut (const Ctx&) const    { return instrument(); }
 
     // Files (samplers, DECK). Message thread.
     virtual bool acceptsFiles() const               { return false; }
