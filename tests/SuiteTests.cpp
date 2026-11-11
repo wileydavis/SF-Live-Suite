@@ -1275,7 +1275,7 @@ int main (int argc, char** argv)
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
                      testThirdReview(); testDrop(); testSongWindow(); testSongGo(); testGrooveFollow(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
-                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); testEmulation(); testLayerSplit(); testDrift(); }
+                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); testEmulation(); testLayerSplit(); testDrift(); testResonator(); }
     else if (std::string (argv[1]) == "--emulation") { testEmulation(); }
     else if (std::string (argv[1]) == "--acid") { testAcid(); }
     else if (std::string (argv[1]) == "--nrg") { testNrg(); }
@@ -1283,6 +1283,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--perc-circuits") { testPercCircuits(); }
     else if (std::string (argv[1]) == "--split") { testLayerSplit(); }
     else if (std::string (argv[1]) == "--drift") { testDrift(); }
+    else if (std::string (argv[1]) == "--resonator") { testResonator(); }
     else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
     else if (std::string (argv[1]) == "--authority2") { testStateAuthority(); }

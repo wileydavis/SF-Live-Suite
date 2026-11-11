@@ -474,6 +474,23 @@ MODULES["DRIVE"] = dict(group="EFFECTS", summary="Saturation with one CHARACTER 
         "tone": "Tilt EQ around 800 Hz.", "low_keep": "Below this frequency the signal stays clean. 0 = off.",
         "mix": "Dry/wet. The dry signal runs through an identical oversampler, so the blend is phase-aligned (no comb filtering) and MIX 0 is the clean input.", "auto_gain": "Holds the driven signal's loudness near the input's, before MIX.",
     })
+MODULES["RESONATOR"] = dict(group="EFFECTS", summary="Six tuned resonators on a chord in the set's key: whatever goes in (hats, a clap, noise, a stab, the room) rings on the chord. Strings struck by the track, from bright metal to dark wood.",
+    use=["On a hat or clap track, MIX 30-50 %: the hats ring a minor 7th in the key. DECAY long and FREEZE for a drone that holds through a breakdown.",
+         "On a return: send percussion to it for pitched echoes of the groove; ride DAMP as a filter on the ringing."],
+    models=[], desc={
+        "mix": "Dry/wet. 100 % is only the ringing.",
+        "decay": "How long the resonators ring, to -60 dB (0.2-10 s), the same for every note.",
+        "damp": "Loss in each resonator's loop: 0 bright and metallic, up darker and woodier (the highs die first). Stays in tune at any setting.",
+        "shift": "Moves the whole chord in semitones (-12 to +12); a change slides there.",
+        "spread": "The resonators across the stereo field, alternately left and right.",
+        "drive": "A soft limit inside the loops: 0 clean, up gritty and compressed. Some is always there, out of the way, so the loops can never run away.",
+        "tone": "The input's DJ filter, what the strings are struck with: left darker (low-pass), right brighter (high-pass).",
+        "chord": "The notes: OCTAVES (three resonators), FIFTHS, MIN, MIN7, MIN9, SUS4, MAJ, MAJ7, from the root up, then again an octave higher (six resonators).",
+        "octave": "Where the root sits: C1 to C4.",
+        "root": "The chord's root when there is no KEY (or KEY FOLLOW is off).",
+        "freeze": "Hold: the input fades out and the resonators ring on (two minutes to -60 dB): the chord holds.",
+        "key_follow": "On: the chord's root is SF CONTROL's KEY when one is set. Off: ROOT.",
+    })
 MODULES["RADIO"] = dict(group="EFFECTS", summary="Transmission processor: band-limit, dirt, noise, dropouts and squelch. SIGNAL is one knob from lost to clear: it also takes CRUSH and RATE from their setting at 0 to clean at 100 %.",
     use=["On a voice, ride SIGNAL from 0 to 100 % to bring a ghost transmission into focus."],
     models=[], desc={

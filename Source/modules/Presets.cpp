@@ -397,6 +397,20 @@ std::vector<Preset> limit()
     };
 }
 
+std::vector<Preset> resonator()
+{
+    // chord: 0 OCTAVES 1 FIFTHS 2 MIN 3 MIN7 4 MIN9 5 SUS4 6 MAJ 7 MAJ7; octave: 0 C1 .. 3 C4.
+    return {
+        { "DUB/MIN7 WASH",        { { "chord", 3 }, { "octave", 2 }, { "decay", 4.0f }, { "damp", 0.5f }, { "mix", 0.4f }, { "spread", 0.7f } } },
+        { "DUB/MIN9 HAZE",        { { "chord", 4 }, { "octave", 2 }, { "decay", 6.0f }, { "damp", 0.65f }, { "mix", 0.35f }, { "spread", 0.8f }, { "tone", 0.6f } } },
+        { "METAL/OCTAVES",        { { "chord", 0 }, { "octave", 2 }, { "decay", 5.0f }, { "damp", 0.15f }, { "mix", 0.45f }, { "spread", 0.6f } } },
+        { "METAL/HAT STRINGS",    { { "chord", 2 }, { "octave", 3 }, { "decay", 1.2f }, { "damp", 0.25f }, { "mix", 0.4f }, { "spread", 0.8f } } },
+        { "DRONE/DARK FIFTHS",    { { "chord", 1 }, { "octave", 1 }, { "decay", 9.0f }, { "damp", 0.75f }, { "mix", 0.5f }, { "drive", 0.3f } } },
+        { "SHORT/WOOD MIN",       { { "chord", 2 }, { "octave", 2 }, { "decay", 0.5f }, { "damp", 0.7f }, { "mix", 0.5f } } },
+        { "GRIT/SUS4 RATTLE",     { { "chord", 5 }, { "octave", 2 }, { "decay", 2.5f }, { "damp", 0.35f }, { "mix", 0.45f }, { "drive", 0.6f } } },
+    };
+}
+
 std::vector<Preset> strip()
 {
     return {
@@ -440,6 +454,7 @@ std::vector<Preset> factoryPresets (const std::string& id)
     if (id == "LOWEND") return lowend();
     if (id == "LIMIT") return limit();
     if (id == "STRIP") return strip();
+    if (id == "RESONATOR") return resonator();
     return {};   // CONTROL, DECK, ALLOC, TAP, ROOMEQ: setup modules
 }
 } // namespace sf

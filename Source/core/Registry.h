@@ -20,4 +20,5 @@ ModulePtr makeCONTROL(); ModulePtr makeALLOC();   ModulePtr makeTAP();     Modul
 ModulePtr makeKICK();    ModulePtr makePERC();    ModulePtr makeRUMBLE();  ModulePtr makeBASS();
 ModulePtr makeLEAD();    ModulePtr makePAD();     ModulePtr makeVOICE();   ModulePtr makeDECK();
 ModulePtr makeTONE();    ModulePtr makeSTRIKE();  ModulePtr makeTERROIR(); ModulePtr makeCAPTURE();
+ModulePtr makeRESONATOR();
 } // namespace sf

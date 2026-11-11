@@ -643,6 +643,112 @@ static void testDrift()
     CHECK (*hi1 - *lo1 > 1.0 && std::max (std::abs (*lo1), std::abs (*hi1)) < 4.5, "DRIFT full: %.2f .. %.2f cents", *lo1, *hi1);
 }
 
+// SF RESONATOR [Nov 10]: SFTests --resonator. White noise in; the resonators' fundamentals where
+// the chord puts them (cents), the key from SF CONTROL, DECAY's ring time, FREEZE holding.
+static void testResonator()
+{
+    using namespace emu;
+    std::printf ("-- SF RESONATOR: six resonators on a chord in the key\n");
+    auto& d = sf::Bus::get().d();
+    // Noise for `noiseSecs` (or one click at the start), then silence; total secs. key: SF CONTROL's KEY (-1 none).
+    auto run = [&] (const std::vector<std::pair<const char*, float>>& set, double secs, double noiseSecs, int key = -1, double freezeAt = -1.0, bool click = false)
+    {
+        resetBus();
+        Rig2 r ("RESONATOR");
+        for (const auto& [k, v] : set) r.set (k, v);
+        Noise nz { 0x1234567u };
+        std::vector<float> out;
+        for (int s = 0; s < (int) (kSr * secs); s += kBlock)
+        {
+            d.keyRoot = key;
+            if (key >= 0) d.controlSeenMs = Bus::nowMs();
+            if (freezeAt >= 0.0 && s >= (int) (freezeAt * kSr) && s < (int) (freezeAt * kSr) + kBlock) r.set ("freeze", 1.0f);
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    const double t = (double) (s + i) / kSr;
+                    const float x = click ? (s + i == 0 ? 1.0f : 0.0f) : (t < noiseSecs ? 0.1f * nz.next() : 0.0f);
+                    b.setSample (0, i, x); b.setSample (1, i, x);
+                }
+            });
+            for (int i = 0; i < kBlock; ++i) out.push_back (0.5f * (r.buf.getSample (0, i) + r.buf.getSample (1, i)));
+        }
+        d.keyRoot = -1;
+        return out;
+    };
+    // The strongest frequency within +-60 cents of hz (FFT from 0.1 s, 2.7 s long, parabolic peak), in
+    // cents off hz. A click rings each resonator at its own frequency (noise would scatter the peaks).
+    auto peakCents = [] (const std::vector<float>& x, double hz)
+    {
+        constexpr int order = 17, N = 1 << order;
+        std::vector<float> f (2 * (size_t) N, 0.0f);
+        const int from = (int) (0.1 * kSr);
+        for (int i = 0; i < N && from + i < (int) x.size(); ++i) f[(size_t) i] = x[(size_t) (from + i)] * (0.5f - 0.5f * std::cos (2.0f * juce::MathConstants<float>::pi * (float) i / (float) (N - 1)));
+        juce::dsp::FFT fft (order);
+        fft.performFrequencyOnlyForwardTransform (f.data());
+        const double bin = kSr / N;
+        const int k0 = (int) (hz * std::pow (2.0, -0.05) / bin), k1 = (int) (hz * std::pow (2.0, 0.05) / bin) + 1;
+        int best = k0;
+        for (int k = k0; k <= k1; ++k) if (f[(size_t) k] > f[(size_t) best]) best = k;
+        const double a = std::log (f[(size_t) best - 1] + 1e-20), b = std::log (f[(size_t) best] + 1e-20), c = std::log (f[(size_t) best + 1] + 1e-20);
+        const double p = best + 0.5 * (a - c) / (a - 2.0 * b + c);
+        return 1200.0 * std::log2 (p * bin / hz);
+    };
+    auto hzOf = [] (double midi) { return 440.0 * std::pow (2.0, (midi - 69.0) / 12.0); };
+    // MIN7 on C3 (ROOT C, OCTAVE C3), DAMP 0.6 (the low-pass's phase corrected): C3 Eb3 G3 Bb3 C4 Eb4 in tune.
+    {
+        const auto x = run ({ { "chord", 3.0f }, { "root", 0.0f }, { "octave", 2.0f }, { "damp", 0.6f }, { "decay", 6.0f }, { "mix", 1.0f }, { "spread", 0.0f } }, 3.0, 0.0, -1, -1.0, true);
+        const int notes[] = { 48, 51, 55, 58, 60, 63 };
+        double worst = 0.0;
+        std::printf ("   MIN7 on C3, DAMP 60 %%:");
+        for (int n : notes) { const double cts = peakCents (x, hzOf (n)); worst = std::max (worst, std::abs (cts)); std::printf (" %+.1f", cts); }
+        std::printf (" cents\n");
+        CHECK (worst < 3.0, "RESONATOR out of tune: %.1f cents", worst);
+    }
+    // SF CONTROL's KEY D: the same chord on D3.
+    {
+        const auto x = run ({ { "chord", 3.0f }, { "root", 0.0f }, { "octave", 2.0f }, { "damp", 0.3f }, { "decay", 6.0f }, { "mix", 1.0f } }, 3.0, 0.0, 2, -1.0, true);
+        const double c0 = peakCents (x, hzOf (50)), c1 = peakCents (x, hzOf (57));
+        // C3's own resonance is gone: its band is quieter than D3's.
+        std::printf ("   KEY D from SF CONTROL: D3 %+.1f cents, A3 %+.1f cents\n", c0, c1);
+        CHECK (std::abs (c0) < 3.0 && std::abs (c1) < 3.0, "RESONATOR KEY: %.1f / %.1f cents", c0, c1);
+    }
+    // DECAY 2 s: a click rings down 60 dB in about 2 s (measured from 0.2 s on, by the slope).
+    {
+        const auto x = run ({ { "chord", 0.0f }, { "octave", 2.0f }, { "damp", 0.0f }, { "decay", 2.0f }, { "mix", 1.0f } }, 3.0, 0.0, -1, -1.0, true);
+        const double a = rms (x, (int) (0.2 * kSr), (int) (0.4 * kSr)), b = rms (x, (int) (1.2 * kSr), (int) (1.4 * kSr));
+        const double t60 = 60.0 / (20.0 * std::log10 (a / b));
+        std::printf ("   DECAY 2 s, DAMP 0: rings to -60 dB in %.2f s\n", t60);
+        CHECK (t60 > 1.6 && t60 < 2.4, "RESONATOR DECAY: %.2f s", t60);
+    }
+    // FREEZE: noise 1 s, FREEZE at 1 s (the noise goes on, shut out): the ring holds, from 1-1.5 s on to
+    // 3.5-4 s within 1.5 dB, and within 8 dB of the level before (the interpolation takes the top
+    // harmonics down over the first second, as damping would).
+    {
+        const auto x = run ({ { "chord", 3.0f }, { "octave", 2.0f }, { "damp", 0.3f }, { "decay", 1.0f }, { "mix", 1.0f } }, 4.0, 4.0, -1, 1.0);
+        auto lvl = [&] (double t0, double t1) { return 20.0 * std::log10 (rms (x, (int) (t0 * kSr), (int) (t1 * kSr)) + 1e-12); };
+        const double a = lvl (0.8, 1.0), b = lvl (2.0, 2.5), c = lvl (3.5, 4.0);
+        std::printf ("   FREEZE: before %.1f dB; 1-1.5 s on %.1f dB, 2.5-3 s on %.1f dB\n", a, b, c);
+        CHECK (std::abs (c - b) < 1.5 && b > a - 8.0 && b < a + 3.0, "RESONATOR FREEZE: %.1f dB, then %.1f and %.1f dB", a, b, c);
+    }
+    // Level: white noise at -25 dBFS RMS through MIX 100 % comes out within 3 dB of it, from DECAY 0.5 s
+    // to 8 s and DAMP 0 to 90 % (SPREAD 0: the six summed in the middle).
+    {
+        const double in = 20.0 * std::log10 (0.1 / std::sqrt (3.0));
+        double lo = 1e9, hi = -1e9;
+        for (const float dec : { 0.5f, 8.0f })
+            for (const float dmp : { 0.0f, 0.4f, 0.9f })
+            {
+                const auto x = run ({ { "chord", 3.0f }, { "octave", 2.0f }, { "damp", dmp }, { "decay", dec }, { "mix", 1.0f }, { "spread", 0.0f } }, 6.0, 6.0);
+                const double out = 20.0 * std::log10 (rms (x, (int) (4.0 * kSr), (int) (6.0 * kSr)) + 1e-12);
+                lo = std::min (lo, out - in); hi = std::max (hi, out - in);
+                std::printf ("   noise in at %.1f dBFS, DECAY %.1f s, DAMP %2.0f %%: out %.1f dBFS\n", in, dec, dmp * 100.0f, out);
+            }
+        CHECK (lo > -3.0 && hi < 3.0, "RESONATOR level: %.1f to %+.1f dB against the input", lo, hi);
+    }
+}
+
 static void testEmulation()
 {
     testAcid();
