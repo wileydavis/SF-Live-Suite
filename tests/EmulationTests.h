@@ -749,6 +749,169 @@ static void testResonator()
     }
 }
 
+// WAVETABLE from a recording [Nov 10]: SFTests --wavetable. A 4 s sample at 220 Hz going from a sine
+// to a square; PAD's WAVETABLE on TABLE SAMPLE, played on A2 (110 Hz: the frames are cycles, the
+// note sets the pitch). COLOR 0 is the sine's end (no third harmonic), COLOR full the square's
+// (the third a third of the fundamental, -9.5 dB); half way two frames blend without cancelling.
+static void testWavetableSample()
+{
+    using namespace emu;
+    std::printf ("-- WAVETABLE from a recording (TABLE SAMPLE)\n");
+    const double sr = 48000.0;
+    juce::AudioBuffer<float> b (2, (int) (4.0 * sr));
+    for (int i = 0; i < b.getNumSamples(); ++i)
+    {
+        const double t = i / sr, th = 2.0 * juce::MathConstants<double>::pi * 220.0 * t, m = t / 4.0;
+        double sq = 0.0;
+        for (int k = 1; k <= 21; k += 2) sq += 4.0 / juce::MathConstants<double>::pi * std::sin (k * th) / k;
+        const float v = (float) (0.5 * ((1.0 - m) * std::sin (th) + m * sq));
+        b.setSample (0, i, v); b.setSample (1, i, v);
+    }
+    const auto wav = writeWav ("sf_test_wavetable.wav", b, sr);
+    auto play = [&] (float color, bool load, int table = 1)
+    {
+        resetBus();
+        Rig2 r ("PAD");
+        if (load) r.p->mod().loadFiles (juce::StringArray (wav.getFullPathName()));
+        r.set ("model", 2.0f); r.set ("table", (float) table); r.set ("color", color); r.set ("cutoff", 1.0f); r.set ("env_amt", 0.0f);
+        r.set ("filter", 0.5f); r.set ("space", 0.0f); r.set ("density", 0.0f); r.set ("res", 0.0f);
+        return renderNotes (r, { { 0, 45, 100, true } }, (int) (1.6 * kSr));
+    };
+    const int a0 = (int) (0.6 * kSr), a1 = (int) (1.5 * kSr);
+    auto h3 = [&] (const std::vector<float>& x) { return 20.0 * std::log10 (toneAmp (x, a0, a1, 330.0) / (toneAmp (x, a0, a1, 110.0) + 1e-12) + 1e-12); };
+    auto h1 = [&] (const std::vector<float>& x) { return 20.0 * std::log10 (toneAmp (x, a0, a1, 110.0) + 1e-12); };
+    const auto c0 = play (0.0f, true), c5 = play (0.5f, true), c1 = play (1.0f, true), none = play (1.0f, false), built = play (1.0f, true, 0);
+    if (getenv ("SF_WT_DEBUG"))
+        for (double hz : { 55.0, 110.0, 220.0, 330.0, 440.0, 660.0 })
+            std::printf ("      %.0f Hz: built-in %.1f dB, COLOR 0 %.1f dB\n", hz, 20.0 * std::log10 (toneAmp (built, a0, a1, hz) + 1e-12), 20.0 * std::log10 (toneAmp (c0, a0, a1, hz) + 1e-12));
+    std::printf ("   third harmonic against the fundamental: COLOR 0 %.1f dB, half %.1f dB, full %.1f dB; built-in table at full %.1f dB; no sample %.1f dB\n",
+                 h3 (c0), h3 (c5), h3 (c1), h3 (built), h3 (none));
+    std::printf ("   the fundamental: COLOR 0 %.1f dB, half %.1f dB, full %.1f dB\n", h1 (c0), h1 (c5), h1 (c1));
+    CHECK (h3 (c0) < -25.0 && h3 (c1) > -12.5 && h3 (c1) < -7.0, "TABLE SAMPLE frames: %.1f / %.1f dB", h3 (c0), h3 (c1));
+    CHECK (std::abs (h1 (c5) - h1 (c0)) < 3.0 && std::abs (h1 (c1) - h1 (c0)) < 4.0, "frames blend: fundamental %.1f / %.1f / %.1f dB", h1 (c0), h1 (c5), h1 (c1));
+    CHECK (std::abs (h3 (none) - h3 (built)) < 0.5 && std::abs (h3 (built) - h3 (c1)) > 3.0, "no sample: the built-in table (%.1f against %.1f)", h3 (none), h3 (built));
+    wav.deleteFile();
+}
+
+// RESAMPLE [Nov 10]: SFTests --resample. PAD holds a chord; RESAMPLE 1 BAR armed a little before the
+// bar line: the take is one bar long (124 BPM), starts on the bar (as late as the plugin's latency)
+// and is the plugin's output sample for sample; then it is PAD's sample (SAMPLE plays it). Stopped,
+// it starts at once.
+static void testResample()
+{
+    using namespace emu;
+    std::printf ("-- RESAMPLE: the plugin's own output becomes its sample\n");
+    const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("sf_resample_test");
+    folder.deleteRecursively();
+    SFProcessor::testResampleFolder = folder;
+    resetBus();
+    Rig2 r ("PAD");
+    r.set ("model", 1.0f); r.set ("filter", 0.5f); r.set ("density", 0.0f);
+    r.ppq = 3.0;                                          // a beat before bar 2
+    std::vector<float> outL;
+    std::vector<double> blockPpq;
+    bool on = false;
+    r.p->armResample (1);
+    const int armed = r.p->resampleStage();
+    for (int b = 0; b < 600 && r.p->resampleStage () != 3; ++b)
+    {
+        blockPpq.push_back (r.ppq);
+        r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int)
+        {
+            if (! on) { for (int nt : { 48, 55, 60, 63 }) m.addEvent (juce::MidiMessage::noteOn (1, nt, (juce::uint8) 100), 0); on = true; }
+        });
+        for (int i = 0; i < kBlock; ++i) outL.push_back (r.buf.getSample (0, i));
+    }
+    const bool recorded = r.p->resampleStage() == 3;
+    r.p->serviceResample();
+    const auto file = r.p->lastResample;
+    juce::AudioFormatManager fm; fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (file));
+    const int len = rd != nullptr ? (int) rd->lengthInSamples : 0;
+    juce::AudioBuffer<float> take (2, std::max (1, len));
+    if (rd != nullptr) rd->read (&take, 0, len, 0, true, true);
+    // Where bar 2 (ppq 4) is in the output, plus the latency.
+    const double bps = 124.0 / 60.0 / kSr;
+    const int bar = (int) std::ceil ((4.0 - 3.0) / bps - 1e-9) + r.p->getLatencySamples();
+    const int want = (int) std::lround (4.0 * 60.0 / 124.0 * kSr);
+    float worst = 0.0f;
+    for (int i = 0; i < std::min (len, (int) outL.size() - bar); ++i) worst = std::max (worst, std::abs (take.getSample (0, i) - outL[(size_t) (bar + i)]));
+    std::printf ("   armed: stage %d; recorded: %s; %s, %d samples (one bar at 124 BPM: %d); against the output from the bar line (+%d latency): worst %.2e\n",
+                 armed, recorded ? "yes" : "NO", file.getFileName().toRawUTF8(), len, want, r.p->getLatencySamples(), worst);
+    CHECK (armed == 1 && recorded && std::abs (len - want) <= 1 && worst < 1e-5f, "RESAMPLE take: %d samples, worst %.2e", len, worst);
+    // PAD's sample now: SAMPLE plays it.
+    r.set ("model", 7.0f);
+    float pk = 0.0f;
+    for (int b = 0; b < 100; ++b)
+    {
+        r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (b == 0) m.addEvent (juce::MidiMessage::noteOn (1, 72, (juce::uint8) 100), 0); });
+        pk = std::max (pk, r.buf.getMagnitude (0, 0, kBlock));
+    }
+    std::printf ("   SAMPLE plays the take: peak %.1f dB\n", gainToDb (pk));
+    CHECK (pk > 0.01f, "the take isn't PAD's sample");
+    // Stopped: at once.
+    {
+        Rig2 s ("PAD");
+        s.head.playing = false;
+        s.p->armResample (1);
+        s.step (kBlock, nullptr);
+        CHECK (s.p->resampleStage() == 2, "stopped: RESAMPLE waits (stage %d)", s.p->resampleStage());
+        s.p->cancelResample();
+    }
+    SFProcessor::testResampleFolder = juce::File();
+    folder.deleteRecursively();
+}
+
+// FM 4-OP [Nov 10]: SFTests --fm4. LEAD's FM 4-OP (no filter) on C4: one carrier alone is a sine;
+// ORGAN adds the operators at their ratios and levels; a modulator's LEVEL brightens; D's FEEDBACK
+// turns its sine toward a saw; an operator's DECAY dulls the tone as it falls; two carriers sound.
+static void testFm4()
+{
+    using namespace emu;
+    std::printf ("-- FM 4-OP: four operators, eight algorithms\n");
+    struct Op { int ratio; float level, decay; };
+    auto play = [] (int algo, Op a, Op b, Op c, Op d, float fb = 0.0f, double secs = 1.0)
+    {
+        resetBus();
+        Rig2 r ("LEAD");
+        r.set ("model", 10.0f); r.set ("fm_algo", (float) algo); r.set ("fm_feedback", fb); r.set ("filter", 0.5f); r.set ("density", 0.0f);
+        r.set ("color", 0.5f); r.set ("decay", 0.5f); r.set ("space", 0.0f);
+        const Op ops[4] = { a, b, c, d };
+        const char* const nm[4] = { "a", "b", "c", "d" };
+        for (int k = 0; k < 4; ++k)
+        {
+            r.set ((std::string ("fm_") + nm[k] + "_ratio").c_str(), (float) ops[k].ratio);
+            r.set ((std::string ("fm_") + nm[k] + "_level").c_str(), ops[k].level);
+            r.set ((std::string ("fm_") + nm[k] + "_decay").c_str(), ops[k].decay);
+        }
+        return renderNotes (r, { { 0, 60, 100, true } }, (int) (secs * kSr));
+    };
+    const double f0 = 261.63;
+    const int a0 = (int) (0.3 * kSr), a1 = (int) (0.8 * kSr);
+    auto hdb = [&] (const std::vector<float>& x, int h) { return 20.0 * std::log10 (toneAmp (x, a0, a1, f0 * h) / (toneAmp (x, a0, a1, f0) + 1e-12) + 1e-12); };
+    const Op off { 1, 0.0f, 1.0f }, held { 1, 1.0f, 1.0f };
+    // ORGAN (7), A alone: a sine.
+    const auto sine = play (7, held, off, off, off);
+    // ORGAN, A at 1 and B at 3 (ratio index 5), B at half: the third harmonic 6 dB under the fundamental.
+    const auto organ = play (7, held, { 5, 0.5f, 1.0f }, off, off);
+    std::printf ("   one carrier: 2nd harmonic %.1f dB, 3rd %.1f dB; ORGAN A 1 + B 3 at half: 3rd %.1f dB\n", hdb (sine, 2), hdb (sine, 3), hdb (organ, 3));
+    CHECK (hdb (sine, 2) < -60.0 && hdb (sine, 3) < -60.0 && std::abs (hdb (organ, 3) + 6.02) < 1.0, "FM 4-OP: sine %.1f / %.1f, organ %.1f dB", hdb (sine, 2), hdb (sine, 3), hdb (organ, 3));
+    // STACK (0): B modulating A, LEVEL 0 against full: brighter.
+    const auto plain = play (0, held, off, off, off), deep = play (0, held, held, off, off);
+    const double b0 = rmsHz (plain, a0, a1), b1 = rmsHz (deep, a0, a1);
+    // D alone (ORGAN), FEEDBACK 0 against full: a saw's harmonics.
+    const auto d0 = play (7, off, off, off, held, 0.0f), d1 = play (7, off, off, off, held, 1.0f);
+    std::printf ("   STACK, B's LEVEL 0 to full: RMS frequency %.0f to %.0f Hz; D alone, FEEDBACK 0 to full: 2nd harmonic %.1f to %.1f dB\n", b0, b1, hdb (d0, 2), hdb (d1, 2));
+    CHECK (b1 > 2.0 * b0 && hdb (d0, 2) < -50.0 && hdb (d1, 2) > -20.0, "FM 4-OP: modulation %.0f / %.0f Hz, feedback %.1f / %.1f dB", b0, b1, hdb (d0, 2), hdb (d1, 2));
+    // STACK, B's DECAY short (20 %): bright at first, plain a second later.
+    const auto fall = play (0, held, { 1, 1.0f, 0.2f }, off, off, 0.0f, 1.4);
+    const double early = rmsHz (fall, (int) (0.02 * kSr), (int) (0.07 * kSr)), late = rmsHz (fall, (int) (1.0 * kSr), (int) (1.3 * kSr));
+    // 2 STACKS (3), A at 1 and C at 2, both carriers, no modulators: both heard, equal.
+    const auto two = play (3, held, off, { 3, 1.0f, 1.0f }, off);
+    std::printf ("   B's DECAY 20 %%: RMS frequency %.0f Hz at first, %.0f Hz after a second; 2 STACKS, A at 1 and C at 2: 2nd harmonic %.1f dB\n", early, late, hdb (two, 2));
+    CHECK (early > 1.5 * late && std::abs (hdb (two, 2)) < 1.0, "FM 4-OP: decay %.0f / %.0f Hz, two carriers %.1f dB", early, late, hdb (two, 2));
+}
+
 static void testEmulation()
 {
     testAcid();

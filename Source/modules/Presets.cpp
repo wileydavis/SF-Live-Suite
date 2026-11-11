@@ -134,6 +134,9 @@ std::vector<Preset> bass()
         { "LAYER/SINE UNDER 303", { { "model", 3 }, { "layer_model", 5 }, { "layer", 0.8f }, { "split", 1.0f }, { "split_hz", 140 }, { "cutoff", 0.3f }, { "res", 0.75f }, { "env_amt", 0.6f }, { "accent", 0.7f } } },
         { "ACID/WAREHOUSE",       { { "model", 3 }, { "cutoff", 0.32f }, { "res", 0.82f }, { "env_amt", 0.65f }, { "accent", 0.85f }, { "decay", 0.35f }, { "drive", 0.35f } } },
         { "ROLLING/ANALOG DRIFT", { { "model", 0 }, { "cutoff", 0.3f }, { "res", 0.3f }, { "env_amt", 0.4f }, { "gate", 0.35f }, { "drift", 0.6f } } },
+        // FM 4-OP: ratio index 0 0.5, 1 1, 3 2, 5 3, 6 3.5, 10 7, 16 14; algorithm 3 2 STACKS, 4 1 TO 3, 6 BELL.
+        { "FM/4-OP SUB PLUCK",    { { "model", 8 }, { "fm_algo", 3 }, { "fm_a_ratio", 1 }, { "fm_a_level", 1.0f }, { "fm_a_decay", 0.8f }, { "fm_b_ratio", 1 }, { "fm_b_level", 0.6f }, { "fm_b_decay", 0.3f },
+                                    { "fm_c_ratio", 0 }, { "fm_c_level", 0.7f }, { "fm_c_decay", 1.0f }, { "fm_d_ratio", 1 }, { "fm_d_level", 0.0f }, { "fm_d_decay", 0.5f }, { "cutoff", 0.5f } } },
     };
 }
 
@@ -144,6 +147,10 @@ std::vector<Preset> lead()
         { "ACID/RESONANT",        { { "model", 0 }, { "cutoff", 0.5f }, { "res", 0.9f }, { "env_amt", 0.7f }, { "drive", 0.3f } } },
         { "ACID/WANDERING",       Values { { "model", 0 }, { "cutoff", 0.38f }, { "res", 0.8f }, { "env_amt", 0.6f } } + mot ("LEAD", 1, 7, 6, "cutoff", 0.2f) },
         { "ACID/WAREHOUSE",       { { "model", 0 }, { "cutoff", 0.3f }, { "res", 0.85f }, { "env_amt", 0.7f }, { "accent", 0.9f }, { "decay", 0.3f }, { "drive", 0.4f } } },
+        { "FM/4-OP TINE KEYS",    { { "model", 10 }, { "fm_algo", 3 }, { "fm_a_ratio", 1 }, { "fm_a_level", 1.0f }, { "fm_a_decay", 0.7f }, { "fm_b_ratio", 16 }, { "fm_b_level", 0.35f }, { "fm_b_decay", 0.2f },
+                                    { "fm_c_ratio", 1 }, { "fm_c_level", 0.8f }, { "fm_c_decay", 0.75f }, { "fm_d_ratio", 1 }, { "fm_d_level", 0.3f }, { "fm_d_decay", 0.5f }, { "fm_feedback", 0.1f } } },
+        { "FM/4-OP DUB BELL STAB", { { "model", 10 }, { "fm_algo", 6 }, { "fm_a_ratio", 1 }, { "fm_a_level", 1.0f }, { "fm_a_decay", 0.6f }, { "fm_b_ratio", 6 }, { "fm_b_level", 0.6f }, { "fm_b_decay", 0.5f },
+                                    { "fm_c_ratio", 3 }, { "fm_c_level", 0.5f }, { "fm_c_decay", 0.4f }, { "fm_d_ratio", 10 }, { "fm_d_level", 0.3f }, { "fm_d_decay", 0.2f }, { "density", 0.35f }, { "echo_space", 5 } } },
         { "MONO/101 LEAD",        { { "model", 1 }, { "cutoff", 0.5f }, { "res", 0.35f }, { "env_amt", 0.4f }, { "glide", 0.3f } } },
         { "MONO/MS20 SCREAM",     { { "model", 2 }, { "cutoff", 0.45f }, { "res", 0.6f }, { "env_amt", 0.5f }, { "drive", 0.3f } } },
         { "STAB/DUB CHORD",       { { "model", 3 }, { "cutoff", 0.4f }, { "res", 0.3f }, { "env_amt", 0.5f }, { "space", 0.6f } } },
@@ -174,6 +181,8 @@ std::vector<Preset> pad()
         { "DUB/WASH",             { { "model", 4 }, { "cutoff", 0.45f }, { "space", 0.7f } } },
         { "DUB/CHORD MIN7",       { { "model", 4 }, { "chord", 2 }, { "cutoff", 0.4f } } },
         { "DUB/DRIFTING MIN7",    { { "model", 4 }, { "chord", 2 }, { "cutoff", 0.4f }, { "space", 0.7f }, { "drift", 0.6f } } },
+        { "FM/4-OP GLASS",        { { "model", 8 }, { "fm_algo", 4 }, { "fm_a_ratio", 1 }, { "fm_a_level", 1.0f }, { "fm_a_decay", 1.0f }, { "fm_b_ratio", 3 }, { "fm_b_level", 0.6f }, { "fm_b_decay", 1.0f },
+                                    { "fm_c_ratio", 5 }, { "fm_c_level", 0.4f }, { "fm_c_decay", 1.0f }, { "fm_d_ratio", 1 }, { "fm_d_level", 0.3f }, { "fm_d_decay", 0.6f }, { "color", 0.3f }, { "space", 0.6f } } },
         { "TAPE/LOOP",            { { "model", 5 }, { "cutoff", 0.5f } } },
         { "TAPE/WORN",            { { "model", 5 }, { "cutoff", 0.4f }, { "drive", 0.25f } } },
         { "NOISE/BED",            { { "model", 6 }, { "color", 0.4f }, { "cutoff", 0.5f } } },

@@ -52,6 +52,7 @@ story += bullets(["<b>Header:</b> SONG, the OUT meter (FAULT, PANIC), PRESET, ST
                   "<b>E16:</b> the plugin's page of the E16 scenes (PERF or MIX, named beside the page), as the E16 shows it: its own encoders lit where they sit, the others dark. The rings fill as the E16's do (16 LEDs, from just left of the bottom, clockwise) in the scenes' colours: white, light blue for a level, green for SLOW ALL. A press sits under its knob (THROW, FREEZE, DROP, ROLL, GO); click it. A plugin the scenes have on several tracks (LEAD, PERC, ENERGY) finds its encoders by the track's name, which only the VST3 knows; without it, a line says so and its knobs go to PERFORM. A plugin the scenes don't use has no grid.",
                   "<b>PERFORM:</b> the rest of the performance row, and what else is played (DECK's PLAY and CUE, CONTROL's PANIC).",
                   "<b>The display</b>, then <b>DETAIL</b>: the sound's other controls, MODEL first.",
+                  "<b>ENGINE</b> (BASS, LEAD, PAD): the controls one model has of its own, folded: FM 4-OP's operators and WAVETABLE's TABLE.",
                   "<b>LAYER</b> (KICK, BASS, LEAD, PAD): the second layer, LAYER MODEL, LAYER, SPLIT and SPLIT HZ, folded, how it is set on its title line.",
                   "<b>MOTION</b>, <b>SYSTEM</b> (SLOW, MACRO) and <b>SETUP</b> (how the plugin sits in the set: ALLOC, KEY FOLLOW, DRY ...) come folded, their settings on their title line. Click a group's title line to open or fold it; the plugin keeps it so, with the set.",
                   "<b>Taller than the screen</b> (some strips pass 1000 pixels with every group open): the window stops at the screen's height and the strip scrolls under the header, by the thin bar at the right or the wheel. While it scrolls, the wheel scrolls and turns no knob; a group you open at the bottom scrolls into view.",
@@ -107,7 +108,8 @@ story.append(P("VST3 plugins don't receive MIDI Program Change as MIDI. SF CONTR
 story.append(H2("PRESETS"))
 story += bullets(["The <b>PRESET</b> button in every header opens the menu: factory presets grouped by style (DUB, ACID, HYPNOTIC ...), your own presets, SAVE USER PRESET and SHOW PRESET FOLDER. The button shows the preset that is loaded.",
                   "A preset sets every sound control of the plugin, MOTION included, and Live is told about every change, so the E16 rings follow. It never touches SLOW, MACRO, ALLOC, ROLE, a source setting or KEY FOLLOW.",
-                  "191 factory presets across 26 plugins. Use them as starting points, then store the result into a song.",
+                  "219 factory presets across 27 plugins. Use them as starting points, then store the result into a song.",
+                  "<b>RANDOMISE THE UNLOCKED</b> (in the PRESET menu) sets every unlocked sound control anywhere in its range, MODEL and other menus included; <b>NUDGE THE UNLOCKED</b> moves the unlocked knobs a little (up to 15 %) from where they are. Right-click a knob to lock or unlock it (a small padlock by its ring). At first LEVEL, FILTER, DENSITY, MIX, TUNE, SHIFT, ACID, WARP and ENERGY are locked, so a random patch stays in key and at its level. The locks are saved with the set.",
                   "User presets are files in Music/SF Live Suite/Presets/&lt;PLUGIN&gt;. Copy the folder to take them to another computer."])
 
 story += [CondPageBreak(3 * inch), Spacer(1, 14)]
@@ -202,7 +204,8 @@ story += bullets(["Map with Live's MIDI Map (Cmd-M): unfold the plugin's paramet
                   "In Live's MIDI preferences turn <b>Remote</b> on for the E16's Port 1, input <i>and output</i> (Ports 2 and 3 off). Live then sends values back, so the rings follow song recalls and ALLOC slot changes and the knobs hold the new values.",
                   "Absolute 0-127 CC is right; the plugins smooth every step. Chapter 7 has two ready-made E16 scenes for the show template, PERF and MIX, and the show set with every address already mapped."])
 story.append(H2("SAMPLES"))
-story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the plugin window or click LOAD. The sample is analysed (root note, decay, onsets) and embedded in the Live set, so the set travels without the file."))
+story.append(P("Every instrument has a SAMPLE model. Drop an audio file on the plugin window or choose LOAD &gt; FILE.... The sample is analysed (root note, decay, onsets) and embedded in the Live set, so the set travels without the file."))
+story.append(P("<b>RESAMPLE</b> (LOAD &gt; RESAMPLE 1, 2 or 4 BARS): from the next bar line, what the plugin plays becomes its sample, and a WAV in Music/SF Live Suite/Resamples. LOAD reads WAIT until the bar, then REC. Hold a chord on PAD and resample it, then play it on SAMPLE, GRANULAR, or WAVETABLE with TABLE on SAMPLE (eight frames from the sample, COLOR moves across them)."))
 story.append(P("The part of the sample that plays is set like an Ableton clip's: START and END, with FADE IN after START and FADE OUT before END (the SAMPLE group, folded at first). With a sample loaded the display shows its waveform, the part that plays bright, the fades as ramps and START and END as lines: drag either line (it takes the nearer one; near the sample's ends it snaps to them). VOICE draws them on its phrase. The instrument's own shaping (DECAY, ATTACK, GATE) still works on each note on top. The fades run in the sample's own time: played an octave up, they pass in half the time. A cut inside the waveform always fades for at least 1 ms, so it never clicks. At their defaults (0 %, 100 %, 0 ms, 0 ms) the sample plays whole, exactly as before these existed. Presets leave them alone (a preset has no sample); songs keep them like any knob."))
 # The two pictures (docs/manual/make_sample_pictures.py, at twice the strip's scale), side by side.
 pics, col = [], (W - 0.3 * inch) / 2
@@ -517,7 +520,8 @@ for group, mods in order:
             return "HOLD"
         played = lambda p: p["primary"] or p.get("perform")
         for label, rows in (("PERFORM", [p for p in sp if played(p)]),
-                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and not p.get("sample") and not p.get("layer") and p["id"] != "model"]),
+                            ("DETAIL", [p for p in sp if not played(p) and not p.get("setup") and not p.get("sample") and not p.get("layer") and not p.get("engine") and p["id"] != "model"]),
+                            ("ENGINE", [p for p in sp if not played(p) and p.get("engine")]),
                             ("LAYER", [p for p in sp if not played(p) and p.get("layer")]),
                             ("SAMPLE", [p for p in sp if not played(p) and p.get("sample")]),
                             ("SETUP", [p for p in sp if not played(p) and p.get("setup")])):

@@ -35,6 +35,7 @@ struct ParamSpec
                                     // PANIC): the editor shows it with the top row
     bool inSample = false;          // the sample's own (START, END, its fades): the editor's SAMPLE group
     bool inLayer = false;           // the second layer's (LAYER MODEL, LAYER, SPLIT, SPLIT HZ): the editor's LAYER group
+    bool inEngine = false;          // one model's own (FM 4-OP's operators, WAVETABLE's TABLE): the editor's ENGINE group
 
     ParamSpec& prim()           { primary = true; return *this; }
     ParamSpec& dir (int d)      { macroDir = d; return *this; }
@@ -49,6 +50,7 @@ struct ParamSpec
     ParamSpec& performs()       { perform = true; return *this; }
     ParamSpec& sampleGroup()    { inSample = true; return *this; }
     ParamSpec& layerGroup()     { inLayer = true; return *this; }
+    ParamSpec& engineGroup()    { inEngine = true; return *this; }
 };
 
 inline ParamSpec knob (const char* id, const char* name, float mn, float mx, float def, const char* unit = "", float centre = NAN)

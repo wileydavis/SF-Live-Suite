@@ -172,7 +172,9 @@ static void testOversampling()
                            // at -43 dB when FM ran at 2x; now 4x. SYNC at C7 with the slave five times up (10.5 kHz):
                            // its BLEP edges leave 70 dB, held to 65.
                            { "LEAD", 8, "SYNC", 96, 1.0f, 0.0f, 65.0 }, { "LEAD", 8, "SYNC", 96, 0.5f }, { "BASS", 4, "FM", 72, 1.0f, 0.5f },
-                           { "LEAD", 7, "FM BELL", 96, 1.0f, 0.5f } };
+                           { "LEAD", 7, "FM BELL", 96, 1.0f, 0.5f },
+                           // FM 4-OP at its defaults (2 STACKS: D at 7 into C, B into A) with COLOR full, on C6.
+                           { "LEAD", 10, "FM 4-OP", 84, 1.0f } };
     for (const auto& cs : cases)
     {
         resetBus();
@@ -506,6 +508,99 @@ static void testPresets()
         std::printf ("   %-8s %2d presets, peaks %.1f .. %.1f dB%s\n", id.c_str(), (int) presets.size(), gainToDb (minPk), gainToDb (maxPk), bad ? "  (FAILURES)" : "");
     }
     std::printf ("   %d factory presets\n", total);
+}
+
+// ------------------------------------------------------------------------------------------
+// The patch randomiser [Nov 10]: the first locks, RANDOMISE and NUDGE leave locked controls alone and
+// keep within range, NUDGE moves a little and leaves menus, locks survive the set; three random
+// patches of every module play two seconds with nothing past the clamp and nothing not a number.
+static void testRandomise()
+{
+    std::printf ("-- the patch randomiser\n");
+    {
+        SFProcessor p (makeModule ("BASS"));
+        auto at = [&] (const char* id) { return p.paramIndex (id); };
+        CHECK (p.isLocked (at ("level")) && p.isLocked (at ("filter")) && p.isLocked (at ("tune")) && ! p.isLocked (at ("cutoff")) && ! p.isLocked (at ("res"))
+               && ! p.randomisable (at ("alloc")) && ! p.randomisable (at ("smp_start")), "BASS: the first locks");
+        p.setLocked (at ("cutoff"), true);
+        std::vector<float> before;
+        for (int i = 0; i < p.numModuleParams(); ++i) before.push_back (p.param (i)->getValue());
+        p.randomise (false, 1234u);
+        int changed = 0, open = 0, out = 0;
+        bool lockedMoved = false;
+        for (int i = 0; i < p.numModuleParams(); ++i)
+        {
+            const float v = p.param (i)->getValue();
+            if (v < 0.0f || v > 1.0f) ++out;
+            if (! p.randomisable (i)) { lockedMoved |= v != before[(size_t) i]; continue; }
+            if (p.isLocked (i)) { lockedMoved |= v != before[(size_t) i]; continue; }
+            ++open; changed += v != before[(size_t) i] ? 1 : 0;
+        }
+        std::printf ("   BASS RANDOMISE: %d of %d unlocked controls moved; locked and setup ones moved: %s\n", changed, open, lockedMoved ? "YES" : "no");
+        CHECK (! lockedMoved && out == 0 && changed >= open * 3 / 4, "RANDOMISE: %d of %d moved, locked moved %d", changed, open, (int) lockedMoved);
+        // NUDGE: knobs within 15 %, menus where they are.
+        before.clear();
+        for (int i = 0; i < p.numModuleParams(); ++i) before.push_back (p.param (i)->getValue());
+        p.randomise (true, 99u);
+        float worst = 0.0f; bool menuMoved = false;
+        for (int i = 0; i < p.numModuleParams(); ++i)
+        {
+            const float dv = std::abs (p.param (i)->getValue() - before[(size_t) i]);
+            if (p.allSpecs()[(size_t) i].type == PType::Choice) menuMoved |= dv > 0.0f; else worst = std::max (worst, dv);
+        }
+        std::printf ("   BASS NUDGE: knobs moved at most %.3f of their range; menus moved: %s\n", worst, menuMoved ? "YES" : "no");
+        CHECK (worst <= 0.1501f && worst > 0.01f && ! menuMoved, "NUDGE: %.3f, menus %d", worst, (int) menuMoved);
+        // Saved with the set; a set from before the locks gets the first ones.
+        juce::MemoryBlock mb; p.getStateInformation (mb);
+        SFProcessor q (makeModule ("BASS"));
+        q.setStateInformation (mb.getData(), (int) mb.getSize());
+        CHECK (q.isLocked (q.paramIndex ("cutoff")) && ! q.isLocked (q.paramIndex ("res")) && q.isLocked (q.paramIndex ("level")), "locks not restored");
+        auto tree = juce::ValueTree::readFromData (mb.getData(), mb.getSize());
+        tree.removeProperty ("locks", nullptr);
+        juce::MemoryBlock old; { juce::MemoryOutputStream os (old, false); tree.writeToStream (os); }
+        SFProcessor o (makeModule ("BASS"));
+        o.setLocked (o.paramIndex ("res"), true);
+        o.setStateInformation (old.getData(), (int) old.getSize());
+        CHECK (! o.isLocked (o.paramIndex ("cutoff")) && ! o.isLocked (o.paramIndex ("res")) && o.isLocked (o.paramIndex ("level")), "an old set: not the first locks");
+    }
+    int patches = 0, bad = 0;
+    float loudest = 0.0f;
+    std::string loudestId;
+    for (auto& id : allModuleIds())
+    {
+        resetBus();
+        Rig2 r (id);
+        bool any = false;
+        for (int i = 0; i < r.p->numModuleParams(); ++i) any |= r.p->randomisable (i) && ! r.p->isLocked (i);
+        if (! any) continue;
+        const bool inst = r.p->mod().instrument();
+        for (uint32_t seed : { 11u, 222u, 3333u })
+        {
+            r.p->randomise (false, seed);
+            if (id == "RUMBLE") r.set ("source", 1.0f);
+            r.p->panic();
+            float pk = 0.0f; bool nan = false;
+            const int blocks = (int) (kSr * 2.0 / kBlock);
+            for (int b = 0; b < blocks; ++b)
+            {
+                r.step (kBlock, [&] (juce::AudioBuffer<float>& buf, juce::MidiBuffer& m, int n)
+                {
+                    if (inst) gridNotes (m, r.ppq, r.bps(), n, 0.5, 0.25, id == "KICK" || id == "RUMBLE" ? 36 : 48, 100);
+                    else fillAudio (buf, r.ppq, r.head.bpm, 2);
+                });
+                for (int c = 0; c < 2; ++c)
+                {
+                    pk = std::max (pk, r.buf.getMagnitude (c, 0, kBlock));
+                    for (int i = 0; i < kBlock; ++i) if (! std::isfinite (r.buf.getSample (c, i))) nan = true;
+                }
+            }
+            ++patches;
+            if (pk > loudest) { loudest = pk; loudestId = id; }
+            if (nan || pk >= 3.99f) { ++bad; std::printf ("  FAIL: %s random patch %u: peak %.1f dB%s\n", id.c_str(), seed, gainToDb (pk), nan ? " NaN" : ""); }
+        }
+    }
+    std::printf ("   %d random patches over every module: %d past the clamp or not a number; the loudest %s at %.1f dB\n", patches, bad, loudestId.c_str(), gainToDb (loudest));
+    CHECK (bad == 0 && patches > 60, "random patches: %d bad of %d", bad, patches);
 }
 
 // ------------------------------------------------------------------------------------------

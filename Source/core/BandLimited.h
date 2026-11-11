@@ -80,6 +80,29 @@ public:
         }
     }
 
+    // The FFT itself (radix 2, in place), for analyses next to these tables.
+    static void transform (std::vector<std::complex<double>>& a, bool inverse) { fft (a, inverse); }
+
+    // The same from `cycles` periods in a row (cycles x N points, N a power of two, at the steps'
+    // middles), Hann-windowed [Nov 10]: a cycle cut out of a recording doesn't join up with itself,
+    // and a single cycle's FFT would hear the jump as a buzz of every harmonic; across several
+    // periods the window takes the ends away and harmonic h is bin cycles x h.
+    static void harmonicsOfCycles (const std::vector<double>& x, int cycles, int H, std::vector<float>& amp, std::vector<float>& phase)
+    {
+        const size_t n = x.size(), per = n / (size_t) std::max (1, cycles);
+        std::vector<std::complex<double>> X (n);
+        for (size_t i = 0; i < n; ++i) X[i] = x[i] * (0.5 - 0.5 * std::cos (2.0 * 3.14159265358979323846 * ((double) i + 0.5) / (double) n));
+        fft (X, false);
+        amp.assign ((size_t) H, 0.0f); phase.assign ((size_t) H, 0.0f);
+        for (int h = 1; h <= H && (size_t) (h * cycles) < n / 2; ++h)
+        {
+            // The window's coherent gain is a half; half a step back, as harmonicsOf.
+            const auto c = X[(size_t) (h * cycles)] / (0.5 * (double) n) * std::polar (1.0, -3.14159265358979323846 * h / (double) per);
+            amp[(size_t) h - 1] = (float) (2.0 * std::abs (c));
+            phase[(size_t) h - 1] = (float) (std::arg (c) + 0.5 * 3.14159265358979323846);
+        }
+    }
+
 private:
     void synth (int k, const std::vector<float>& amp, const std::vector<float>& phase, int harmonics)
     {

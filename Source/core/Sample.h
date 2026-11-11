@@ -126,6 +126,30 @@ private:
     std::vector<Retired> retired;
 };
 
+// Anything built from a sample for the audio thread to read (WAVETABLE's frames): swapped in whole
+// as SampleSlot swaps samples, the old one kept 2 s for a block that may still be reading it.
+template <typename T>
+class SharedSlot
+{
+public:
+    const T* audio() const noexcept { return live.load (std::memory_order_acquire); }
+    void set (std::shared_ptr<const T> p)
+    {
+        const std::lock_guard<std::mutex> g (lock);
+        const auto now = juce::Time::getMillisecondCounter();
+        if (owned != nullptr) retired.push_back ({ owned, now });
+        owned = std::move (p);
+        live.store (owned.get(), std::memory_order_release);
+        retired.erase (std::remove_if (retired.begin(), retired.end(), [now] (const Retired& r) { return now - r.at > 2000; }), retired.end());
+    }
+private:
+    std::atomic<const T*> live { nullptr };
+    std::mutex lock;
+    std::shared_ptr<const T> owned;
+    struct Retired { std::shared_ptr<const T> p; juce::uint32 at; };
+    std::vector<Retired> retired;
+};
+
 // Audio file extensions every sampler accepts.
 inline bool isAudioFile (const juce::String& path)
 {

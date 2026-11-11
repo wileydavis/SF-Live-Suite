@@ -11,7 +11,25 @@
 
 namespace sf
 {
-enum Engine { E_SUB, E_ORGAN, E_FM, E_HOOVER, E_SYNC, E_NOISE, E_WAVETABLE, E_GRAIN, E_SAMPLE };
+enum Engine { E_SUB, E_ORGAN, E_FM, E_HOOVER, E_SYNC, E_NOISE, E_WAVETABLE, E_GRAIN, E_SAMPLE, E_FM4 };
+
+// FM 4-OP [Nov 10]: four sine operators, A B C D, on one of eight algorithms (D's output can feed
+// itself back). Modulation only ever runs down the letters (D into C, B or A; C into B or A; B into
+// A), so the operators are worked out D, C, B, A. mods[k]: the operators that modulate k (a bit
+// each); carriers: the ones heard.
+struct FmAlgo { uint8_t mods[4]; uint8_t carriers; };
+static const FmAlgo kFmAlgos[8] = {
+    { { 1 << 1, 1 << 2, 1 << 3, 0 }, 1 },                          // STACK      D > C > B > A
+    { { 1 << 1, (1 << 2) | (1 << 3), 0, 0 }, 1 },                  // Y          C and D > B > A
+    { { (1 << 1) | (1 << 2), 0, 1 << 3, 0 }, 1 },                  // BRANCH     D > C, then C and B > A
+    { { 1 << 1, 0, 1 << 3, 0 }, (1 << 0) | (1 << 2) },             // 2 STACKS   B > A, D > C
+    { { 1 << 3, 1 << 3, 1 << 3, 0 }, 7 },                          // 1 TO 3     D > A, B and C
+    { { 0, 1 << 2, 1 << 3, 0 }, 3 },                               // STACK + 1  D > C > B, and A
+    { { 1 << 2, 1 << 2, 1 << 3, 0 }, 3 },                          // BELL       D > C > A and B
+    { { 0, 0, 0, 0 }, 15 } };                                      // ORGAN      all four heard
+static std::vector<std::string> fmAlgoNames() { return { "STACK", "Y", "BRANCH", "2 STACKS", "1 TO 3", "STACK + 1", "BELL", "ORGAN" }; }
+static const float kFmRatios[] = { 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f, 14.0f, 16.0f };
+static std::vector<std::string> fmRatioNames() { return { "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "16" }; }
 enum FiltType { F_LADDER, F_SVF, F_MS20, F_NONE, F_DIODE };   // F_DIODE: the TB-303's (ACID 303-TYPE)
 
 struct SynthModel
@@ -50,6 +68,7 @@ static std::vector<SynthModel> bassModels()
     { SynthModel x { "SINE SUB", E_SUB }; x.wave = 3; x.filt = F_NONE; x.mono = true; x.dec = 1.0f; x.sus = 1.0f; x.drive = 0.15f; m.push_back (x); }
     { SynthModel x { "OFFBEAT", E_SUB }; x.wave = 1; x.wave2 = 0; x.osc2 = 0.6f; x.detune = 0.05f; x.mono = true; x.dec = 0.18f; x.sus = 0.0f; x.fDec = 0.12f; x.resMul = 1.3f; x.envMul = 1.3f; m.push_back (x); }
     { SynthModel x { "SAMPLE", E_SAMPLE }; x.filt = F_SVF; x.mono = true; x.dec = 1.0f; x.sus = 1.0f; x.envMul = 0.0f; m.push_back (x); }
+    { SynthModel x { "FM 4-OP", E_FM4 }; x.filt = F_SVF; x.mono = true; x.att = 0.002f; x.dec = 0.8f; x.sus = 0.9f; x.rel = 0.08f; x.fDec = 0.3f; x.envMul = 0.3f; m.push_back (x); }
     return m;
 }
 static std::vector<SynthModel> leadModels()
@@ -65,6 +84,7 @@ static std::vector<SynthModel> leadModels()
     { SynthModel x { "FM BELL", E_FM }; x.ratio = 3.5f; x.filt = F_NONE; x.dec = 1.5f; x.sus = 0.0f; x.rel = 1.2f; x.fDec = 0.6f; m.push_back (x); }
     { SynthModel x { "SYNC", E_SYNC }; x.mono = true; x.dec = 0.5f; x.sus = 0.7f; x.fDec = 0.4f; x.filt = F_SVF; m.push_back (x); }
     { SynthModel x { "SAMPLE", E_SAMPLE }; x.filt = F_SVF; x.dec = 1.0f; x.sus = 1.0f; x.envMul = 0.0f; m.push_back (x); }
+    { SynthModel x { "FM 4-OP", E_FM4 }; x.filt = F_NONE; x.att = 0.002f; x.dec = 1.0f; x.sus = 0.9f; x.rel = 0.3f; m.push_back (x); }
     return m;
 }
 static std::vector<SynthModel> padModels()
@@ -78,6 +98,7 @@ static std::vector<SynthModel> padModels()
     { SynthModel x { "TAPE LOOP", E_SUB }; x.wave = 2; x.wave2 = 0; x.osc2 = 0.3f; x.detune = 0.03f; x.filt = F_SVF; x.att = 0.4f; x.dec = 1.0f; x.sus = 1.0f; x.rel = 1.5f; x.envMul = 0.0f; x.wow = 1.0f; x.drive = 0.3f; x.noise = 0.02f; m.push_back (x); }
     { SynthModel x { "NOISE BED", E_NOISE }; x.filt = F_SVF; x.att = 0.8f; x.dec = 1.0f; x.sus = 1.0f; x.rel = 2.0f; x.envMul = 0.0f; m.push_back (x); }
     { SynthModel x { "SAMPLE", E_SAMPLE }; x.filt = F_SVF; x.att = 0.05f; x.dec = 1.0f; x.sus = 1.0f; x.rel = 0.8f; x.envMul = 0.0f; m.push_back (x); }
+    { SynthModel x { "FM 4-OP", E_FM4 }; x.filt = F_NONE; x.att = 0.25f; x.dec = 1.0f; x.sus = 1.0f; x.rel = 1.2f; x.ensemble = 0.3f; m.push_back (x); }
     return m;
 }
 
@@ -178,11 +199,12 @@ class SynthModule : public Module
 {
 public:
     // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
-    // ACID and WARP, then SPLIT, SPLIT HZ and DRIFT [Nov 10], after the sample's four (ids are
-    // appended, never moved).
+    // ACID and WARP, then SPLIT, SPLIT HZ, DRIFT and TABLE [Nov 10], after the sample's four (ids
+    // are appended, never moved).
     enum { CUTOFF, RES, ENVAMT, GATE, DENS, FILT, DRIVE, LEVEL, MODEL, DECAY, ATTACK, ACCENT, GLIDE, TUNE, DETUNE, COLOR,
            LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART, ACID = SSTART + 4, WARP,
-           SPLIT, SPLITHZ, DRIFT, kParams };
+           SPLIT, SPLITHZ, DRIFT, TABLE,
+           FMALGO, FMRATIO, FMLEVEL = FMRATIO + 4, FMDECAY = FMLEVEL + 4, FMFB = FMDECAY + 4, kParams };
 
     SynthModule (const char* idName, int role, std::vector<SynthModel> m, float cutDef, float resDef, float envDef, float gateDef, float pDepth)
         : name (idName), roleId (role), models (std::move (m)), dCut (cutDef), dRes (resDef), dEnv (envDef), dGate (gateDef), dPocket (pDepth) {}
@@ -228,25 +250,152 @@ public:
         p.push_back (knob ("split_hz", "SPLIT HZ", 50.0f, 800.0f, 150.0f, "Hz", 200.0f).layerGroup());
         // Analog drift (updateControls).
         p.push_back (pct ("drift", "DRIFT", 0.0f).slow());
+        // WAVETABLE's frames: the built-in four, or eight from the loaded sample (hidden where no
+        // model is WAVETABLE).
+        auto table = choice ("table", "TABLE", { "BUILT-IN", "SAMPLE" }, 0).engineGroup();
+        if (! hasWavetable()) table.hide();
+        p.push_back (table);
+        // FM 4-OP's operators [Nov 10]: the algorithm, each operator's RATIO (to the note), LEVEL
+        // (a carrier's loudness, a modulator's depth) and DECAY (its own envelope), D's FEEDBACK.
+        p.push_back (choice ("fm_algo", "ALGORITHM", fmAlgoNames(), 3).engineGroup());
+        const char* const ops[] = { "A", "B", "C", "D" };
+        const int ratioDef[] = { 1, 1, 3, 10 };                    // 1, 1, 2, 7
+        const float levelDef[] = { 1.0f, 0.5f, 0.6f, 0.25f }, decayDef[] = { 0.7f, 0.4f, 0.6f, 0.25f };
+        std::string ids[12], names[12];
+        for (int k = 0; k < 4; ++k)
+        {
+            ids[k] = std::string ("fm_") + (char) ('a' + k) + "_ratio";  names[k] = std::string (ops[k]) + " RATIO";
+            ids[4 + k] = std::string ("fm_") + (char) ('a' + k) + "_level"; names[4 + k] = std::string (ops[k]) + " LEVEL";
+            ids[8 + k] = std::string ("fm_") + (char) ('a' + k) + "_decay"; names[8 + k] = std::string (ops[k]) + " DECAY";
+        }
+        for (int k = 0; k < 4; ++k) { auto q = choice ("x", "x", fmRatioNames(), ratioDef[k]).engineGroup(); q.id = ids[k]; q.name = names[k]; p.push_back (q); }
+        for (int k = 0; k < 4; ++k) { auto q = pct ("x", "x", levelDef[k]).engineGroup(); q.id = ids[4 + k]; q.name = names[4 + k]; p.push_back (q); }
+        for (int k = 0; k < 4; ++k) { auto q = pct ("x", "x", decayDef[k]).engineGroup(); q.id = ids[8 + k]; q.name = names[8 + k]; p.push_back (q); }
+        p.push_back (pct ("fm_feedback", "FEEDBACK", 0.2f).engineGroup());
         jassert ((int) p.size() == kParams);
         return p;
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override
     {
-        // One sample for the plugin: MODEL's and LAYER MODEL's (and GRANULAR's, where there is one).
+        // One sample for the plugin: MODEL's and LAYER MODEL's (and GRANULAR's and WAVETABLE's, where there are).
         const bool grains = std::any_of (models.begin(), models.end(), [] (const SynthModel& m) { return m.engine == E_GRAIN; });
-        return grains ? "DROP SAMPLE (MODEL OR LAYER MODEL: SAMPLE, GRANULAR)" : "DROP SAMPLE (MODEL OR LAYER MODEL: SAMPLE)";
+        return grains ? "DROP SAMPLE (MODEL OR LAYER MODEL: SAMPLE, GRANULAR; WAVETABLE ON TABLE SAMPLE)" : "DROP SAMPLE (MODEL OR LAYER MODEL: SAMPLE)";
     }
-    void loadFiles (const juce::StringArray& f) override { if (f.size() > 0) sample.set (loadSampleFile (juce::File (f[0]), sr)); }
+    void loadFiles (const juce::StringArray& f) override { if (f.size() > 0) { sample.set (loadSampleFile (juce::File (f[0]), sr)); buildFrames(); } }
     void save (juce::ValueTree& t) const override { sample.save (t, "SAMPLE"); }
-    void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); }
+    void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); buildFrames(); }
+    bool hasWavetable() const { return std::any_of (models.begin(), models.end(), [] (const SynthModel& m) { return m.engine == E_WAVETABLE; }); }
+
+    // WAVETABLE's TABLE SAMPLE [Nov 10]: eight frames from the loaded sample, at the voices' rate,
+    // from evenly across it, start to end. Each frame is four periods of the sound where it is cut:
+    // the period measured there (normalised autocorrelation, 25 Hz-2 kHz, the shortest lag within
+    // 10 % of the best so an octave below isn't taken, refined between lags); where nothing is
+    // periodic enough, the sample's analysed root or 1024 samples at 48 kHz. Hann-windowed, read as
+    // harmonics (Mipmap::harmonicsOfCycles: a cycle that doesn't join up with itself doesn't buzz),
+    // turned so every frame's fundamental starts at the same phase (frames blend without
+    // cancelling), brought to one loudness; a frame 40 dB under the loudest (silence at an end)
+    // takes its neighbour's.
+    struct SampleFrames { std::vector<Mipmap> f; };
+    static constexpr int kSampleFrames = 8;
+    static double periodAt (const std::vector<float>& x, int t0, int w, double sr)
+    {
+        int n = 1; while (n < 2 * w) n <<= 1;
+        std::vector<std::complex<double>> X ((size_t) n);
+        for (int i = 0; i < w; ++i) X[(size_t) i] = x[(size_t) (t0 + i)];
+        Mipmap::transform (X, false);
+        for (auto& v : X) v = std::norm (v);
+        Mipmap::transform (X, true);
+        std::vector<double> c ((size_t) w + 1, 0.0);
+        for (int i = 0; i < w; ++i) c[(size_t) i + 1] = c[(size_t) i] + (double) x[(size_t) (t0 + i)] * x[(size_t) (t0 + i)];
+        const int lo = std::max (2, (int) (sr / 2000.0)), hi = std::min (w / 2, (int) (sr / 25.0));
+        if (hi <= lo + 2 || c[(size_t) w] < 1.0e-9) return 0.0;
+        std::vector<double> r ((size_t) hi + 2, 0.0);
+        double best = 0.0;
+        for (int lag = lo - 1; lag <= hi + 1; ++lag)
+        {
+            const double e = std::sqrt ((c[(size_t) (w - lag)] - c[0]) * (c[(size_t) w] - c[(size_t) lag])) + 1.0e-20;
+            r[(size_t) lag] = X[(size_t) lag].real() / (double) n / e;
+            if (lag >= lo && lag <= hi) best = std::max (best, r[(size_t) lag]);
+        }
+        if (best < 0.6) return 0.0;
+        for (int lag = lo; lag <= hi; ++lag)
+            if (r[(size_t) lag] >= 0.9 * best && r[(size_t) lag] >= r[(size_t) lag - 1] && r[(size_t) lag] >= r[(size_t) lag + 1])
+            {
+                const double a = r[(size_t) lag - 1], b = r[(size_t) lag], d = r[(size_t) lag + 1], den = a - 2.0 * b + d;
+                return lag + (std::abs (den) > 1.0e-12 ? 0.5 * (a - d) / den : 0.0);
+            }
+        return 0.0;
+    }
+    static std::shared_ptr<const SampleFrames> framesFrom (const SampleData& s, double voiceRate)
+    {
+        const int len = s.length(), chans = std::max (1, s.buf.getNumChannels());
+        constexpr int kN = 2048, kCycles = 4;
+        const double fallback = s.rootHz > 20.0f ? s.sr / (double) s.rootHz : 1024.0 * s.sr / 48000.0;
+        const int win = (int) (0.085 * s.sr);
+        if (len < (int) (fallback * kCycles) + win + 8) return nullptr;
+        std::vector<float> mono ((size_t) len);
+        for (int i = 0; i < len; ++i) { float v = 0.0f; for (int ch = 0; ch < chans; ++ch) v += s.buf.getSample (ch, i); mono[(size_t) i] = v / (float) chans; }
+        auto at = [&mono, len] (double t)
+        {
+            const int i = juce::jlimit (1, len - 3, (int) t);
+            const float fr = (float) (t - i), xm1 = mono[(size_t) i - 1], x0 = mono[(size_t) i], x1 = mono[(size_t) i + 1], x2 = mono[(size_t) i + 2];
+            const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+            return (double) (((c3 * fr + c2) * fr + c1) * fr + x0);
+        };
+        std::vector<std::vector<float>> amps ((size_t) kSampleFrames), phs ((size_t) kSampleFrames);
+        std::vector<double> rms ((size_t) kSampleFrames, 0.0);
+        std::vector<double> x ((size_t) (kN * kCycles));
+        const double usable = (double) len - 8.0 - win - fallback * kCycles;
+        for (int f = 0; f < kSampleFrames; ++f)
+        {
+            const double t0 = 2.0 + std::max (0.0, usable) * f / (kSampleFrames - 1);
+            double per = periodAt (mono, (int) t0, win, s.sr);
+            if (per <= 0.0) per = fallback;
+            per = std::min (per, ((double) len - 8.0 - t0) / kCycles);
+            for (size_t i = 0; i < x.size(); ++i) x[i] = at (t0 + ((double) i + 0.5) * per / kN);
+            auto& amp = amps[(size_t) f]; auto& ph = phs[(size_t) f];
+            Mipmap::harmonicsOfCycles (x, kCycles, Mipmap::kSize / 4, amp, ph);
+            double e = 0.0;
+            for (auto a : amp) e += 0.5 * (double) a * a;
+            rms[(size_t) f] = std::sqrt (e);
+            const float p1 = ph[0];
+            for (size_t h = 0; h < ph.size(); ++h) ph[h] -= (float) (h + 1) * p1;
+        }
+        const double loud = *std::max_element (rms.begin(), rms.end());
+        if (loud < 1.0e-6) return nullptr;
+        // Silent frames take a neighbour's (the nearest loud one before, else after).
+        for (int f = 0; f < kSampleFrames; ++f)
+            if (rms[(size_t) f] < 0.01 * loud)
+                for (int d = 1; d < kSampleFrames; ++d)
+                {
+                    const int k = f - d >= 0 && rms[(size_t) (f - d)] >= 0.01 * loud ? f - d : f + d < kSampleFrames && rms[(size_t) (f + d)] >= 0.01 * loud ? f + d : -1;
+                    if (k >= 0) { amps[(size_t) f] = amps[(size_t) k]; phs[(size_t) f] = phs[(size_t) k]; rms[(size_t) f] = rms[(size_t) k]; break; }
+                }
+        auto out = std::make_shared<SampleFrames>();
+        out->f.resize ((size_t) kSampleFrames);
+        for (int f = 0; f < kSampleFrames; ++f)
+        {
+            const float g = (float) (0.45 / rms[(size_t) f]);
+            for (auto& a : amps[(size_t) f]) a *= g;
+            out->f[(size_t) f].build (amps[(size_t) f], phs[(size_t) f], voiceRate);
+        }
+        return out;
+    }
+    void buildFrames()
+    {
+        if (! hasWavetable()) return;
+        auto s = sample.get();
+        frames.set (s != nullptr ? framesFrom (*s, 2.0 * sr) : nullptr);
+    }
 
     void prepare (double rate, int mb) override
     {
         if (auto s = sample.get(); s != nullptr && std::abs (s->sr - rate) > 1 && s->flac.getSize() > 0) sample.set (loadSampleFlac (s->flac, s->name, rate, s->flacGain));
+        const bool rateChanged = std::abs (sr - rate) > 1.0;
         sr = rate;
         osr = 2.0 * rate;
+        if (rateChanged || (frames.audio() == nullptr && sample.get() != nullptr)) buildFrames();
         waves = WaveSet::get (osr);
         dec.prepare (rate);
         decB.prepare (rate);
@@ -294,6 +443,10 @@ public:
         // sweep's reach (same units), RESONANCE, its output gain (the pot's second gang), the
         // envelope's and the sweep's coefficients, the square's share.
         float acidL0 = 0, acidL1 = 0, acidSweep = 0, acidRes = 0, acidFbK = 0, acidComp = 1, megK = 1, megKAcc = 1, capC = 0, capD = 1, sqTarget = 0, sqFade = 0, sqHpK = 1;
+        // FM 4-OP: the algorithm, each operator's ratio, level, envelope step (per sample) and
+        // floor; the depth a modulator's full level gives (radians); D's feedback; the carriers' scale.
+        int fmAlgo = 3;
+        float fmRatio[4] {}, fmLevel[4] {}, fmMul[4] {}, fmHold[4] {}, fmBeta = 3.0f, fmFb = 0.0f, fmOut = 1.0f;
     };
     struct Voice
     {
@@ -316,6 +469,8 @@ public:
         DiodeLadder303 dl;                // ACID 303-TYPE: its filter, envelope and square (kept on a retrigger)
         float meg = 0.0f, sqMix = 0.0f, sqHp = 0.0f, sqPrev = 0.0f;
         float warpT = 0.0f, warpPh = 0.0f, warpRate = 1.0f;     // WARP's wow and flutter: this voice's time, phase, pace
+        double fmPh[4] {};                // FM 4-OP: the operators' phases (from 0 at the note), envelopes,
+        float fmEnv[4] { 1, 1, 1, 1 }, fmPrev[2] {};   // and D's last two outputs (its feedback)
         Svf svf, svf2, nbp;
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
         struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; SampleRegion reg; } grains[8];   // reg: where it started (end 0: the whole source)
@@ -359,6 +514,9 @@ public:
         // The sample's START..END now: a SAMPLE note started in this block plays it, GRANULAR's
         // grains come from it.
         blockReg = smp != nullptr ? regionFrom (c, SSTART, *smp) : SampleRegion();
+        // WAVETABLE's frames from the sample, if TABLE says so and there are some.
+        tableFrames = c.ci (TABLE) == 1 ? frames.audio() : nullptr;
+        if (tableFrames != nullptr && tableFrames->f.size() < (size_t) kSampleFrames) tableFrames = nullptr;
         pitchOffset = c.v (TUNE) + (c.b (KEYFOLLOW) ? (float) keyOffset (c.keyRoot) : 0.0f);
         const int modelA = c.ci (MODEL), modelB = c.ci (LAYERMODEL);
         ensembleAmt = models[(size_t) juce::jlimit (0, (int) models.size() - 1, modelA)].ensemble;
@@ -574,7 +732,7 @@ private:
             // 4x: the driven ladders and MS20, the 303's filter, hard sync, and FM [Nov 10] (a high
             // bell's sidebands reach past 48 kHz: at 2x they folded back into the audible band, 45 dB
             // down at C7; SFTests --alias).
-            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.filt == F_DIODE || m.engine == E_SYNC || m.engine == E_FM) ? 4 : 2;
+            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.filt == F_DIODE || m.engine == E_SYNC || m.engine == E_FM || m.engine == E_FM4) ? 4 : 2;
             v.rate = sr * v.os;
             v.freq = wasActive ? keepFreq : noteHz (note);
             for (int k = 0; k < 8; ++k) { v.ph[k] = rng.uni(); v.ph2[k] = rng.uni(); v.pan[k] = 0.5f + (k == 0 ? 0.0f : ((k & 1) ? -0.35f : 0.35f) * (0.5f + 0.5f * rng.uni())); }
@@ -769,6 +927,27 @@ private:
             k.sqFade = 1.0f - std::exp (-1.0f / (0.005f * (float) vr));
             k.sqHpK = std::exp (-kTwoPi * 40.0f / (float) vr);
         }
+        if (m.engine == E_FM4)
+        {
+            // FM 4-OP: each operator's ratio, level and envelope (DECAY 0-98 %: falls with a time
+            // constant of 0.03-7.5 s, times the DECAY knob's scaling; above: held), the depth a
+            // modulator at full LEVEL gives (pi/2 to 2 pi with COLOR, more on an accent), D's
+            // feedback, and the carriers scaled by 1 / sqrt of how many there are.
+            k.fmAlgo = juce::jlimit (0, 7, c.ci (FMALGO));
+            const float decK = std::pow (2.0f, (c.v (DECAY) - 0.5f) * 4.0f);
+            int carriers = 0;
+            for (int op = 0; op < 4; ++op)
+            {
+                k.fmRatio[op] = kFmRatios[juce::jlimit (0, (int) std::size (kFmRatios) - 1, c.ci (FMRATIO + op))];
+                k.fmLevel[op] = clamp01 (c.v (FMLEVEL + op));
+                const float d = c.v (FMDECAY + op);
+                k.fmMul[op] = d >= 0.98f ? 1.0f : std::exp (-1.0f / (0.03f * std::pow (250.0f, d) * decK * (float) vr));
+                if (kFmAlgos[k.fmAlgo].carriers & (1 << op)) ++carriers;
+            }
+            k.fmBeta = kPi * (0.5f + 1.5f * k.color) * (1.0f + 0.5f * v.accent);
+            k.fmFb = c.v (FMFB) * 0.75f * kPi;
+            k.fmOut = 1.0f / std::sqrt ((float) std::max (1, carriers));
+        }
         if (m.engine == E_NOISE) v.nbp.set (v.freq, 4.0f + k.color * 40.0f, vr);
         k.uni = std::max (1, std::min (8, m.unison));
         k.detCents = m.detune * 40.0f * (0.2f + k.det * 1.6f);
@@ -931,6 +1110,28 @@ private:
                     x = sinT (cp);
                     break;
                 }
+                case E_FM4:
+                {
+                    // The operators D, C, B, A (modulation only runs down the letters); D's
+                    // feedback is its last two outputs averaged (as the DX's, so it never rings).
+                    const auto& al = kFmAlgos[k.fmAlgo];
+                    float o[4] {}, out = 0.0f;
+                    for (int op = 3; op >= 0; --op)
+                    {
+                        float pm = 0.0f;
+                        for (int j = op + 1; j < 4; ++j) if (al.mods[op] & (1 << j)) pm += o[j];
+                        if (op == 3) pm += k.fmFb * 0.5f * (v.fmPrev[0] + v.fmPrev[1]);
+                        v.fmPh[op] += inc * k.fmRatio[op]; wrap01 (v.fmPh[op]);
+                        double pp = v.fmPh[op] + pm * (1.0 / kTwoPi); pp -= std::floor (pp);
+                        v.fmEnv[op] *= k.fmMul[op];
+                        const float y = sinT (pp) * k.fmLevel[op] * v.fmEnv[op];
+                        if (op == 3) { v.fmPrev[1] = v.fmPrev[0]; v.fmPrev[0] = y; }
+                        if (al.carriers & (1 << op)) out += y;
+                        o[op] = y * k.fmBeta;
+                    }
+                    x = out * k.fmOut;
+                    break;
+                }
                 case E_SYNC:
                 {
                     // Hard sync: slave saw restarts with the master; every edge BLEP-corrected.
@@ -943,10 +1144,22 @@ private:
                     break;
                 case E_WAVETABLE:
                 {
-                    const float pos = clamp01 (color + 0.15f * std::sin (kTwoPi * v.t * 0.13f)) * 3.0f;
-                    const int t0 = std::min (2, (int) pos);
-                    const float fr = pos - (float) t0;
-                    x = lerp (W.frame[t0].read (oct1[0], v.ph[0]), W.frame[t0 + 1].read (oct1[0], v.ph[0]), fr);
+                    // TABLE SAMPLE with a sample's frames: COLOR across its eight; else the built-in four.
+                    const float scan = clamp01 (color + 0.15f * std::sin (kTwoPi * v.t * 0.13f));
+                    if (tableFrames != nullptr)
+                    {
+                        const float pos = scan * (float) (kSampleFrames - 1);
+                        const int t0 = std::min (kSampleFrames - 2, (int) pos);
+                        const float fr = pos - (float) t0;
+                        x = lerp (tableFrames->f[(size_t) t0].read (oct1[0], v.ph[0]), tableFrames->f[(size_t) t0 + 1].read (oct1[0], v.ph[0]), fr);
+                    }
+                    else
+                    {
+                        const float pos = scan * 3.0f;
+                        const int t0 = std::min (2, (int) pos);
+                        const float fr = pos - (float) t0;
+                        x = lerp (W.frame[t0].read (oct1[0], v.ph[0]), W.frame[t0 + 1].read (oct1[0], v.ph[0]), fr);
+                    }
                     v.ph[0] += inc; wrap01 (v.ph[0]);
                     break;
                 }
@@ -1109,6 +1322,8 @@ private:
     static constexpr int kBDrain = 64;
     int bLive = 0;
     LayerSplit split;
+    SharedSlot<SampleFrames> frames;                   // WAVETABLE's frames from the sample (buildFrames)
+    const SampleFrames* tableFrames = nullptr;         // this block's (processVoices)
     // DRIFT: each voice slot's tuning and cutoff (-1..1), its drift's phase and pace; the drift's clock (s).
     struct SlotDrift { float tune = 0, cut = 0, ph = 0, rate = 1; };
     std::array<SlotDrift, 2 * kPlayVoices> slotDrift {};

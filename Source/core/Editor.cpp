@@ -81,6 +81,23 @@ void SFLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& l)
 
 // ---------------------------------------------------------------- cells
 // One control: a knob (an E16 encoder's ring and cap), a menu, or a switch.
+// A knob's slider: a right-click (or ctrl-click) locks or unlocks the control for the randomiser,
+// and turns nothing.
+struct LockSlider : juce::Slider
+{
+    using juce::Slider::Slider;
+    std::function<void()> onLock;
+    bool locking = false;
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        locking = e.mods.isPopupMenu() && onLock != nullptr;
+        if (locking) { onLock(); return; }
+        juce::Slider::mouseDown (e);
+    }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! locking) juce::Slider::mouseDrag (e); }
+    void mouseUp (const juce::MouseEvent& e) override { if (! locking) juce::Slider::mouseUp (e); locking = false; }
+};
+
 class SFCell : public juce::Component
 {
 public:
@@ -115,7 +132,9 @@ public:
         if (s.type == PType::Float || (look.e16 && s.type == PType::Choice))
         {
             kind = Kind::Ring;
-            slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox);
+            auto ls = std::make_unique<LockSlider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox);
+            ls->onLock = [this] { if (proc.randomisable (idx)) { proc.setLocked (idx, ! proc.isLocked (idx)); repaint(); } };
+            slider = std::move (ls);
             slider->setMouseDragSensitivity (look.big ? 240 : 200);
             slider->setVelocityModeParameters (1.0, 1, 0.0, false, juce::ModifierKeys::shiftModifier);
             sAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (ap, s.id, *slider);
@@ -259,6 +278,16 @@ private:
         ui::drawLeds (g, c, rr, ld, std::min (from, p), std::max (from, p), gliding ? ui::kGreen : look.led, ui::kLedOff);
         if (gliding) ui::drawLedMark (g, c, rr, ld, pos (target), ui::kText);
         if (proc.isModulated (idx)) ui::drawModDot (g, c, rr, ld, pos (prm->convertTo0to1 (proc.currentValue (idx))), ui::kGreen);
+        // Locked for the randomiser: a small padlock by the ring's top right.
+        if (proc.randomisable (idx) && proc.isLocked (idx))
+        {
+            const float x = c.x + rr + ld + 1.0f, y = c.y - rr - ld + 2.0f;
+            g.setColour (ui::kDim);
+            g.fillRect (juce::Rectangle<float> (x, y + 3.0f, 6.0f, 4.5f));
+            juce::Path sh;
+            sh.addCentredArc (x + 3.0f, y + 3.0f, 2.0f, 2.2f, 0.0f, -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, true);
+            g.strokePath (sh, juce::PathStrokeType (1.1f));
+        }
         const bool hot = slider->isMouseButtonDown() || juce::Time::getMillisecondCounter() < hotUntil;
         const float vy = look.big ? 59.0f : 44.0f;
         fitted (g, prm->getCurrentValueAsText(), { 0.0f, vy, (float) getWidth(), 11.0f },
@@ -318,6 +347,7 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     auto name = [] (Group& g, const char* title, int bit, bool foldedAtFirst) { g.title = title; g.bit = bit; g.foldedAtFirst = foldedAtFirst; };
     name (perform, "PERFORM", 0, false);
     name (detail, "DETAIL", kFoldDetail, false);
+    name (engine, "ENGINE", kFoldEngine, true);
     name (layer, "LAYER", kFoldLayer, true);
     name (sample, "SAMPLE", kFoldSample, true);
     name (motion, "MOTION", kFoldMotion, true);
@@ -329,16 +359,36 @@ SFEditor::SFEditor (SFProcessor& p) : juce::AudioProcessorEditor (p), proc (p)
     addAndMakeVisible (presetButton);
     if (p.mod().acceptsFiles())
     {
+        // LOAD: a file, or RESAMPLE [Nov 10]: the plugin's own output from the next bar line.
         loadButton.onClick = [this]
         {
-            chooser = std::make_unique<juce::FileChooser> ("LOAD", juce::File(), "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg;*.m4a");
-            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems,
-                                  [this] (const juce::FileChooser& fc)
-                                  {
-                                      juce::StringArray paths;
-                                      for (auto& f : fc.getResults()) paths.add (f.getFullPathName());
-                                      if (! paths.isEmpty()) proc.mod().loadFiles (paths);
-                                  });
+            juce::PopupMenu m;
+            m.addItem (1, "FILE...");
+            m.addSeparator();
+            const bool busy = proc.resampleStage() != 0;
+            m.addItem (2, "RESAMPLE 1 BAR", ! busy);
+            m.addItem (3, "RESAMPLE 2 BARS", ! busy);
+            m.addItem (4, "RESAMPLE 4 BARS", ! busy);
+            if (busy) m.addItem (5, "CANCEL RESAMPLE");
+            juce::Component::SafePointer<SFEditor> self (this);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (loadButton), [self] (int r)
+            {
+                if (self == nullptr || r == 0) return;
+                if (r == 1)
+                {
+                    self->chooser = std::make_unique<juce::FileChooser> ("LOAD", juce::File(), "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg;*.m4a");
+                    self->chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems,
+                                                [self] (const juce::FileChooser& fc)
+                                                {
+                                                    if (self == nullptr) return;
+                                                    juce::StringArray paths;
+                                                    for (auto& f : fc.getResults()) paths.add (f.getFullPathName());
+                                                    if (! paths.isEmpty()) self->proc.mod().loadFiles (paths);
+                                                });
+                }
+                else if (r >= 2 && r <= 4) self->proc.armResample (r == 2 ? 1 : r == 3 ? 2 : 4);
+                else if (r == 5) self->proc.cancelResample();
+            });
         };
         addAndMakeVisible (loadButton);
     }
@@ -440,6 +490,7 @@ void SFEditor::build()
                   : i >= firstSys ? &system
                   : s.primary || s.perform ? &perform
                   : s.inSample ? &sample
+                  : s.inEngine ? &engine
                   : s.inLayer ? &layer
                   : s.setup ? &setup : &detail;
         SFCell::Look lk;
@@ -560,6 +611,7 @@ int SFEditor::layout()
         y = display.getBottom() + 8;
     }
     place (detail);
+    place (engine);
     place (layer);
     place (sample);
     place (motion);
@@ -806,6 +858,13 @@ void SFEditor::timerCallback()
     else if (std::max (0, proc.mod().displayHeight()) != display.getHeight()) relayout();   // the display grew or shrank (a sample in or out)
     else if (ticks % 30 == 0 && std::min (kHeader + body.getHeight(), heightLimit()) != getHeight()) relayout();   // another screen
     if (presetButton.getButtonText() != presetText()) presetButton.setButtonText (presetText());
+    // LOAD says what a RESAMPLE is doing: waiting for the bar, recording.
+    if (loadButton.isVisible())
+    {
+        const int st = proc.resampleStage();
+        const juce::String t = st == 1 ? "WAIT" : st >= 2 ? "REC" : "LOAD";
+        if (loadButton.getButtonText() != t) loadButton.setButtonText (t);
+    }
     repaint (0, 0, getWidth(), 26);
     if (! display.isEmpty()) body.repaint (display);
     for (auto& c : cells) if (c->isVisible()) c->poll();
@@ -855,6 +914,15 @@ void SFEditor::showPresetMenu()
         menu.addSectionHeader ("USER");
         for (int i = 0; i < userFiles.size(); ++i) menu.addItem (1000 + i, userFiles[i].getFileNameWithoutExtension());
     }
+    // The randomiser: the unlocked controls (right-click a knob to lock or unlock it).
+    if (! fac.empty())
+    {
+        menu.addSeparator();
+        menu.addItem (3000, "RANDOMISE THE UNLOCKED");
+        menu.addItem (3001, "NUDGE THE UNLOCKED");
+        menu.addItem (3002, "LOCKS AS AT FIRST");
+        menu.addItem (3003, "UNLOCK ALL");
+    }
     menu.addSeparator();
     menu.addItem (2000, "SAVE USER PRESET...");
     menu.addItem (2001, "SHOW PRESET FOLDER");
@@ -889,6 +957,13 @@ void SFEditor::presetChosen (int r)
         auto folder = proc.userPresetFolder();
         folder.createDirectory();
         folder.revealToUser();
+    }
+    else if (r == 3000 || r == 3001) proc.randomise (r == 3001, (uint32_t) juce::Time::getHighResolutionTicks());
+    else if (r == 3002 || r == 3003)
+    {
+        if (r == 3002) proc.defaultLocks();
+        else for (int i = 0; i < proc.numModuleParams(); ++i) proc.setLocked (i, false);
+        for (auto& c : cells) c->repaint();
     }
     presetButton.setButtonText (presetText());
 }

@@ -116,6 +116,7 @@ SFProcessor::SFProcessor (ModulePtr m)
     for (size_t i = 0; i < specs.size(); ++i) { ovr[i] = NAN; ovrFrom[i] = 0.0f; extGen[i] = 0; ovrGen[i] = 0; recallGen[i] = 0; reportedGen[i] = 0; reportExtGen[i] = 0; departGen[i] = 0; }
     ovrAge.assign (specs.size(), 0);
     for (size_t i = 0; i < specs.size(); ++i) cur[i] = prev[i] = base[i] = specs[i].def;
+    defaultLocks();
     for (auto& h : songHas) h = false;
     for (auto& o : motionOut) o = 0.0f;
 
@@ -417,7 +418,7 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
         if (auto pos = ph->getPosition())
         {
             if (auto b = pos->getBpm()) { c.bpm = juce::jlimit (20.0, 400.0, *b); lastBpm = c.bpm; }
-            if (auto ts = pos->getTimeSignature()) c.beatsPerBar = juce::jlimit (0.5, 32.0, ts->numerator * 4.0 / std::max (1, ts->denominator));
+            if (auto ts = pos->getTimeSignature()) { c.beatsPerBar = juce::jlimit (0.5, 32.0, ts->numerator * 4.0 / std::max (1, ts->denominator)); lastBpb = c.beatsPerBar; }
             c.playing = pos->getIsPlaying();
             if (c.playing)
                 if (auto q = pos->getPpqPosition())
@@ -622,6 +623,8 @@ void SFProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     }
     firstBlock = false;
     publishGlides (bus);
+    if (const int rs = resampleState.load (std::memory_order_acquire); rs == 1 || rs == 2)
+        recordResample (mainOut, total, (int64_t) streamPos - total, ppq0, bps, c.playing, c.beatsPerBar);
 
     outMeter.push (mainOut.getArrayOfReadPointers(), mainOut.getNumChannels(), total);
     if (outMeter.peak > 0.999f) clipped = true;
@@ -898,7 +901,71 @@ void SFProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::AudioBuf
             }
 }
 
-void SFProcessor::timerCallback() { flushHostNotifications(); }
+void SFProcessor::timerCallback() { flushHostNotifications(); serviceResample(); }
+
+// ------------------------------------------------------------------------------ RESAMPLE
+juce::File SFProcessor::resampleFolder()
+{
+    if (testResampleFolder != juce::File()) return testResampleFolder;
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("SF Live Suite").getChildFile ("Resamples");
+}
+
+void SFProcessor::armResample (int bars)
+{
+    if (! module->acceptsFiles() || resampleState.load() != 0) return;
+    // The buffer made here, never on the audio thread: room for the bars at 40 BPM (at most 30 s).
+    // The length is fixed at the first block after this, at that block's tempo.
+    resampleBars = juce::jlimit (1, 4, bars);
+    resampleBuf.setSize (2, std::max (1, (int) std::lround (std::min (30.0, resampleBars * std::max (4.0, lastBpb) * 60.0 / 40.0) * getSampleRate())), false, true, false);
+    resampleLen = 0;
+    resamplePos = 0;
+    resampleAt = -1;
+    resampleState.store (1, std::memory_order_release);
+}
+
+// The audio thread, after the block: wait for the bar line (as late as the latency, so the take
+// starts with the bar's sound: where, in the stream's samples, is fixed at the first block after
+// arming), then copy the output until the buffer is full.
+void SFProcessor::recordResample (const juce::AudioBuffer<float>& out, int n, int64_t blockStart, double ppq0, double bps, bool playing, double beatsPerBar)
+{
+    int from = 0;
+    if (resampleState.load (std::memory_order_acquire) == 1)
+    {
+        if (resampleAt < 0)
+        {
+            const double bar = std::max (0.5, beatsPerBar);
+            const double next = barPhase + std::ceil ((ppq0 - barPhase) / bar - 1e-9) * bar;
+            resampleAt = playing ? blockStart + (int64_t) std::ceil ((next - ppq0) / bps - 1e-9) + getLatencySamples() : blockStart;
+            resampleLen = std::min (resampleBuf.getNumSamples(), std::max (1, (int) std::lround (resampleBars * bar / bps)));
+        }
+        if (resampleAt >= blockStart + n) return;
+        from = (int) std::max<int64_t> (0, resampleAt - blockStart);
+        resampleState.store (2, std::memory_order_release);
+    }
+    const int k = std::min (n - from, resampleLen - resamplePos);
+    for (int ch = 0; ch < 2; ++ch)
+        resampleBuf.copyFrom (ch, resamplePos, out, std::min (ch, out.getNumChannels() - 1), from, k);
+    resamplePos += k;
+    if (resamplePos >= resampleLen) resampleState.store (3, std::memory_order_release);
+}
+
+void SFProcessor::serviceResample()
+{
+    if (resampleState.load (std::memory_order_acquire) != 3) return;
+    auto folder = resampleFolder();
+    folder.createDirectory();
+    const auto name = "SF " + juce::String (module->id()) + " " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H-%M-%S");
+    auto file = folder.getNonexistentChildFile (name, ".wav", false);
+    {
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (file), getSampleRate(), 2, 24, {}, 0));
+        if (w != nullptr) w->writeFromAudioSampleBuffer (resampleBuf, 0, resampleLen);
+    }
+    resampleState.store (0, std::memory_order_release);
+    resampleBuf.setSize (2, 0);
+    lastResample = file;
+    if (file.existsAsFile()) module->loadFiles (juce::StringArray (file.getFullPathName()));
+}
 
 void SFProcessor::updateTrackProperties (const TrackProperties& p)
 {
@@ -931,6 +998,47 @@ void SFProcessor::applyPreset (const Preset& pr)
         p->endChangeGesture();
     }
     currentPreset = pr.name;
+}
+
+// ------------------------------------------------------------------------------ randomiser
+bool SFProcessor::randomisable (int i) const
+{
+    // Sound modules only (the ones with factory presets): CONTROL, DECK, ALLOC, TAP and ROOM EQ are
+    // how the set runs (a random KEY or SONG on CONTROL would move the whole set).
+    if (i < 0 || i >= numModParams || factory.empty()) return false;
+    const auto& s = specs[(size_t) i];
+    return ! s.hidden && s.preset && ! s.setup && ! s.inSample && (s.type == PType::Float || s.type == PType::Choice);
+}
+
+void SFProcessor::defaultLocks()
+{
+    static const char* const ids[] = { "level", "filter", "density", "mix", "tune", "shift", "acid", "warp", "energy" };
+    for (size_t i = 0; i < specs.size() && i < (size_t) kMaxParams; ++i)
+        locked[i] = std::any_of (std::begin (ids), std::end (ids), [&] (const char* id) { return specs[i].id == id; });
+}
+
+void SFProcessor::randomise (bool nudge, uint32_t seed)
+{
+    sf::Noise rng { seed | 1u };
+    for (int i = 0; i < numModParams; ++i)
+    {
+        if (! randomisable (i) || isLocked (i)) continue;
+        const auto& s = specs[(size_t) i];
+        if (nudge && s.type != PType::Float) continue;
+        auto* p = params[(size_t) i];
+        float v;
+        if (s.type == PType::Choice)
+        {
+            const int n = (int) s.choices.size();
+            v = p->convertTo0to1 ((float) juce::jlimit (0, n - 1, (int) (rng.uni() * (float) n)));
+        }
+        else v = nudge ? juce::jlimit (0.0f, 1.0f, p->getValue() + 0.15f * rng.next()) : rng.uni();
+        departGen[(size_t) i] = recallGen[(size_t) i].load();
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (v);
+        p->endChangeGesture();
+    }
+    currentPreset = {};
 }
 
 Preset SFProcessor::capturePreset (const juce::String& name) const
@@ -1004,6 +1112,12 @@ void SFProcessor::getStateInformation (juce::MemoryBlock& mb)
     root.setProperty ("uid", juce::String::toHexString ((juce::int64) instanceUid.load()), nullptr);
     root.setProperty ("preset", currentPreset, nullptr);
     if (const int f = uiFold.load(); f != 0) root.setProperty ("ui", f, nullptr);   // only when not the default
+    {
+        // The randomiser's locks, by id (only the randomisable controls; "-" for none locked).
+        juce::StringArray ids;
+        for (int i = 0; i < numModParams; ++i) if (randomisable (i) && isLocked (i)) ids.add (specs[(size_t) i].id);
+        root.setProperty ("locks", ids.isEmpty() ? juce::String ("-") : ids.joinIntoString (","), nullptr);
+    }
     // The settings in force, as the sound and STORE have them: a value just recalled that Live
     // hasn't been told yet is the setting (Live still holds the one from before the recall), unless
     // a newer change in Live superseded it. Targets, not where a glide, MACRO or MOTION has them.
@@ -1073,6 +1187,13 @@ void SFProcessor::setStateInformation (const void* data, int size)
         if (const auto u = (uint64_t) root.getProperty ("uid").toString().getHexValue64(); u != 0) instanceUid = u;
     currentPreset = root.getProperty ("preset", "").toString();
     uiFold = (int) root.getProperty ("ui", 0);
+    // The locks as saved; a set from before the randomiser gets the first ones.
+    if (root.hasProperty ("locks"))
+    {
+        const auto ids = juce::StringArray::fromTokens (root.getProperty ("locks").toString(), ",", "");
+        for (int i = 0; i < numModParams; ++i) setLocked (i, ids.contains (juce::String (specs[(size_t) i].id)));
+    }
+    else defaultLocks();
     auto songs = root.getChildWithName ("SONGS");
     lockSongs();
     for (auto& h : songHas) h = false;

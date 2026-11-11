@@ -630,8 +630,8 @@ static void dumpSpecs()
             const juce::String maxText = s.type == PType::Float ? prm->getText (1.0f, 64) : juce::String();
             const char* type = s.type == PType::Float ? "knob" : s.type == PType::Choice ? "menu" : s.type == PType::Toggle ? "toggle" : "momentary";
             const bool slows = s.glidesWithSlow() && (int) k < p.numModuleParams();
-            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"perform\": %s, \"setup\": %s, \"sample\": %s, \"layer\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
-                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", s.perform ? "true" : "false", s.setup ? "true" : "false", s.inSample ? "true" : "false", s.inLayer ? "true" : "false", slows ? "true" : "false",
+            std::printf ("  {\"id\": \"%s\", \"name\": \"%s\", \"type\": \"%s\", \"primary\": %s, \"perform\": %s, \"setup\": %s, \"sample\": %s, \"layer\": %s, \"engine\": %s, \"slow\": %s, \"min\": \"%s\", \"max\": \"%s\", \"def\": \"%s\", \"choices\": \"%s\", \"macro\": %d}%s\n",
+                         s.id.c_str(), s.name.c_str(), type, s.primary ? "true" : "false", s.perform ? "true" : "false", s.setup ? "true" : "false", s.inSample ? "true" : "false", s.inLayer ? "true" : "false", s.inEngine ? "true" : "false", slows ? "true" : "false",
                          minText.toRawUTF8(), maxText.toRawUTF8(), defText.toRawUTF8(), choices.toRawUTF8(), s.macroDir, k + 1 < sp.size() ? "," : "");
         }
         std::printf ("]}%s\n", m + 1 < ids.size() ? "," : "");
@@ -1229,7 +1229,7 @@ static void testEditor()
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
         auto& e = dynamic_cast<SFEditor&> (*ed);
         const int h0 = e.getHeight();
-        CHECK (e.folded (SFEditor::kFoldMotion) && e.folded (SFEditor::kFoldSystem) && e.folded (SFEditor::kFoldSetup) && e.folded (SFEditor::kFoldLayer) && ! e.folded (SFEditor::kFoldDetail), "the folds at first");
+        CHECK (e.folded (SFEditor::kFoldMotion) && e.folded (SFEditor::kFoldSystem) && e.folded (SFEditor::kFoldSetup) && e.folded (SFEditor::kFoldLayer) && e.folded (SFEditor::kFoldEngine) && ! e.folded (SFEditor::kFoldDetail), "the folds at first");
         e.toggleFold (SFEditor::kFoldMotion);
         CHECK (! e.folded (SFEditor::kFoldMotion) && e.getHeight() > h0, "MOTION opens: %d -> %d", h0, e.getHeight());
         juce::MemoryBlock mb;
@@ -1275,7 +1275,7 @@ int main (int argc, char** argv)
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
                      testThirdReview(); testDrop(); testSongWindow(); testSongGo(); testGrooveFollow(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
-                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); testEmulation(); testLayerSplit(); testDrift(); testResonator(); }
+                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); testEmulation(); testLayerSplit(); testDrift(); testResonator(); testRandomise(); testWavetableSample(); testResample(); testFm4(); }
     else if (std::string (argv[1]) == "--emulation") { testEmulation(); }
     else if (std::string (argv[1]) == "--acid") { testAcid(); }
     else if (std::string (argv[1]) == "--nrg") { testNrg(); }
@@ -1284,6 +1284,10 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--split") { testLayerSplit(); }
     else if (std::string (argv[1]) == "--drift") { testDrift(); }
     else if (std::string (argv[1]) == "--resonator") { testResonator(); }
+    else if (std::string (argv[1]) == "--randomise") { testRandomise(); }
+    else if (std::string (argv[1]) == "--wavetable") { testWavetableSample(); }
+    else if (std::string (argv[1]) == "--resample") { testResample(); }
+    else if (std::string (argv[1]) == "--fm4") { testFm4(); }
     else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
     else if (std::string (argv[1]) == "--authority2") { testStateAuthority(); }

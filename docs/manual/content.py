@@ -43,6 +43,15 @@ SYNTH = {
     "warp": "One knob for a melting texture (the E16's NRG 14, on 10 PAD): tape wow (up to 35 cents, two slow drifts) and flutter (5 cents), every voice on its own phase and pace so a chord smears; DETUNE and SPACE pushed up too (on GRANULAR: the grains scatter wider). 0 = off.",
     "split": "Which layer plays the lows and which the mids and highs, crossing over at SPLIT HZ. Centre: OFF, both play everything (the sound as without it). Left: MODEL owns the lows, the LAYER MODEL the rest; right: the LAYER MODEL owns the lows (a sub under an acid line or a stab). At full SPLIT each band is as loud as its layer alone (the LAYER MODEL at LAYER's level; at 100 % as loud as MODEL), and the lows are mono. With LAYER at 0 the layer is silent, so SPLIT cuts MODEL's lows (right) or its mids and highs (left).",
     "split_hz": "Where SPLIT crosses over, 50-800 Hz (150 Hz). Around 100-200 Hz for a sub under a bass line, higher to give a stab the mids and highs only.",
+    "fm_algo": "FM 4-OP: how the four operators connect (modulation runs from D down to A). STACK D>C>B>A; Y C and D > B > A; BRANCH D>C, then C and B > A; 2 STACKS B>A and D>C, both heard; 1 TO 3 D into A, B and C; STACK + 1 D>C>B, and A; BELL D>C into A and B; ORGAN all four heard.",
+    "fm_a_ratio": "Operator A's frequency against the note (0.5 to 16). Whole numbers give harmonic tones, the halves and high ones bells and metal.",
+    "fm_b_ratio": "Operator B's frequency against the note.", "fm_c_ratio": "Operator C's frequency against the note.", "fm_d_ratio": "Operator D's frequency against the note.",
+    "fm_a_level": "Operator A's level: how loud a heard operator is, how deep a modulating one goes (with COLOR).",
+    "fm_b_level": "Operator B's level.", "fm_c_level": "Operator C's level.", "fm_d_level": "Operator D's level.",
+    "fm_a_decay": "Operator A's own envelope: it falls from the note's start, 0.03 s to 7.5 s to a third (times DECAY's scaling); at the top it holds. A modulator falling makes the tone duller as the note goes on.",
+    "fm_b_decay": "Operator B's envelope.", "fm_c_decay": "Operator C's envelope.", "fm_d_decay": "Operator D's envelope.",
+    "fm_feedback": "D modulating itself: from a sine toward a saw, then noise.",
+    "table": "WAVETABLE's frames: BUILT-IN (sine, saw, square, vowel) or SAMPLE: eight frames cut from the loaded sample, start to end, and COLOR moves across them. Any recording: a voice, a field recording, a chord. Pitched sounds give clean frames; the note you play sets the pitch.",
     "drift": "Analog drift. Each voice of a poly model sits a little off tune (up to 5 cents) and off cutoff, always the same voice the same way, as an analog poly's voices do; every voice wanders slowly (up to 4 cents, over 6-14 s). A mono model wanders as its one oscillator. 0 = dead steady.",
     "smp_start": "Where the sample starts playing, from 0 % (its start) to 100 %. Drag the START line on the display or turn this. A SAMPLE note takes it as it is when the note starts (a legato slide plays on); GRANULAR's grains follow it as it moves. Inside the sample it fades in for at least 1 ms, so a cut never clicks.",
 }
@@ -170,6 +179,7 @@ for name, role_text, models in [
         ("SINE SUB", "Pure sine with slight drive. No filter."),
         ("OFFBEAT", "Square + saw pluck, high resonance. The rubbery Berlin off-beat bass."),
         ("SAMPLE", "Chromatic sampler from the analysed root note."),
+        ("FM 4-OP", "Four sine operators, A B C D, on one of eight ALGORITHMs (the ENGINE group): each with its RATIO to the note, LEVEL and DECAY, and D's FEEDBACK. COLOR scales every modulator's depth."),
     ]),
     ("LEAD", "Leads, acid lines and chord stabs.", [
         ("ACID 303-TYPE", "The 303's circuit: its diode ladder filter (a gentle slope; the bass stays as RES rises), envelope and accent sweep. Velocity above ~108 is an accent: louder, a short envelope, and a sweep that climbs on accents close together (more with RES). Overlapping notes slide without retriggering. ENV AMT widens the sweep both ways, as the 303's ENV MOD. COLOR: saw or the 303's square."),
@@ -182,6 +192,7 @@ for name, role_text, models in [
         ("FM BELL", "Two-operator bell, long release."),
         ("SYNC", "Hard-sync lead; COLOR and ENV AMT sweep the sync."),
         ("SAMPLE", "Chromatic sampler from the analysed root note."),
+        ("FM 4-OP", "Four sine operators, A B C D, on one of eight ALGORITHMs (the ENGINE group): each with its RATIO to the note, LEVEL and DECAY, and D's FEEDBACK. COLOR scales every modulator's depth."),
     ]),
     ("PAD", "Pads, drones and textures. Polyphonic, slow envelopes.", [
         ("STRING MACHINE", "Four-voice unison saws plus an octave, deep ensemble."),
@@ -192,6 +203,7 @@ for name, role_text, models in [
         ("TAPE LOOP", "Soft triangle/saw with wow, flutter, saturation and hiss."),
         ("NOISE BED", "Noise through a resonant band-pass at the note: wind, air."),
         ("SAMPLE", "Chromatic sampler from the analysed root note."),
+        ("FM 4-OP", "Four sine operators, A B C D, on one of eight ALGORITHMs (the ENGINE group): each with its RATIO to the note, LEVEL and DECAY, and D's FEEDBACK. COLOR scales every modulator's depth."),
     ]),
 ]:
     use = {

@@ -97,6 +97,33 @@ public:
     bool loadUserPreset (const juce::File&);
     juce::String presetName() const { return currentPreset; }
 
+    // The patch randomiser [Nov 10] (message thread; the modules with factory presets). RANDOMISE sets every unlocked sound control
+    // anywhere in its range (menus too); NUDGE moves every unlocked knob a little from where it is
+    // (up to 15 % of its range either way; menus stay). Never: setup controls, the sample's, switches
+    // and buttons. A lock is per control and saved with the set (the state's "locks"); at first the
+    // controls a random turn would wreck a set with are locked (LEVEL, FILTER, DENSITY, MIX, TUNE,
+    // SHIFT, ACID, WARP, ENERGY: the level, the key and the E16's performance knobs). Right-click
+    // a knob to lock or unlock it.
+    // RESAMPLE [Nov 10] (the samplers: modules that take files). The plugin's own output, what you
+    // hear after its LEVEL, for 1, 2 or 4 bars from the next bar line (playing; at once when stopped,
+    // starting as late as the plugin's latency so the take begins on the bar), becomes its sample:
+    // written to Music/SF Live Suite/Resamples as a WAV and loaded as a dropped file is. Message
+    // thread: arm and cancel; the audio thread records into a buffer made when it was armed; the
+    // timer writes and loads it. Stages: 0 idle, 1 waiting for the bar, 2 recording, 3 recorded.
+    void armResample (int bars);
+    void cancelResample() { resampleState = 0; }
+    int resampleStage() const { return resampleState.load(); }
+    void serviceResample();                        // message thread (the timer); public for tests
+    juce::File lastResample;                       // what the last one wrote
+    static juce::File resampleFolder();
+    static inline juce::File testResampleFolder;   // tests: where takes go (else the Music folder)
+
+    bool randomisable (int i) const;
+    bool isLocked (int i) const { return i >= 0 && i < kMaxParams && locked[(size_t) i].load(); }
+    void setLocked (int i, bool on) { if (i >= 0 && i < kMaxParams) locked[(size_t) i] = on; }
+    void defaultLocks();
+    void randomise (bool nudge, uint32_t seed);
+
     // The Live track's name as Live last told it (VST3; an AU never knows it) and a count of its
     // changes: the editor's E16 grid follows it. Message thread.
     juce::String liveTrackName() const { return juce::String::fromUTF8 (trackName, (int) ::strnlen (trackName, sizeof (trackName) - 1)); }
@@ -217,8 +244,14 @@ private:
     // Presets
     std::vector<sf::Preset> factory;
     juce::String currentPreset;
+    std::array<std::atomic<bool>, kMaxParams> locked {};    // the randomiser's locks
+    std::atomic<int> resampleState { 0 };          // RESAMPLE's stage (armResample)
+    juce::AudioBuffer<float> resampleBuf;          // made on arming; the audio thread fills it
+    int resampleLen = 0, resamplePos = 0, resampleBars = 1;
+    int64_t resampleAt = -1;                       // the stream sample it starts at, and resampleLen: set at the first block
+    void recordResample (const juce::AudioBuffer<float>& out, int n, int64_t blockStart, double ppq0, double bps, bool playing, double beatsPerBar);
 
-    double lastBpm = 120.0;
+    double lastBpm = 120.0, lastBpb = 4.0;
     juce::AudioBuffer<float> extraScratch, mainView, sideView, extraView;   // views: never allocate
     juce::MidiBuffer chunkMidi;
 
