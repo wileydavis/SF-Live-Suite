@@ -133,6 +133,7 @@ A full set (CONTROL, KICK, 3 PERC, RUMBLE, BASS, 2 LEAD, VOICE, PAD, STRIKE, DEC
 8. **Song recall across tracks.** Put SF FILTER on tracks above and below SF CONTROL, store two songs with different FREQ, and switch: every track should change on the same bar. Turn a recalled knob on the E16 right after a recall: it should take over at once.
 9. **A sample's part.** Drop a one-shot on SF KICK (MODEL: SAMPLE): its waveform appears under OUTPUT. Drag END in and turn FADE OUT up (the SAMPLE group): the kick gets shorter and ends without a click. On SF PAD's GRANULAR with a field recording, hold a chord and drag START: the texture wanders through the file.
 10. **The drop.** With a groove playing, press 16 on any PERF page: everything stops on the next sixteenth and the reverb and echo tails ring on (SF BUILD shows CUT). Press it again: everything comes back on the next kick (DROP ON KICK, then RETURN KNOB). The kick should land whole, the bass and pads with it.
+11. **The new pieces.** Rescan plugins: **SF RESONATOR** is new (put it on a hat track or a return; with KEY set on SF CONTROL the ringing follows it). In any sound plugin, right-click (ctrl-click) a knob: a small padlock appears; PRESET > RANDOMISE THE UNLOCKED leaves it alone. On SF PAD, LOAD > RESAMPLE 1 BAR with a chord held: LOAD reads WAIT, then REC, and the bar becomes the sample (a WAV appears in Music/SF Live Suite/Resamples). Set MODEL to FM 4-OP and open the ENGINE group.
 
 ### Changes in the Nov 10 update
 
