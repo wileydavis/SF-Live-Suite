@@ -419,14 +419,18 @@ private:
 ModulePtr makeKICK() { return std::make_unique<KickModule>(); }
 
 // =====================================================================================  PERC
-enum PercType { P_METAL, P_CLAP, P_RIM, P_BELL, P_CLAVE, P_SHAKER, P_FM, P_MODAL, P_SAMPLE };
+// [Nov 10] The 808's hat and the 909's hats and cymbals as their circuits (P_HAT808, P_ROM909), and
+// the 808's and 909's snares and toms, appended after SAMPLE (a model's number never moves).
+enum PercType { P_METAL, P_CLAP, P_RIM, P_BELL, P_CLAVE, P_SHAKER, P_FM, P_MODAL, P_SAMPLE,
+                P_HAT808, P_ROM909, P_SN808, P_SN909, P_TOM808, P_TOM909 };
 struct PercModel { const char* name; PercType type; float freqMul, bpHz, hpHz, noise, decay; };
+// P_ROM909: noise is the sample's own decay in the ROM (seconds). P_SN*/P_TOM*: freqMul the body's pitch (Hz).
 static const PercModel kPercModels[] = {
-    { "HAT 909-TYPE",  P_METAL,  1.30f, 10000.0f, 7000.0f, 0.50f, 0.09f },
-    { "HAT 808-TYPE",  P_METAL,  1.00f,  8000.0f, 6000.0f, 0.15f, 0.07f },
+    { "HAT 909-TYPE",  P_ROM909, 1.30f,  9000.0f, 7000.0f, 0.12f, 0.09f },
+    { "HAT 808-TYPE",  P_HAT808, 1.00f,  7100.0f, 7500.0f, 0.00f, 0.045f },
     { "HAT 606-TYPE",  P_METAL,  1.60f, 11000.0f, 9000.0f, 0.60f, 0.05f },
-    { "RIDE 909-TYPE", P_METAL,  1.10f,  6000.0f, 3000.0f, 0.20f, 1.20f },
-    { "CRASH",         P_METAL,  1.20f,  7000.0f, 4000.0f, 0.70f, 1.80f },
+    { "RIDE 909-TYPE", P_ROM909, 1.10f,  6000.0f, 3000.0f, 1.40f, 1.20f },
+    { "CRASH",         P_ROM909, 1.20f,  7000.0f, 4000.0f, 1.90f, 1.80f },
     { "CLAP",          P_CLAP,   1.00f,  1200.0f,  400.0f, 1.00f, 0.15f },
     { "RIM",           P_RIM,    1.00f,  1700.0f,  400.0f, 0.00f, 0.02f },
     { "COWBELL",       P_BELL,   1.00f,  1000.0f,  300.0f, 0.00f, 0.25f },
@@ -434,8 +438,12 @@ static const PercModel kPercModels[] = {
     { "SHAKER",        P_SHAKER, 1.00f,  6000.0f, 2000.0f, 1.00f, 0.08f },
     { "METAL FM",      P_FM,     1.00f,   400.0f,  200.0f, 0.00f, 0.30f },
     { "MODAL",         P_MODAL,  1.00f,   300.0f,   60.0f, 0.00f, 0.60f },
-    { "SAMPLE",        P_SAMPLE, 1.00f,  1000.0f,   20.0f, 0.00f, 1.00f } };
-static constexpr int kNumPercModels = 13;
+    { "SAMPLE",        P_SAMPLE, 1.00f,  1000.0f,   20.0f, 0.00f, 1.00f },
+    { "SNARE 808-TYPE", P_SN808, 238.0f, 0.0f, 1500.0f, 0.00f, 0.12f },
+    { "SNARE 909-TYPE", P_SN909, 185.0f, 0.0f, 1000.0f, 0.00f, 0.10f },
+    { "TOM 808-TYPE",  P_TOM808, 100.0f, 0.0f,  200.0f, 0.00f, 0.30f },
+    { "TOM 909-TYPE",  P_TOM909, 110.0f, 0.0f,  300.0f, 0.00f, 0.30f } };
+static constexpr int kNumPercModels = 17;
 static std::vector<std::string> percModelNames() { std::vector<std::string> v; for (auto& m : kPercModels) v.push_back (m.name); return v; }
 
 class PercModule : public Module
@@ -500,6 +508,11 @@ public:
         double spos = 0;
         float gate = 1.0e9f;
         SampleRegion reg;                   // SAMPLE: the part of the sample this hit plays
+        // The circuits: the 909's ROM (its sample's own decay, the held 6-bit value), filters, the
+        // body's pitch, the snappy noise's level and decay, a DC blocker.
+        float romDecay = 0.1f, romHeld = 0.0f, body = 200.0f, snappy = 0.5f, nzDecay = 0.0f, dcX = 0.0f, dcY = 0.0f, lpZ = 0.0f;
+        int romCount = 0, romStep = 1;
+        Svf lp, hp2;
         float level() const { return active ? vel * std::exp (-(float) t / std::max (0.005f, decay)) : 0.0f; }
     };
 
@@ -544,6 +557,36 @@ public:
                     v.freqs[k] = 300.0f * v.tune * std::pow (modal[k], 0.7f + v.tone * 0.6f);
                     v.res[k].set (std::min (v.freqs[k], 0.45f * (float) osr), 60.0f + v.decay * 400.0f, osr);
                 }
+                break;
+            case P_HAT808:
+                // The six oscillators the 808's cymbal, hats and cowbell share (205.3, 304.4, 369.6,
+                // 522.7, ~540, ~800 Hz, duty 47.98 %), the hats' band-pass at 7.1 kHz, then two
+                // high-passes resonant towards 10 kHz (Werner, Abel, Smith: the TR-808 cymbal).
+                for (int k = 0; k < 6; ++k) v.freqs[k] = metal[k] * v.tune;
+                v.bp.set (m.bpHz * (0.75f + v.tone * 0.5f) * dark, 1.6f, osr);
+                v.hp.set (m.hpHz * (0.8f + v.tone * 0.4f) * dark, 0.7071f, osr);
+                v.hp2.set (std::min (10500.0f * dark, 0.4f * (float) osr), 1.6f, osr);
+                break;
+            case P_ROM909:
+                // The "sample": a metal and noise mix with its own decay, as the ROM held a recorded cymbal.
+                // Made at the ROM's rate (about 32 kHz: one value held over romStep samples here).
+                for (int k = 0; k < 6; ++k) v.freqs[k] = metal[k] * m.freqMul * 2.1f * v.tune;
+                v.romDecay = m.noise * (0.7f + 0.6f * v.tone);
+                v.romStep = std::max (1, (int) std::lround (osr / 32000.0));
+                v.bp.set (std::min (m.bpHz * v.tune * (0.7f + v.tone * 0.6f) * dark, 14000.0f), 0.9f, osr / v.romStep);
+                v.hp.set (m.hpHz * dark, 0.7071f, osr / v.romStep);
+                v.lp.set (std::min (11500.0f, 0.42f * (float) osr), 0.7071f, osr);   // the DAC's reconstruction filter
+                break;
+            case P_SN808: case P_SN909: case P_TOM808: case P_TOM909:
+                v.body = m.freqMul * v.tune;
+                v.snappy = v.tone;
+                v.nzDecay = (m.type == P_SN909 ? 0.08f + 0.22f * v.tone : 0.06f) * std::pow (2.0f, (c.v (DECAY) - 0.5f) * 2.0f) * std::pow (0.65f, (float) ev.gen);
+                // Bridged-T rings: Q = pi f tau (the upper one dies twice as fast).
+                v.res[0].set (v.body, std::min (kPi * v.body * v.decay, 400.0f), osr);
+                v.res[1].set (v.body * 2.0f, std::min (kPi * v.body * 2.0f * v.decay * 0.5f, 400.0f), osr);
+                v.hp.set (m.hpHz * dark, 0.7071f, osr);
+                v.lp.set (std::min (7000.0f * dark, 0.42f * (float) osr), 0.7071f, osr);
+                v.bp.set (2500.0f * dark, 0.8f, osr);
                 break;
             case P_SAMPLE:
                 // From START; DECAY's gate measures the part that plays.
@@ -611,6 +654,96 @@ public:
                 y *= 0.6f;
                 break;
             }
+            case P_HAT808:
+            {
+                // Six band-limited pulses at 47.98 % (two saws), the band-pass, then the swing-type VCA:
+                // the envelope is the ceiling the signal clips against (sharpness 3.5), so the hat is
+                // gritty and compressed while it rings and shuts off as the envelope falls.
+                float sq = 0.0f;
+                for (int k = 0; k < 6; ++k)
+                {
+                    sq += W.saw.read (v.oct[k], v.ph[k]) - W.saw.read (v.oct[k], v.ph[k] + 0.5202);
+                    v.ph[k] += v.freqs[k] / osr; wrap01 (v.ph[k]);
+                }
+                const float band = v.bp.tickBP (sq / 6.0f) * 3.0f;
+                const float env = std::min (1.0f, t / 0.0001f) * std::exp (-t / v.decay);
+                const float swing = env > 1.0e-4f ? env * fastTanh (3.5f * band / env) / 3.5f * 2.0f : 0.0f;
+                y = v.hp2.tickHP (v.hp.tickHP (swing)) * 1.6f;
+                break;
+            }
+            case P_ROM909:
+            {
+                // The 909 played its cymbals from 6-bit ROM: the recorded sound (with its own decay) is
+                // quantised to 64 steps at about 32 kHz and held, through the DAC's reconstruction
+                // low-pass; the analog VCA (DECAY) shapes it after. So the tail is coarse and grainy
+                // where the sample was quiet, whatever DECAY does.
+                if (--v.romCount <= 0)
+                {
+                    v.romCount = v.romStep;
+                    float sq = 0.0f;
+                    for (int k = 0; k < 6; ++k) { sq += W.square.read (v.oct[k], v.ph[k]); }
+                    const float src = v.hp.tickHP (v.bp.tickBP (0.55f * sq / 6.0f + 0.45f * rng.next()) * 2.2f);
+                    const float rom = src * std::min (1.0f, t / 0.0002f) * std::exp (-t / v.romDecay);
+                    v.romHeld = std::round (juce::jlimit (-1.0f, 1.0f, rom) * 31.0f) / 31.0f;
+                }
+                for (int k = 0; k < 6; ++k) { v.ph[k] += v.freqs[k] / osr; wrap01 (v.ph[k]); }
+                y = v.lp.tickLP (v.romHeld) * std::exp (-t / v.decay);
+                break;
+            }
+            case P_SN808:
+            {
+                // Two bridged-T resonators (238 and 476 Hz, rung by the 1 ms trigger pulse, the upper one
+                // dying faster) and the snappy: noise through a high-pass, its own envelope (TONE: how much).
+                const float pulse = t < 0.001f ? 1.0f : 0.0f;
+                const float a = v.res[0].tickBP (pulse) * (1.0f / (0.001f * kTwoPi * v.body));
+                const float b = v.res[1].tickBP (pulse) * (1.0f / (0.002f * kTwoPi * v.body));
+                const float nz = v.hp.tickHP (rng.next()) * std::exp (-t / v.nzDecay) * std::min (1.0f, t / 0.0005f);
+                y = (a + 0.6f * b) * 0.8f + nz * v.snappy * 0.9f;
+                break;
+            }
+            case P_SN909:
+            {
+                // Two triangle VCOs (185 and 330 Hz) swept down a little in the first 8 ms, through the
+                // 909's diode limiter; the snappy: noise through a low-pass and a high-pass, TONE its
+                // level and length (the 909's SNAPPY and TONE).
+                const float sweep = 1.0f + 0.6f * std::exp (-t / 0.008f);
+                float body = 0.0f;
+                for (int k = 0; k < 2; ++k)
+                {
+                    const float ph = (float) v.ph[k];
+                    const float tri = 4.0f * std::abs (ph - std::floor (ph + 0.5f)) - 1.0f;
+                    body += (fastTanh (1.8f * (tri - 0.1f)) - fastTanh (-0.18f)) / fastTanh (1.8f) * (k == 0 ? 1.0f : 0.55f);
+                    v.ph[k] += v.body * (k == 0 ? 1.0f : 1.78f) * sweep / osr; wrap01 (v.ph[k]);
+                }
+                const float nz = v.hp.tickHP (v.lp.tickLP (rng.next())) * std::exp (-t / v.nzDecay);
+                y = body * std::exp (-t / v.decay) * 0.6f + nz * (0.2f + 0.8f * v.snappy);
+                break;
+            }
+            case P_TOM808:
+            {
+                // A bridged-T as the kick's, higher: its pitch jumps for the trigger and a few ms after,
+                // then settles; TONE a soft noise burst through a band-pass.
+                const float pulse = t < 0.001f ? 1.0f : 0.0f;
+                const float hz = v.body * (1.0f + 0.5f * (t < 0.001f ? 1.0f : std::exp (-(t - 0.001f) / 0.002f)));
+                if ((v.romCount++ & 3) == 0) v.res[0].set (hz, std::min (kPi * hz * v.decay, 400.0f), osr);
+                const float ring = v.res[0].tickBP (pulse) * (1.0f / (0.0005f * kTwoPi * v.body));
+                const float nz = v.bp.tickBP (rng.next()) * std::exp (-t / 0.02f) * v.snappy * 0.4f;
+                y = ring * 0.13f + nz * 0.2f;
+                break;
+            }
+            case P_TOM909:
+            {
+                // A triangle VCO through the diode limiter, swept down from 1.8 times its pitch (30 ms),
+                // the VCA's decay; TONE a noise burst through a band-pass.
+                const float hz = v.body * (1.0f + 0.8f * std::exp (-t / 0.03f));
+                const float ph = (float) v.ph[0];
+                const float tri = 4.0f * std::abs (ph - std::floor (ph + 0.5f)) - 1.0f;
+                const float shaped = (fastTanh (1.8f * (tri - 0.15f)) - fastTanh (-0.27f)) / fastTanh (1.8f);
+                v.ph[0] += hz / osr; wrap01 (v.ph[0]);
+                const float nz = v.bp.tickBP (rng.next()) * std::exp (-t / 0.015f) * v.snappy * 0.5f;
+                y = (shaped * std::min (1.0f, t / 0.001f) * std::exp (-t / v.decay) * 0.8f + nz) * 0.45f;
+                break;
+            }
             case P_SAMPLE:
             {
                 if (s == nullptr || (int) v.spos + 2 >= (v.reg.end > 0.0 ? std::min (s->length(), v.reg.last()) : s->length())) { v.active = false; return 0.0f; }
@@ -621,8 +754,13 @@ public:
                 break;
             }
         }
+        if (v.type >= P_SN808)                // the bodies' DC (the biased limiters): a 12 Hz high-pass
+        {
+            const float rr = 1.0f - kTwoPi * 12.0f / (float) osr;
+            v.dcY = y - v.dcX + rr * v.dcY; v.dcX = y; y = v.dcY;
+        }
         v.t += 1.0 / osr;
-        if (v.type != P_SAMPLE && t > v.decay * 8.0f + 0.03f) v.active = false;
+        if (v.type != P_SAMPLE && t > std::max (v.decay, v.nzDecay) * 8.0f + 0.03f) v.active = false;
         if (v.fadeStep > 0.0f) { v.fade -= v.fadeStep; if (v.fade <= 0.0f) { v.active = false; return 0.0f; } y *= v.fade; }
         return y * v.vel;
     }

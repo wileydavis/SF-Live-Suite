@@ -1280,6 +1280,7 @@ int main (int argc, char** argv)
     else if (std::string (argv[1]) == "--acid") { testAcid(); }
     else if (std::string (argv[1]) == "--nrg") { testNrg(); }
     else if (std::string (argv[1]) == "--kicks") { testKicks(); }
+    else if (std::string (argv[1]) == "--perc-circuits") { testPercCircuits(); }
     else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
     else if (std::string (argv[1]) == "--authority2") { testStateAuthority(); }

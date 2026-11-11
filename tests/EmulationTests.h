@@ -422,9 +422,76 @@ static void testKicks()
     }
 }
 
+// The 808's hat and the 909's ROM cymbals, the 808 and 909 snares and toms [Nov 10]. SFTests --perc-circuits.
+static void testPercCircuits()
+{
+    using namespace emu;
+    std::printf ("-- PERC: the 808 hat, the 909's ROM hats and cymbals, snares and toms\n");
+    auto hit = [] (int model, float decay = 0.5f, float tone = 0.5f, float tune = 0.0f, double secs = 1.5)
+    {
+        resetBus();
+        Rig2 r ("PERC");
+        r.set ("model", (float) model); r.set ("decay", decay); r.set ("tone", tone); r.set ("tune", tune); r.set ("drive", 0.0f); r.set ("filter", 0.5f); r.set ("density", 0.0f);
+        std::vector<float> out;
+        bool on = false;
+        for (int s = 0; s < (int) (kSr * secs); s += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (! on) { m.addEvent (juce::MidiMessage::noteOn (1, 42, (juce::uint8) 110), 0); on = true; } });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+        }
+        return out;
+    };
+    auto lvl = [] (const std::vector<float>& x, double t0, double t1) { return 20.0 * std::log10 (rms (x, (int) (t0 * kSr), (int) (t1 * kSr)) + 1e-15); };
+    auto period = [] (const std::vector<float>& x, double t0, double t1)    // mean frequency from rising zero crossings
+    {
+        std::vector<double> u;
+        for (size_t i = (size_t) (t0 * kSr); i + 1 < (size_t) (t1 * kSr) && i + 1 < x.size(); ++i)
+            if (x[i] <= 0.0f && x[i + 1] > 0.0f) u.push_back ((double) i + x[i] / (x[i] - x[i + 1]));
+        return u.size() > 2 ? kSr * (double) (u.size() - 1) / (u.back() - u.front()) : 0.0;
+    };
+    // 808 hat: bright, short, and fully off once its envelope is down (the swing VCA's diode).
+    {
+        const auto x = hit (1);
+        const double early = lvl (x, 0.0, 0.03), hz = rmsHz (x, 0, (int) (0.03 * kSr)), late = lvl (x, 0.5, 1.0);
+        std::printf ("   HAT 808: first 30 ms %.1f dB, RMS frequency %.0f Hz; 0.5-1 s %.1f dB\n", early, hz, late);
+        CHECK (early > -40.0 && hz > 6000.0 && late < -120.0, "HAT 808: %.1f dB, %.0f Hz, tail %.1f dB", early, hz, late);
+    }
+    // 909 hat: DECAY full (the VCA open), the ROM's own decay quantised to 6 bits still ends it: its
+    // tail stops dead about 36 dB under its peak instead of fading on.
+    {
+        const auto x = hit (0, 1.0f);
+        const double a = lvl (x, 0.0, 0.03), b = lvl (x, 0.18, 0.22), c = lvl (x, 0.7, 1.0);
+        std::printf ("   HAT 909 (6-bit ROM), DECAY full: first 30 ms %.1f dB, 180-220 ms %.1f dB, 0.7-1 s %.1f dB\n", a, b, c);
+        CHECK (a > -40.0 && b > a - 50.0 && c < -100.0, "HAT 909 ROM: %.1f / %.1f / %.1f dB", a, b, c);
+        const auto ride = hit (3, 0.5f, 0.5f, 0.0f, 3.0);
+        const double r1 = lvl (ride, 0.8, 1.0);
+        std::printf ("   RIDE 909: 0.8-1 s %.1f dB against the hat's %.1f\n", r1, lvl (x, 0.8, 1.0));
+        CHECK (r1 > -70.0, "RIDE 909 too short: %.1f dB at 0.8 s", r1);
+    }
+    // Snares: the 808's body at 238 Hz, more snappy noise with TONE; the 909's noise longer with TONE.
+    {
+        const auto s0 = hit (13, 0.5f, 0.0f), s1 = hit (13, 0.5f, 1.0f);
+        const double body = toneAmp (s0, (int) (0.02 * kSr), (int) (0.12 * kSr), 238.0), off = toneAmp (s0, (int) (0.02 * kSr), (int) (0.12 * kSr), 330.0);
+        const double hi0 = 20.0 * std::log10 (rmsHz (s0, 0, (int) (0.05 * kSr))), hi1 = 20.0 * std::log10 (rmsHz (s1, 0, (int) (0.05 * kSr)));
+        const auto n0 = hit (14, 0.5f, 0.0f), n1 = hit (14, 0.5f, 1.0f);
+        const double t0 = lvl (n0, 0.35, 0.45), t1 = lvl (n1, 0.35, 0.45);
+        const double b909 = 20.0 * std::log10 (toneAmp (n0, (int) (0.03 * kSr), (int) (0.13 * kSr), 185.0) / toneAmp (n0, (int) (0.03 * kSr), (int) (0.13 * kSr), 260.0));
+        std::printf ("   SNARE 808: 238 Hz %.1f dB over 330 Hz; RMS frequency TONE 0 against full %+.1f dB. SNARE 909: 185 Hz %.1f dB over 260 Hz; 350-450 ms TONE 0 %.1f dB, full %.1f dB\n",
+                     20.0 * std::log10 (body / off), hi1 - hi0, b909, t0, t1);
+        CHECK (body > off * 4.0 && hi1 > hi0 + 6.0 && t1 > t0 + 10.0 && b909 > 12.0, "snares: body %.1f dB, snappy %+.1f dB, 909 body %.1f dB, tail %.1f / %.1f", 20.0 * std::log10 (body / off), hi1 - hi0, b909, t0, t1);
+    }
+    // Toms: settle at 100 and 110 Hz; TUNE +12 doubles them.
+    {
+        const double a = period (hit (15), 0.1, 0.3), b = period (hit (16), 0.15, 0.4), c = period (hit (15, 0.5f, 0.5f, 12.0f), 0.1, 0.3);
+        std::printf ("   TOM 808 %.1f Hz (TUNE +12: %.1f), TOM 909 %.1f Hz\n", a, c, b);
+        CHECK (std::abs (a - 100.0) < 4.0 && std::abs (c - 200.0) < 8.0 && std::abs (b - 110.0) < 6.0, "toms: %.1f / %.1f / %.1f Hz", a, c, b);
+    }
+}
+
 static void testEmulation()
 {
     testAcid();
     testNrg();
     testKicks();
+    testPercCircuits();
 }
