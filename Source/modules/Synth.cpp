@@ -12,7 +12,7 @@
 namespace sf
 {
 enum Engine { E_SUB, E_ORGAN, E_FM, E_HOOVER, E_SYNC, E_NOISE, E_WAVETABLE, E_GRAIN, E_SAMPLE };
-enum FiltType { F_LADDER, F_SVF, F_MS20, F_NONE };
+enum FiltType { F_LADDER, F_SVF, F_MS20, F_NONE, F_DIODE };   // F_DIODE: the TB-303's (ACID 303-TYPE)
 
 struct SynthModel
 {
@@ -45,7 +45,7 @@ static std::vector<SynthModel> bassModels()
     { SynthModel x { "BASS LADDER", E_SUB }; x.gain = 1.6f; x.wave = 0; x.wave2 = 0; x.osc2 = 0.8f; x.detune = 0.08f; x.sub = 0.4f; x.mono = true; x.dec = 0.5f; x.sus = 0.8f; x.fDec = 0.35f; m.push_back (x); }
     { SynthModel x { "MONO 101-TYPE", E_SUB }; x.wave = 0; x.wave2 = 1; x.osc2 = 0.5f; x.sub = 0.5f; x.mono = true; x.dec = 0.4f; x.sus = 0.7f; x.fDec = 0.25f; m.push_back (x); }
     { SynthModel x { "SUB OSC", E_SUB }; x.wave = 1; x.sub = 0.9f; x.filt = F_SVF; x.mono = true; x.dec = 0.6f; x.sus = 0.9f; x.envMul = 0.4f; m.push_back (x); }
-    { SynthModel x { "ACID 303-TYPE", E_SUB }; x.wave = 0; x.mono = true; x.acid = true; x.dec = 2.0f; x.sus = 1.0f; x.rel = 0.02f; x.fDec = 0.3f; x.resMul = 1.1f; x.envMul = 1.2f; m.push_back (x); }
+    { SynthModel x { "ACID 303-TYPE", E_SUB }; x.wave = 0; x.mono = true; x.acid = true; x.filt = F_DIODE; x.att = 0.003f; x.dec = 3.0f; x.sus = 0.0f; x.rel = 0.008f; m.push_back (x); }
     { SynthModel x { "FM", E_FM }; x.ratio = 1.0f; x.mono = true; x.filt = F_SVF; x.dec = 0.5f; x.sus = 0.7f; x.fDec = 0.2f; m.push_back (x); }
     { SynthModel x { "SINE SUB", E_SUB }; x.wave = 3; x.filt = F_NONE; x.mono = true; x.dec = 1.0f; x.sus = 1.0f; x.drive = 0.15f; m.push_back (x); }
     { SynthModel x { "OFFBEAT", E_SUB }; x.wave = 1; x.wave2 = 0; x.osc2 = 0.6f; x.detune = 0.05f; x.mono = true; x.dec = 0.18f; x.sus = 0.0f; x.fDec = 0.12f; x.resMul = 1.3f; x.envMul = 1.3f; m.push_back (x); }
@@ -55,7 +55,7 @@ static std::vector<SynthModel> bassModels()
 static std::vector<SynthModel> leadModels()
 {
     std::vector<SynthModel> m;
-    { SynthModel x { "ACID 303-TYPE", E_SUB }; x.wave = 0; x.mono = true; x.acid = true; x.dec = 2.0f; x.sus = 1.0f; x.rel = 0.02f; x.fDec = 0.3f; x.resMul = 1.1f; x.envMul = 1.2f; m.push_back (x); }
+    { SynthModel x { "ACID 303-TYPE", E_SUB }; x.wave = 0; x.mono = true; x.acid = true; x.filt = F_DIODE; x.att = 0.003f; x.dec = 3.0f; x.sus = 0.0f; x.rel = 0.008f; m.push_back (x); }
     { SynthModel x { "MONO 101-TYPE", E_SUB }; x.wave = 0; x.wave2 = 1; x.osc2 = 0.5f; x.sub = 0.3f; x.mono = true; x.dec = 0.4f; x.sus = 0.6f; x.fDec = 0.25f; m.push_back (x); }
     { SynthModel x { "MS20-TYPE", E_SUB }; x.wave = 0; x.wave2 = 1; x.osc2 = 0.6f; x.detune = 0.1f; x.filt = F_MS20; x.mono = true; x.drive = 0.4f; x.dec = 0.5f; x.sus = 0.7f; x.resMul = 1.2f; m.push_back (x); }
     { SynthModel x { "STAB DUB", E_SUB }; x.wave = 0; x.wave2 = 1; x.osc2 = 0.5f; x.detune = 0.06f; x.filt = F_SVF; x.chord = 1; x.dec = 0.25f; x.sus = 0.0f; x.rel = 0.15f; x.fDec = 0.12f; x.envMul = 0.8f; x.ensemble = 0.3f; m.push_back (x); }
@@ -219,7 +219,12 @@ public:
                  toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
-    juce::String fileHint() const override { return "DROP SAMPLE (MODELS: SAMPLE, GRANULAR)"; }
+    juce::String fileHint() const override
+    {
+        // One sample for the plugin: MODEL's and LAYER MODEL's (and GRANULAR's, where there is one).
+        const bool grains = std::any_of (models.begin(), models.end(), [] (const SynthModel& m) { return m.engine == E_GRAIN; });
+        return grains ? "DROP SAMPLE (MODEL OR LAYER MODEL: SAMPLE, GRANULAR)" : "DROP SAMPLE (MODEL OR LAYER MODEL: SAMPLE)";
+    }
     void loadFiles (const juce::StringArray& f) override { if (f.size() > 0) sample.set (loadSampleFile (juce::File (f[0]), sr)); }
     void save (juce::ValueTree& t) const override { sample.save (t, "SAMPLE"); }
     void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); }
@@ -250,6 +255,7 @@ public:
         ens.reset();
         out.reset();
         activeVoices = 0;
+        acidCap[0] = acidCap[1] = 0.0f;
     }
 
     // Control values of a voice, computed on the stream's 32-sample grid (and at a note start),
@@ -260,6 +266,10 @@ public:
         float detCents = 0, uniR[8] {}, pw[8] {}, r2[8] {};
         int uni = 1, shape1 = 0, oct1[8] {}, oct2[8] {}, octSub = 0;
         bool doSub = false;
+        // ACID 303-TYPE: the cutoff's log (natural) at rest and at the envelope's peak, the accent
+        // sweep's reach (same units), RESONANCE, its output gain (the pot's second gang), the
+        // envelope's and the sweep's coefficients, the square's share.
+        float acidL0 = 0, acidL1 = 0, acidSweep = 0, acidRes = 0, acidFbK = 0, acidComp = 1, megK = 1, megKAcc = 1, capC = 0, capD = 1, sqTarget = 0, sqFade = 0, sqHpK = 1;
     };
     struct Voice
     {
@@ -279,6 +289,8 @@ public:
         VoiceCtl ctl;
         bool ctlStale = true;
         Ladder ladder;
+        DiodeLadder303 dl;                // ACID 303-TYPE: its filter, envelope and square (kept on a retrigger)
+        float meg = 0.0f, sqMix = 0.0f, sqHp = 0.0f, sqPrev = 0.0f;
         Svf svf, svf2, nbp;
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
         struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; SampleRegion reg; } grains[8];   // reg: where it started (end 0: the whole source)
@@ -356,6 +368,7 @@ public:
             std::fill (R2, R2 + 2 * n, 0.0f);
             bool any4 = false;
             const bool onGrid = (c.samplePos + i0) % kSub == 0;
+            acidOwned[0] = acidOwned[1] = false;
             for (auto& v : voices)
                 if (v.active)
                 {
@@ -375,6 +388,10 @@ public:
             }
             dec.process (0, L2, L + i0, n);
             dec.process (1, R2, R + i0, n);
+            // ACID 303-TYPE's accent sweep drains while no note of its holds it.
+            for (int l = 0; l < 2; ++l)
+                if (! acidOwned[l] && acidCap[l] > 0.0f)
+                    acidCap[l] *= std::exp (-(float) n / (acidDrainSeconds (clamp01 (c.v (RES))) * (float) sr));
             ++renderTick;                              // every voice started before now has sounded
             i0 += n;
         }
@@ -427,6 +444,9 @@ private:
             Voice* v = nullptr;
             for (auto& x : voices) if (x.active && x.layer == layerId && x.model == modelIdx && ! x.releasing) v = &x;
             const bool legato = v != nullptr && ev.gen == 0 && held.size() > 1;
+            // ACID 303-TYPE: one VCO, VCF and VCA, so a new note takes the voice still releasing.
+            if (v == nullptr && m.acid)
+                for (auto& x : voices) if (x.active && x.layer == layerId && x.model == modelIdx) v = &x;
             if (v == nullptr)
             {
                 const int i = allocVoice (ev.gen);
@@ -453,17 +473,35 @@ private:
         if (retrigger || ! wasActive)
         {
             const float keepFreq = v.freq;
+            // ACID 303-TYPE retriggers its one VCO, VCF and VCA as they are: the filter rings on, the
+            // oscillator runs on, the level rises from where it is (no click, as on the 303).
+            const bool acidSame = m.acid && v.active && v.model == modelIdx;
+            const DiodeLadder303 keepDl = v.dl;
+            const Adsr keepAmp = v.amp;
+            const double keepPh = v.ph[0];
+            const float keepSq[3] = { v.sqMix, v.sqHp, v.sqPrev };
             v = Voice();
             v.reg = blockReg;                  // SAMPLE: from START (a legato slide plays on where it is)
             v.spos = v.reg.start;
-            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.engine == E_SYNC) ? 4 : 2;
+            v.os = (m.filt == F_LADDER || m.filt == F_MS20 || m.filt == F_DIODE || m.engine == E_SYNC) ? 4 : 2;
             v.rate = sr * v.os;
             v.freq = wasActive ? keepFreq : noteHz (note);
             for (int k = 0; k < 8; ++k) { v.ph[k] = rng.uni(); v.ph2[k] = rng.uni(); v.pan[k] = 0.5f + (k == 0 ? 0.0f : ((k & 1) ? -0.35f : 0.35f) * (0.5f + 0.5f * rng.uni())); }
+            if (acidSame)
+            {
+                v.dl = keepDl; v.amp = keepAmp; v.ph[0] = keepPh;
+                v.sqMix = keepSq[0]; v.sqHp = keepSq[1]; v.sqPrev = keepSq[2];
+            }
+            else if (m.acid)
+            {
+                v.dl.setHighPass (DiodeLadder303::kHighPass, v.rate);
+                v.sqMix = c.v (COLOR) < 0.5f ? 0.0f : 1.0f;
+            }
+            if (m.acid) v.meg = 1.0f;          // the 303's envelope: up at once, on every note it isn't slid into
         }
         v.active = true; v.releasing = false;
         v.note = ev.note; v.gen = ev.gen; v.model = modelIdx; v.layer = layerId;
-        v.vel = 0.55f + 0.45f * lerp (1.0f, ev.vel, 0.6f);
+        v.vel = m.acid ? 1.0f : 0.55f + 0.45f * lerp (1.0f, ev.vel, 0.6f);   // the 303 knows no velocity, only accent
         v.vel0 = ev.vel;
         v.gain = gain;
         v.target = noteHz (note);
@@ -476,7 +514,7 @@ private:
         v.amp.set (m.att + attK, m.dec * (m.acid ? 1.0f : decK), m.sus, m.rel * relMul, v.rate);
         v.fenv.set (m.fAtt + attK * 0.5f, m.fDec * decK, m.fSus, m.fRel * relMul, v.rate);
         v.amp.on (retrigger || ! wasActive);
-        v.fenv.on (retrigger || ! wasActive || m.acid);
+        v.fenv.on (retrigger || ! wasActive);
         v.autoOff = autoOff > 0 ? autoOff * v.os : autoOff;
         v.t = 0.0f;
         v.ctlStale = true;
@@ -587,7 +625,43 @@ private:
             case F_LADDER: v.ladder.set (cutHz, k.res * 0.98f, vr); break;
             case F_SVF:    v.svf.set (cutHz, 0.6f + k.res * 8.0f, vr); break;
             case F_MS20:   v.svf.set (cutHz, 0.6f + k.res * 12.0f, vr); v.svf2.set (std::max (20.0f, cutHz * 0.08f), 0.7f + k.res * 3.0f, vr); break;
-            case F_NONE: break;
+            case F_NONE: case F_DIODE: break;      // F_DIODE: per sample (render)
+        }
+        if (m.acid)
+        {
+            // TB-303. The cutoff (where the resonance rings) as an x0xb0x's filter current puts it,
+            // fitted over CUTOFF and ENV MOD with the gate high and low (a1k0n's measurements, the
+            // same analog board as the 303's): at rest 103 Hz + e^(5.23 + 1.70 CUTOFF - 0.68 ENV MOD),
+            // at the envelope's peak 103 Hz + e^(5.56 + 2.18 CUTOFF + 1.99 ENV MOD). So 290 Hz-1.1 kHz
+            // at rest and 360 Hz-2.4 kHz at the peak with no ENV MOD, and at full ENV MOD the rest
+            // drops while the peak climbs (200 Hz-16.9 kHz at full CUTOFF): ENV MOD widens the sweep
+            // both ways, as the 303's does. The envelope moves the exponent (the converter's base
+            // voltage), so the sweep falls in octaves. 0.85: this filter rings 1.18 x above the
+            // frequency it is set to at full RESONANCE. DENSITY's ghosts half an octave darker each.
+            // The accent sweep adds up to 1-3 octaves (more with RESONANCE) at a full charge.
+            // DECAY 0.2-2.5 s (to about 5 %); an accent forces the shortest, whatever DECAY says, as
+            // the 303's accent switches its decay pot out. The sweep capacitor charges from the
+            // accent's share of the envelope in about 20 ms and drains in 0.15-0.5 s (RESONANCE's
+            // second gang), so accents close together climb on each other.
+            const float em = clamp01 (c.v (ENVAMT) * m.envMul), dark = 0.3466f * (float) v.gen + 0.1625f;
+            k.acidL0 = 5.2262f + 1.7042f * cutK - 0.6838f * em - dark;
+            k.acidL1 = 5.5592f + 2.1779f * cutK + 1.9922f * em - dark;
+            k.acidRes = clamp01 (c.v (RES) * m.resMul);
+            k.acidSweep = 0.6931f * (1.0f + 2.0f * k.acidRes);
+            k.acidFbK = 0.96f * std::pow (k.acidRes, 0.7f);
+            // RESONANCE's second gang: the 303 makes up the level its feedback takes from the pass
+            // band (1 / (1 + k) above the feedback's high-pass). (1 + k)^0.7 holds the loudness of a
+            // played line within 1.5 dB from no RESONANCE to full (SFTests --acid prints it) and
+            // leaves the pass band 7 dB down at full, as a1k0n's measured x0xb0x does.
+            k.acidComp = std::pow (1.0f + 16.3f * std::pow (k.acidRes, 0.7f), 0.7f);
+            const float decT = 0.2f * std::pow (12.5f, c.v (DECAY));
+            k.megK = std::exp (-3.0f / (decT * (float) vr));
+            k.megKAcc = std::exp (-3.0f / (0.2f * (float) vr));
+            k.capC = 1.0f - std::exp (-1.0f / (0.02f * (float) vr));
+            k.capD = std::exp (-1.0f / (acidDrainSeconds (k.acidRes) * (float) vr));
+            k.sqTarget = c.v (COLOR) < 0.5f ? 0.0f : 1.0f;     // the 303's switch: saw or square
+            k.sqFade = 1.0f - std::exp (-1.0f / (0.005f * (float) vr));
+            k.sqHpK = std::exp (-kTwoPi * 40.0f / (float) vr);
         }
         if (m.engine == E_NOISE) v.nbp.set (v.freq, 4.0f + k.color * 40.0f, vr);
         k.uni = std::max (1, std::min (8, m.unison));
@@ -633,7 +707,7 @@ private:
         const int uni = k.uni, shape1 = k.shape1, octSub = k.octSub;
         const float* uniR = k.uniR; const float* pw = k.pw; const float* r2 = k.r2;
         const int* oct1 = k.oct1; const int* oct2 = k.oct2;
-        const float pw2 = k.pw2, osc2Amt = k.osc2Amt, subLvl = k.subLvl, sideK = k.sideK;
+        const float pw2 = k.pw2, osc2Amt = k.osc2Amt, subLvl = k.subLvl, sideK = k.sideK, acidComp = k.acidComp;
         const bool doSub = k.doSub;
         const float drive = driveG > 0.0f ? 1.0f : 0.0f;
         auto sinT = [&W] (double ph) { return W.frame[0].read (0, ph); };
@@ -663,11 +737,38 @@ private:
             v.fenv.tick();
             float x = 0.0f, xl = 0.0f, xr = 0.0f;
             bool stereo = false;
+            float acidFb = 0.0f;
             switch (m.engine)
             {
                 case E_SUB:
                 case E_HOOVER:
                 {
+                    if (m.acid)
+                    {
+                        // TB-303. The saw, or the square the 303's waveshaper makes of it (a transistor's
+                        // soft knee on the saw, band-limited: WaveSet::square303), then a coupling
+                        // capacitor's droop (40 Hz). The switch fades over 5 ms.
+                        const float sw = W.saw.read (oct1[0], v.ph[0]);
+                        const float sqRaw = W.square303.read (oct1[0], v.ph[0]);
+                        v.ph[0] += inc; wrap01 (v.ph[0]);
+                        v.sqHp = k.sqHpK * (v.sqHp + sqRaw - v.sqPrev); v.sqPrev = sqRaw;
+                        v.sqMix += (k.sqTarget - v.sqMix) * k.sqFade;
+                        x = 0.6f * ((1.0f - v.sqMix) * sw + v.sqMix * 0.68f * v.sqHp);
+                        xl = xr = x;
+                        // The envelope, and the accent sweep's capacitor (one per layer, so it outlives a note).
+                        v.meg *= v.accent > 0.0f ? k.megKAcc : k.megK;
+                        float& cap = acidCap[(size_t) (v.layer & 1)];
+                        if (! v.releasing)
+                        {
+                            const float in = v.accent * v.meg;
+                            cap = in > cap ? cap + (in - cap) * k.capC : cap * k.capD;
+                            acidOwned[(size_t) (v.layer & 1)] = true;
+                        }
+                        const float hz = std::min (16000.0f, 87.5f + std::exp (k.acidL0 + (k.acidL1 - k.acidL0) * v.meg + k.acidSweep * cap));
+                        v.dl.set (hz, vr);
+                        acidFb = k.acidFbK * DiodeLadder303::oscillatesAt (hz);
+                        break;
+                    }
                     for (int u = 0; u < uni; ++u)
                     {
                         float y = osc (shape1, oct1[u], v.ph[u], pw[u]);
@@ -806,6 +907,7 @@ private:
                 else v.driveOn = false;
                 switch (m.filt)
                 {
+                    case F_DIODE: return v.dl.tick (in, acidFb) * acidComp;
                     case F_LADDER: return v.ladder.tick (in);
                     case F_SVF: return v.svf.tickLP (in);
                     case F_MS20: return v.ms20Sat.tick (v.svf2.tickHP (v.svf.tickLP (in)) * 1.5f);
@@ -862,6 +964,11 @@ private:
     std::array<Down, 128> down {};                     // the keys down, oldest first (keyDown / keyUp)
     int numDown = 0;
     uint64_t renderTick = 1;                           // counts rendered sub-blocks (allocVoice)
+    // ACID 303-TYPE's accent sweep capacitor, per layer (the main model's, the layer's), and whether a
+    // note of its charged or held it in this sub-block.
+    float acidCap[2] {};
+    bool acidOwned[2] {};
+    static float acidDrainSeconds (float res) { return 0.15f + 0.35f * res; }
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
     RoleOutput out;

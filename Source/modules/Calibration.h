@@ -17,9 +17,9 @@ inline constexpr float perc[13] = { -1.24f, 6.90f, 0.13f, -3.18f, -10.24f, -1.64
 // RUMBLE: REVERB, DELAY, SUB DRONE, DISTORTED, DUB BOOM, SAMPLE
 inline constexpr float rumble[6] = { -2.92f, -0.35f, -1.85f, -0.32f, -3.51f, 0.0f };
 // BASS: LADDER, MONO 101, SUB OSC, ACID 303, FM, SINE SUB, OFFBEAT, SAMPLE
-inline constexpr float bass[8] = { 3.22f, 7.31f, -1.94f, 5.61f, 3.87f, 3.74f, 9.26f, 0.0f };
+inline constexpr float bass[8] = { 3.22f, 7.31f, -1.94f, 12.36f, 3.87f, 3.74f, 9.26f, 0.0f };
 // LEAD: ACID 303, MONO 101, MS20, STAB DUB, STAB DETROIT, ORGAN M1, HOOVER, FM BELL, SYNC, SAMPLE
-inline constexpr float lead[10] = { 3.04f, 6.22f, 0.41f, 3.17f, 2.23f, 6.23f, 2.84f, -2.38f, -1.11f, 0.0f };
+inline constexpr float lead[10] = { 11.88f, 6.22f, 0.41f, 3.17f, 2.23f, 6.23f, 2.84f, -2.38f, -1.11f, 0.0f };
 // PAD: STRING MACHINE, POLY PAD, WAVETABLE, GRANULAR, DUB WASH, TAPE LOOP, NOISE BED, SAMPLE
 inline constexpr float pad[8] = { -3.86f, -8.23f, -4.27f, 3.50f, -0.54f, -3.54f, -7.62f, 0.0f };
 // VOICE: formant choir (no phrase loaded); phrase models relative to SAMPLE

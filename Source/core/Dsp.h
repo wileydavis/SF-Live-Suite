@@ -394,6 +394,74 @@ struct Ladder
     void reset() { for (auto& v : s) v = 0; }
 };
 
+// The TB-303's filter, at the circuit level [Nov 10]: a diode ladder. Four capacitors across the
+// rungs, the bottom one half the others (the service manual), each rung tied to its neighbours
+// through a pair of diodes (the stages aren't buffered from each other, unlike a transistor
+// ladder), driven from below by a differential pair and tied to the supply at the top. With equal
+// capacitors the open loop is 1 / (s^4 + 7s^3 + 15s^2 + 10s + 1) (s in units of wc), the diode-C
+// ladder's; with the 303's half capacitor it is 1 / (0.5p^4 - 2p^2 + 1), p = s + 2: poles at 0.15,
+// 1.24, 2.77 and 3.85 wc, so it rolls off gently with no resonance and steepens and peaks with
+// it. The resonance (k, from the top rung back to the input) passes a coupling capacitor: a
+// one-pole high-pass at 150 Hz in the loop, so the deep bass under the peak is fed back less and
+// the peak weakens at low cutoffs. The peak sits near 1.1-1.3 wc; with no high-pass it would
+// oscillate at k = 17 (1.41 wc), with it a little higher. Solved per sample with zero-delay feedback
+// (trapezoidal integrators): the rungs are tridiagonal, the feedback one corner term. The diodes
+// and the input pair saturate (tanh), their conductances taken at the previous sample.
+struct DiodeLadder303
+{
+    float s[4] {}, sh = 0.0f;              // the four integrators' states, the feedback high-pass's
+    float g0 = 1.0f, G[5] { 1, 1, 1, 1, 1 };  // tanh(v)/v of the input pair (g0) and the diodes (G[1..4]), last sample
+    float g = 0.05f, Gh = 0.0f;            // tan(wc T / 2); the high-pass's g/(1+g)
+    static constexpr float kPeak = 1.3f;   // the resonant peak, in units of wc, for the cutoff in Hz
+    static constexpr float kHighPass = 150.0f;
+    // The feedback at which it would oscillate, for a cutoff in Hz: 17 with no high-pass in the loop,
+    // more as the cutoff comes down towards it (fitted within 2 % from 400 Hz up). Below 400 Hz
+    // it is held there, so the resonance weakens at low cutoffs, as on the 303.
+    static float oscillatesAt (float hz) { return 17.0f + 23.3f * kHighPass / std::max (400.0f, hz); }
+    // RESONANCE 0..1 to the feedback: up to 96 % of the way to oscillation, the peak over the band
+    // under it growing about evenly (at 1 kHz: +5 dB at 0.5, +14 at 0.8, +26 at 1).
+    static float feedback (float res, float hz) { return 0.96f * oscillatesAt (hz) * std::pow (std::max (0.0f, res), 0.7f); }
+    // The cutoff in Hz is where the resonance peaks (wc = 2 pi hz / 1.3).
+    // Per sample: tan by its series (the argument stays under 0.3 at 4x oversampling and 16 kHz).
+    void set (float hz, double sr)
+    {
+        const float x = kPi * std::min (std::max (hz, 10.0f), 0.1f * kPeak * (float) sr) / (kPeak * (float) sr);
+        const float x2 = x * x;
+        g = x * (1.0f + x2 * (1.0f / 3.0f + x2 * (2.0f / 15.0f + x2 * (17.0f / 315.0f))));
+    }
+    void setHighPass (float hz, double sr) { const float gh = std::tan (kPi * hz / (float) sr); Gh = gh / (1.0f + gh); }
+    static float tanhOver (float v) { return std::abs (v) < 1.0e-3f ? 1.0f - v * v / 3.0f : fastTanh (v) / v; }
+    float tick (float x, float k)
+    {
+        constexpr float c1 = 0.5f;                                 // the bottom capacitor
+        const float a1 = g / c1, a2 = g, a3 = g, a4 = g;
+        // The loop's high-pass, h = alpha u4 + beta (its low-pass's state, sh, from the last sample).
+        const float alpha = 1.0f - Gh, beta = -(1.0f - Gh) * sh;
+        const float e = a1 * g0 * k * alpha;                       // u4 back into the bottom rung
+        // Eliminate from the top: u4 = p4 + q4 u3, u3 = p3 + q3 u2, u2 = p2 + q2 u1.
+        const float d4 = 1.0f + a4 * (G[3] + G[4]);
+        const float p4 = s[3] / d4, q4 = a4 * G[3] / d4;
+        const float d3 = 1.0f + a3 * (G[2] + G[3]) - a3 * G[3] * q4;
+        const float p3 = (s[2] + a3 * G[3] * p4) / d3, q3 = a3 * G[2] / d3;
+        const float d2 = 1.0f + a2 * (G[1] + G[2]) - a2 * G[2] * q3;
+        const float p2 = (s[1] + a2 * G[2] * p3) / d2, q2 = a2 * G[1] / d2;
+        const float r3 = p3 + q3 * p2, t3 = q3 * q2;
+        const float r4 = p4 + q4 * r3, t4 = q4 * t3;
+        const float u1 = (s[0] + a1 * g0 * (x - k * beta) + a1 * G[1] * p2 - e * r4)
+                       / (1.0f + a1 * G[1] - a1 * G[1] * q2 + e * t4);
+        const float u2 = p2 + q2 * u1, u3 = r3 + t3 * u1, u4 = r4 + t4 * u1;
+        s[0] = 2.0f * u1 - s[0]; s[1] = 2.0f * u2 - s[1]; s[2] = 2.0f * u3 - s[2]; s[3] = 2.0f * u4 - s[3];
+        const float lp = sh + Gh * (u4 - sh);
+        const float h = u4 - lp;
+        sh = 2.0f * lp - sh;
+        // The saturations, for the next sample.
+        g0 = tanhOver (x - k * h);
+        G[1] = tanhOver (u1 - u2); G[2] = tanhOver (u2 - u3); G[3] = tanhOver (u3 - u4); G[4] = tanhOver (u4);
+        return u4;
+    }
+    void reset() { const float keepG = g, keepGh = Gh; *this = DiodeLadder303(); g = keepG; Gh = keepGh; }
+};
+
 // Schroeder all-pass (input diffusion).
 struct Allpass
 {

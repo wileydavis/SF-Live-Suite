@@ -1010,6 +1010,7 @@ static int renderModule (int argc, char** argv)
 #include "QualityTests.h"
 #include "RequestTests.h"
 #include "SampleRegionTests.h"
+#include "EmulationTests.h"
 
 // --capture IN.wav [IN2.wav] OUT.wav: SF TERROIR's import on real recordings, through the plugin's own
 // path (the worker thread, the place as stored in the set). Prints what the status line would and a
@@ -1273,7 +1274,9 @@ int main (int argc, char** argv)
     if (argc <= 1) { testPocket(); testAlloc(); testSongs(); testSlowAndMacro(); testDensity(); testRegressions(); testFilterCrossing(); testSampleGate(); testStrip(); testTransportJumps(); testModels(); testDeck();
                      testOversampling(); testLimit(); testReverb(); testCalibration (false); testPresets(); testMotion(); testPanic(); testRates(); testReviewFixes(); testAuditFixes(); testSecondReview();
                      testThirdReview(); testDrop(); testSongWindow(); testSongGo(); testGrooveFollow(); testSlowAll(); testSlowScope(); testControlAuthority(); testRecallHistory(); testModelChange(); testGlideRings(); testRadio(); testPolyrhythm(); testConvolverEngine(); testTerroir(); testIrImport(); testTerroirLifecycle(); testTerroirColdStart(); testCapture(); testCaptureLifecycle(); testEditor();
-                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); }
+                     testCaptureRequests(); testStateAuthority(); testTerroirTempo(); testStripReach(); testSampleRegion(); testEmulation(); }
+    else if (std::string (argv[1]) == "--emulation") { testEmulation(); }
+    else if (std::string (argv[1]) == "--acid") { testAcid(); }
     else if (std::string (argv[1]) == "--editor") { testEditor(); testStripReach(); testSampleRegion(); }
     else if (std::string (argv[1]) == "--requests") { testCaptureRequests(); }
     else if (std::string (argv[1]) == "--authority2") { testStateAuthority(); }

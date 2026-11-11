@@ -67,7 +67,7 @@ public:
                  toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
     }
     bool acceptsFiles() const override { return true; }
-    juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL: SAMPLE)"; }
+    juce::String fileHint() const override { return "DROP ONE-SHOT (MODEL OR LAYER MODEL: SAMPLE)"; }
     void loadFiles (const juce::StringArray& f) override { if (f.size() > 0) sample.set (loadSampleFile (juce::File (f[0]), sr)); }
     void save (juce::ValueTree& t) const override { sample.save (t, "SAMPLE"); }
     void load (const juce::ValueTree& t) override { sample.load (t, "SAMPLE", sr); }

@@ -62,6 +62,24 @@ public:
         return ((c3 * f + c2) * f + c1) * f + x0;
     }
 
+    // Harmonics 1..H of one cycle sampled at the middles of N equal steps (N a power of two), as
+    // build() takes them (amplitude, sine phase).
+    static void harmonicsOf (const std::vector<double>& cycle, int H, std::vector<float>& amp, std::vector<float>& phase)
+    {
+        const size_t n = cycle.size();
+        std::vector<std::complex<double>> X (n);
+        for (size_t i = 0; i < n; ++i) X[i] = cycle[i];
+        fft (X, false);
+        amp.assign ((size_t) H, 0.0f); phase.assign ((size_t) H, 0.0f);
+        for (int h = 1; h <= H && (size_t) h < n / 2; ++h)
+        {
+            // c_h = X[h] / N, moved back half a step (the samples sit at the steps' middles).
+            const auto c = X[(size_t) h] / (double) n * std::polar (1.0, -3.14159265358979323846 * h / (double) n);
+            amp[(size_t) h - 1] = (float) (2.0 * std::abs (c));
+            phase[(size_t) h - 1] = (float) (std::arg (c) + 0.5 * 3.14159265358979323846);
+        }
+    }
+
 private:
     void synth (int k, const std::vector<float>& amp, const std::vector<float>& phase, int harmonics)
     {
@@ -119,6 +137,7 @@ private:
 struct WaveSet
 {
     Mipmap saw, square, tri;
+    Mipmap square303;         // the TB-303's square (its waveshaper on the saw), ACID 303-TYPE's
     Mipmap frame[4];          // WAVETABLE engine frames: sine, saw 32, square 32, vowel
     double osr = 0.0;
 
@@ -155,6 +174,18 @@ private:
             p[(size_t) h - 1] = ((h - 1) / 2) % 2 == 0 ? 0.0f : pi;
         }
         tri.build (a, p, rate);
+        // The TB-303's square: its waveshaper (a transistor's soft knee) on the rising saw,
+        // tanh (4.5 (saw + 0.1)): high a little over half the cycle, one edge the saw's reset
+        // (sharp), the other the knee's (soft). Shaped here, before band-limiting, so it can't
+        // alias as the shaper on a band-limited saw does.
+        {
+            constexpr int N = 1 << 16;
+            std::vector<double> cyc ((size_t) N);
+            for (int i = 0; i < N; ++i) cyc[(size_t) i] = std::tanh (4.5 * (2.0 * ((double) i + 0.5) / N - 0.9));
+            std::vector<float> a3, p3;
+            Mipmap::harmonicsOf (cyc, H, a3, p3);
+            square303.build (a3, p3, rate);
+        }
         // WAVETABLE frames (32 harmonics, as the original 2048-point tables).
         std::vector<float> f ((size_t) 32), fp ((size_t) 32, 0.0f);
         std::fill (f.begin(), f.end(), 0.0f); f[0] = 1.0f;
