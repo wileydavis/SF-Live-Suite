@@ -178,8 +178,9 @@ class SynthModule : public Module
 {
 public:
     // SSTART: the sample's START; END, FADE IN, FADE OUT follow (sampleRegionParams).
+    // ACID and WARP [Nov 10] after the sample's four (ids are appended, never moved).
     enum { CUTOFF, RES, ENVAMT, GATE, DENS, FILT, DRIVE, LEVEL, MODEL, DECAY, ATTACK, ACCENT, GLIDE, TUNE, DETUNE, COLOR,
-           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART };
+           LAYERMODEL, LAYER, CHORD, SPACE, PDEPTH, PSHAPE, ESPACE, ESWING, ALLOCON, KEYFOLLOW, SSTART, ACID = SSTART + 4, WARP, kParams };
 
     SynthModule (const char* idName, int role, std::vector<SynthModel> m, float cutDef, float resDef, float envDef, float gateDef, float pDepth)
         : name (idName), roleId (role), models (std::move (m)), dCut (cutDef), dRes (resDef), dEnv (envDef), dGate (gateDef), dPocket (pDepth) {}
@@ -191,7 +192,7 @@ public:
     std::vector<ParamSpec> params() const override
     {
         std::vector<std::string> mn; for (auto& m : models) mn.push_back (m.name);
-        return withRegion ({ pct ("cutoff", "CUTOFF", dCut).prim().dir (1),
+        auto p = withRegion ({ pct ("cutoff", "CUTOFF", dCut).prim().dir (1),
                  pct ("res", "RES", dRes).prim(),
                  pct ("env_amt", "ENV AMT", dEnv).prim().dir (1),
                  pct ("gate", "GATE", dGate).prim(),
@@ -217,6 +218,11 @@ public:
                  pct ("echo_swing", "ECHO SWING", 0.0f),
                  toggle ("alloc", "ALLOC", true).noPreset().forget(),
                  toggle ("key_follow", "KEY FOLLOW", true).noPreset().forget() });
+        // The E16's NRG page [Nov 10]: ACID on the 303's track, WARP on the PAD's (any model takes them).
+        p.push_back (pct ("acid", "ACID", 0.0f).slow().dir (1));
+        p.push_back (pct ("warp", "WARP", 0.0f).slow().dir (1));
+        jassert ((int) p.size() == kParams);
+        return p;
     }
     bool acceptsFiles() const override { return true; }
     juce::String fileHint() const override
@@ -291,6 +297,7 @@ public:
         Ladder ladder;
         DiodeLadder303 dl;                // ACID 303-TYPE: its filter, envelope and square (kept on a retrigger)
         float meg = 0.0f, sqMix = 0.0f, sqHp = 0.0f, sqPrev = 0.0f;
+        float warpT = 0.0f, warpPh = 0.0f, warpRate = 1.0f;     // WARP's wow and flutter: this voice's time, phase, pace
         Svf svf, svf2, nbp;
         float t = 0.0f, fb = 0.0f, drift = 0.0f;
         struct Grain { bool on = false; double pos = 0, rate = 1; int len = 0, age = 0; float pan = 0.5f; SampleRegion reg; } grains[8];   // reg: where it started (end 0: the whole source)
@@ -300,7 +307,34 @@ public:
         float level() const { return active ? amp.v * vel * gain : 0.0f; }
     };
 
-    void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi) override
+    // ACID and WARP push the knobs they move (as a macro moves a knob), for everything this block
+    // reads: c.p and c.p0 point at the pushed copies while the voices run.
+    //   ACID: RESONANCE to 95 %, ENV AMT to 90 %, ACCENT to full (each from where it is, never down),
+    //         DRIVE + 35 % and CUTOFF + 10 %: the acid squelch, on any model; the 303's own.
+    //   WARP: DETUNE (60 % of the way up) and SPACE (half way): more spread, more ensemble; and in
+    //         updateControls tape wow and flutter, each voice on its own phase and pace. On GRANULAR
+    //         DETUNE is the grains' scatter and pitch spread: the texture smears.
+    void process (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>* side, juce::AudioBuffer<float>* extra, juce::MidiBuffer& midi) override
+    {
+        const float* p = c.p; const float* p0 = c.p0;
+        std::copy (p, p + kParams, pushed); std::copy (p0, p0 + kParams, pushed0);
+        push (pushed); push (pushed0);
+        c.p = pushed; c.p0 = pushed0;
+        processVoices (c, io, side, extra, midi);
+        c.p = p; c.p0 = p0;
+    }
+    static void push (float* v)
+    {
+        auto toward = [] (float& x, float to, float a) { if (x < to) x += (to - x) * a; };
+        if (const float acid = clamp01 (v[ACID]); acid > 0.0f)
+        {
+            toward (v[RES], 0.95f, acid); toward (v[ENVAMT], 0.9f, acid); toward (v[ACCENT], 1.0f, acid);
+            v[DRIVE] = std::min (1.0f, v[DRIVE] + 0.35f * acid);
+            v[CUTOFF] = std::min (1.0f, v[CUTOFF] + 0.1f * acid);
+        }
+        if (const float warp = clamp01 (v[WARP]); warp > 0.0f) { toward (v[DETUNE], 1.0f, 0.6f * warp); toward (v[SPACE], 1.0f, 0.5f * warp); }
+    }
+    void processVoices (Ctx& c, juce::AudioBuffer<float>& io, juce::AudioBuffer<float>*, juce::AudioBuffer<float>*, juce::MidiBuffer& midi)
     {
         echoes.run (c, midi, events, c.v (DENS), echoSpaceBeats (c.ci (ESPACE)), c.v (ESWING), 1.0f, true);
         const SampleData* smp = sample.audio();
@@ -487,6 +521,7 @@ private:
             v.rate = sr * v.os;
             v.freq = wasActive ? keepFreq : noteHz (note);
             for (int k = 0; k < 8; ++k) { v.ph[k] = rng.uni(); v.ph2[k] = rng.uni(); v.pan[k] = 0.5f + (k == 0 ? 0.0f : ((k & 1) ? -0.35f : 0.35f) * (0.5f + 0.5f * rng.uni())); }
+            v.warpPh = warpRng.uni(); v.warpRate = 0.8f + 0.45f * warpRng.uni();   // its own generator: WARP leaves every other random draw where it was
             if (acidSame)
             {
                 v.dl = keepDl; v.amp = keepAmp; v.ph[0] = keepPh;
@@ -674,6 +709,15 @@ private:
         {
             v.drift += 0.3f * (float) n * invOsr; if (v.drift > 1.0f) v.drift -= 1.0f;
             k.subMul *= semis (m.wow * (0.12f * std::sin (kTwoPi * v.drift) + 0.03f * std::sin (kTwoPi * v.drift * 17.0f)));
+        }
+        // WARP: tape wow (two slow sines, up to 35 cents) and flutter (6.3 Hz, 5 cents).
+        if (const float warp = c.v (WARP); warp > 0.0f)
+        {
+            v.warpT += (float) n * invOsr;
+            const float t = v.warpT * v.warpRate;
+            const float wow = 0.6f * std::sin (kTwoPi * (0.37f * t + v.warpPh)) + 0.4f * std::sin (kTwoPi * (0.61f * t + 2.3f * v.warpPh));
+            const float flutter = std::sin (kTwoPi * (6.3f * t + 3.7f * v.warpPh));
+            k.subMul *= semis (warp * (0.35f * wow + 0.05f * flutter));
         }
         const float fTop = std::max (v.freq, v.target) * k.subMul;
         k.shape1 = m.engine == E_HOOVER ? 1 : (m.acid ? (k.color < 0.5f ? 0 : 1) : m.wave);
@@ -968,6 +1012,7 @@ private:
     // note of its charged or held it in this sub-block.
     float acidCap[2] {};
     bool acidOwned[2] {};
+    float pushed[kParams] {}, pushed0[kParams] {};    // the knobs as ACID and WARP push them (process)
     static float acidDrainSeconds (float res) { return 0.15f + 0.35f * res; }
     EchoScheduler echoes;
     std::vector<NoteEvent> events;
@@ -975,6 +1020,7 @@ private:
     Ensemble ens;
     SampleSlot sample;
     Noise rng;
+    Noise warpRng { 0x2545F491u };
     float ensembleAmt = 0.0f, pitchOffset = 0.0f;
     int lastModel = -1;
     double osr = 96000.0;

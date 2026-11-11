@@ -75,7 +75,7 @@ story.append(P("Every knob is smoothed, so 7-bit MIDI never steps audibly. Reson
 _cc_head = [H2("THE COLOUR CODE"), P("The plugins are black, white and grey. Colour only carries information:")]
 _RINGS = [E16.WHITE, E16.SHAPE, E16.LIGHT_BLUE, E16.GROUP, E16.SET, E16.GREEN]
 _RING_ROLES = ["an instrument's own sound (1-8)", "a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG", "a level or a send",
-               "a group's NRG", "NEXT SONG and BUILD", "SLOW ALL, and a knob while it glides"]
+               "NRG's ACID, DIST and WARP", "NEXT SONG and BUILD", "SLOW ALL, and a knob while it glides"]
 cc = [["", "COLOUR", "MEANS"], [Swatch(RED), "RED", "Clip, FAULT (the plugin reset itself), missing file, true peak at the ceiling."], [Swatch(AMBER), "AMBER", "Conflict or warning: an ALLOC conflict, a deck armed and waiting, RETURN KNOB on BUILD."],
       [Swatch(GREEN), "GREEN", "Active or locked: bus connected, kick reporting, a song recall or a drop waiting for the bar, a value gliding (SLOW)."],
       [Swatch(CYAN), "CYAN", "The value of the control you are touching."],
@@ -357,17 +357,18 @@ for t, _ in E16.SHOW_PAGES:
 story += bullets([f"<b>Press {i}, on every PERF page:</b> {esc(press_text(pr))}." for i, pr in sorted(show_presses.items())]
                  + ["A knob is easily pressed while it is turned, so every press on the E16 is one the set plays through if it happens by accident. Nothing that would stop the set is on the E16: the PA's emergency stop is the audio interface's output knob."])
 story.append(CondPageBreak(E16Grid.H + 30))
-story.append(P("NRG, page 12: every ENERGY knob, in the tracks' order."))
+story.append(P("NRG, page 12: every ENERGY knob, in the tracks' order, then ACID, DIST and WARP."))
 cells = {}
 for i, c in enumerate(E16.encoders("NRG"), 1):
     pr = E16.press_for("NRG", i)
-    sub = c.label.replace(" ENERGY", "") if pr.mode == "CENTRE" else "PRESS: SLOW ALL" if pr.mode == "SWAP" else f"PRESS: {pr.name}"
+    sub = c.label if pr is None else c.label.replace(" ENERGY", "") if pr.mode == "CENTRE" else "PRESS: SLOW ALL" if pr.mode == "SWAP" else f"PRESS: {pr.name}"
     cells[i] = (c.name, sub, INK, False)
-story.append(E16Grid(cells, note="KNOB N IS TRACK N'S SF ENERGY; 12-14 THE GROUPS. A PRESS SETS IT BACK TO THE CENTRE (KNOB 1: SLOW ALL)."))
+story.append(E16Grid(cells, note="KNOB N IS TRACK N'S SF ENERGY: A PRESS SETS IT BACK TO THE CENTRE (KNOB 1: SLOW ALL). 12-14 ACID, DIST, WARP."))
 story.append(Spacer(1, 8))
-story += bullets(["The ENERGY knobs are a DJ filter per track and per group, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in. Each track's own ENERGY shapes that part; the group knobs move a whole section.",
+story += bullets(["The ENERGY knobs are a DJ filter per track, plus drive, space, echo and chop: centre is neutral, left takes energy out, right puts it in. Each track's own ENERGY shapes that part. A drum track's ENERGY (PROFILE DRUMS) at zero takes the part out entirely: KCK NRG down, no kick. The groups keep their SF ENERGY, at the centre (MACRO 1 can move it).",
+                  "NRG 12-14 [Nov 10]: <b>ACID</b> (8 LEAD's SF LEAD: RES, ENV AMT, ACCENT, DRIVE and CUTOFF up together, the 303 squelch), <b>DIST</b> (SF DRIVE's MIX on the LIVE BUS: the whole mix from clean to driven, tube into fuzz, its lows under 120 Hz clean and its level held), <b>WARP</b> (10 PAD's SF PAD: tape wow and flutter on every voice its own way, more spread and ensemble; on GRANULAR the grains scatter). Each off at zero; their presses do nothing.",
                   "Each instrument's LEVEL belongs to its song; the volumes on MIX's LEVELS page are your balance on the night. Set every LEVEL at soundcheck so a volume at 0 dB gives the intended mix: every volume and send is mapped with a maximum of 0 dB.",
-                  "Rings by role, in the OXI App's colour numbers (layout.py holds them): white (34) an instrument's own sound, knobs 1-8; red (63) a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; pink (50) a group's NRG; violet (9) NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL. Each plugin's window draws its E16 knobs in the same colours. A knob that is travelling (SLOW) turns green and walks with the sound until it arrives (GLIDE RINGS: SF CONTROL's E16 RINGS and the scenes' script; controllers/e16 README).",
+                  "Rings by role, in the OXI App's colour numbers (layout.py holds them): white (34) an instrument's own sound, knobs 1-8; red (63) a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; pink (50) NRG's ACID, DIST and WARP; violet (9) NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL. Each plugin's window draws its E16 knobs in the same colours. A knob that is travelling (SLOW) turns green and walks with the sound until it arrives (GLIDE RINGS: SF CONTROL's E16 RINGS and the scenes' script; controllers/e16 README).",
                   "<b>TRACK FOCUS:</b> turn to a PERF track page and Live selects that track (page 6, BAS: 6 BASS), with the control surface SF E16 installed (controllers/live/SF_E16, into the User Library's Remote Scripts; Settings > Tempo & MIDI: SF E16, Input E16 Port 1, Output None). NRG and MIX's pages leave the selection where it is. With Auto-Hide Plug-In Windows on (Settings > Plug-Ins), the track's open plugin windows come up with its page. The page sends CC 119 on channel 16: keep it unmapped (check_set.py fails a set that maps it)."])
 
 story.append(H2("THE E16: PAGES"))

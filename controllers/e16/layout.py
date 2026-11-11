@@ -19,18 +19,20 @@ The grid
   The E16 is a 4 x 4 grid, numbered row by row from the top left: 1-4 the top row, 13-16 the bottom row.
   PERF, pages 1-11: one per track. Rows 1-2 are its instrument's own knobs; row 3 is GATE (DECAY where
   the instrument has none), DENSITY, FILTER and LEVEL on every page; row 4 is SEND A, SEND B, NEXT SONG
-  (press: GO) and BUILD (press: DROP). Page 12, NRG: the ENERGY knobs, knob n for track n (12-14 the
-  groups DRUMS, LOW, MUSIC; each press back to the centre), then NEXT SONG and BUILD. Knob 1's press
-  swaps it to SLOW ALL on every PERF page.
+  (press: GO) and BUILD (press: DROP). Page 12, NRG: the ENERGY knobs, knob n for track n (each press
+  back to the centre), then [Nov 10] ACID (8 LEAD's SF LEAD), DIST (the LIVE BUS's SF DRIVE MIX) and
+  WARP (10 PAD's SF PAD), then NEXT SONG and BUILD. The groups' ENERGY knobs went (their plugins stay
+  on the groups, at the centre). Knob 1's press swaps it to SLOW ALL on every PERF page.
   MIX: LEVELS (the volumes, in NRG's places; 15 and 16 the returns), SPACE (both returns, THROW and
   FREEZE on their presses), MACROS (MACRO 1-6, SLOW ALL, REPEAT with ROLL on its press).
   Rings by role (the performer's colours): white an instrument's own sound, SHAPE a track's GATE or
-  DECAY, DENSITY, FILTER and its NRG, light blue a level (LEVEL, a volume, a send), GROUP a group's NRG,
-  SET NEXT SONG and BUILD, green SLOW ALL.
+  DECAY, DENSITY, FILTER and its NRG, light blue a level (LEVEL, a volume, a send), GROUP NRG's ACID,
+  DIST and WARP (the groups' NRG until Nov 10), SET NEXT SONG and BUILD, green SLOW ALL.
 
 Addresses
-  On a track's channel: its page's knobs 1-12 CC 12-23 (the place + 11), its ENERGY CC 28 (the groups on
-  14: DRUMS 28, LOW 29, MUSIC 30), its volume CC 102 (the groups: 102-104), SEND A 103, SEND B 104.
+  On a track's channel: its page's knobs 1-12 CC 12-23 (the place + 11), its ENERGY CC 28, NRG's ACID,
+  DIST or WARP on it CC 29 (8 LEAD, 15 the LIVE BUS, 10 PAD), its volume CC 102 (the groups on 14:
+  102-104), SEND A 103, SEND B 104.
   Anything else in PERF: the place + 11 for a turn, + 27 for a press (SLOW ALL 12, NEXT SONG 26,
   BUILD 27, GO 42, DROP 43); in MIX: the place + 43 for a turn, + 59 for a press. A knob on two pages
   sends the same address from both (one Live parameter takes one mapping).
@@ -79,6 +81,7 @@ PLUGINS = {
     "MUSIC EN":   ("MUSIC", "ENERGY", 14),
     "REPEAT":     ("DRUMS", "REPEAT", 14),
     "BUILD":      ("LIVE BUS", "BUILD", 15),
+    "DIST":       ("LIVE BUS", "DRIVE", 15),
     "CONTROL":    ("CONTROL", "CONTROL", 16),
 }
 # The instrument tracks in their order (track n on channel n), and each one's SF ENERGY (last on the
@@ -115,6 +118,7 @@ SHOW_SCENE, MIX_SCENE = "PERF", "MIX"
 TURN = {SHOW_SCENE: 11, MIX_SCENE: 43}
 PRESS = {SHOW_SCENE: 27, MIX_SCENE: 59}
 ENERGY = 28
+NRG_MACRO = 29                  # NRG's ACID, DIST and WARP, on their track's channel
 SENDS = {"volume": 102, "send A": 103, "send B": 104}
 RESERVED_CC = {6, 38, 96, 97, 98, 99, 100, 101} | set(range(120, 128))
 # Track focus [Nov 8]: when a page comes up, the scenes' script sends FOCUS with the number of the
@@ -130,7 +134,7 @@ FOCUS = ("CC", 16, 119)
 WHITE = 34          # an instrument's own sound (a track's knobs 1-8), and anything without a role below
 SHAPE = 63          # a track's GATE or DECAY, DENSITY and FILTER (its knobs 9-11), and its NRG
 LIGHT_BLUE = 18     # a level: a plugin's LEVEL, a volume, a send
-GROUP = 50          # a group's NRG (DRUMS, LOW, MUSIC)
+GROUP = 50          # NRG's ACID, DIST and WARP (the groups' NRG until Nov 10)
 SET = 9             # NEXT SONG and BUILD: the set's own moves
 GREEN = 90          # SLOW ALL, knob 1's second destination; a travelling knob (GLIDE RINGS)
 # How each one looks, as the plugins' windows draw the rings (E16Map.h kE16Rings): RGB. White, light
@@ -333,7 +337,17 @@ def E(t):
     return coloured(P(t + " EN", "energy", CODE[t] + " NRG", CODE[t], label=t + " ENERGY"), GROUP if t in GROUP_ORDER else SHAPE)
 
 
-NRG = [E(t) for t in TRACKS] + [E(g) for g in GROUP_ORDER] + [next_song(), build_knob()]
+def nrg_macro(dest, pid, name, label):
+    """NRG's ACID, DIST and WARP [Nov 10]: one move each, on the track it plays (CC 29 on its channel)."""
+    return coloured(P(dest, pid, name, name, label=label), GROUP)
+
+
+# ACID pushes the 303's RES, ENV AMT, ACCENT, DRIVE and CUTOFF together; DIST blends in SF DRIVE on the
+# LIVE BUS (the whole mix; its lows kept clean); WARP smears the PAD (wow, flutter, spread, ensemble).
+NRG_MACROS = [nrg_macro("LEAD", "acid", "ACID", "ACID (8 LEAD)"),
+              nrg_macro("DIST", "mix", "DIST", "DIST (LIVE BUS)"),
+              nrg_macro("PAD", "warp", "WARP", "WARP (10 PAD)")]
+NRG = [E(t) for t in TRACKS] + NRG_MACROS + [next_song(), build_knob()]
 SHOW_PAGES = [(CODE[t], track_page(t)) for t in TRACKS] + [("NRG", NRG)]
 
 # ---------------------------------------------------------------------------------------- MIX
@@ -388,7 +402,7 @@ for _title, _ in SHOW_PAGES:
     PRESSES_PAGE[(_title, 1)] = SLOW_ALL                         # knob 1's press: SLOW ALL, every PERF page
     PRESSES_PAGE[(_title, 15)] = Press("CONTROL", "song_go", "HOLD")
     PRESSES_PAGE[(_title, 16)] = Press("BUILD", "drop", "HOLD")
-for _k, _c in enumerate(NRG[:14], 1):
+for _k, _c in enumerate(NRG[:len(TRACKS)], 1):                # ENERGY knobs only: ACID, DIST and WARP have no press
     if _k > 1:
         PRESSES_PAGE[("NRG", _k)] = _centre(_c)
 PRESSES_PAGE.update({
@@ -431,6 +445,8 @@ def place():
         if c.module == "ENERGY" and c.pid == "energy":
             c.number = ENERGY + energies.get(c.channel, 0)
             energies[c.channel] = energies.get(c.channel, 0) + 1
+        elif any(c is m for m in NRG_MACROS):
+            c.number = NRG_MACRO
         else:
             c.number = knob + TURN[scene]
         home[key] = c.number

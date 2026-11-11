@@ -74,8 +74,12 @@ SHOW = [
     dict(name="11 VOICE", kind="midi", group="MUSIC", colour=LIGHT, devices=[("VOICE", {})], midi=("A", 11)),
     dict(name="BRIDGE", kind="audio", colour=GREY, audio_in="none", monitor="off", devices=[]),
     dict(name="DECK", kind="midi", colour=GREY, devices=[("DECK", {})], midi=("B", 7)),
+    # SF DRIVE [Nov 10]: NRG's DIST (its MIX: 0 clean, up the whole mix driven; tube into fuzz, 20 dB in,
+    # the lows under 120 Hz kept clean, AUTO GAIN holding the level), before BUILD so the build's wash
+    # stays clean on top.
     dict(name="LIVE BUS", kind="audio", colour=DARK, audio_in="none", monitor="in", sends=False,
-         devices=[("ISOLATOR", {}), ("BUILD", {}), ("GLUE", {}), ("TONE", {}), ("LOWEND", {}), ("ALLOC", {"enable": "off"})]),
+         devices=[("ISOLATOR", {}), ("DRIVE", {"drive": "0.55", "character": "0.4", "low_keep": "120", "mix": "0"}),
+                  ("BUILD", {}), ("GLUE", {}), ("TONE", {}), ("LOWEND", {}), ("ALLOC", {"enable": "off"})]),
     # The PA feed: the Main (the set, after SF LIMIT), the venue's correction, then a safety limiter that never
     # touches the set (its peaks are already at -1 dBTP) and only catches what the room EQ's phase pushes past.
     dict(name="PA", kind="audio", colour=RED, audio_in="main", monitor="in", sends=False, out="pa",

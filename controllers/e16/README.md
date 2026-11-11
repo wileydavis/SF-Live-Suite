@@ -36,11 +36,17 @@ PERF, pages 1-11: one per track (page n is track n; the title its code: KCK ... 
  9 GATE (DECAY)                  10 DENSITY       11 FILTER         12 LEVEL
 13 SEND A (DUB)                  14 SEND B (SPACE) 15 NEXT SONG [GO] 16 BUILD [DROP]
 
-PERF, page 12: NRG, the ENERGY knobs (knob n for track n)
+PERF, page 12: NRG, the ENERGY knobs (knob n for track n), then ACID, DIST and WARP [Nov 10]
  1 KCK NRG [SLOW ALL]   2 CHH NRG           3 OHH NRG           4 CLP NRG
  5 PRC NRG              6 BAS NRG           7 RMB NRG           8 LED NRG
- 9 CRD NRG             10 PAD NRG          11 VOX NRG          12 DRM NRG (group)
-13 LOW NRG (group)     14 MUS NRG (group)  15 NEXT SONG [GO]   16 BUILD [DROP]
+ 9 CRD NRG             10 PAD NRG          11 VOX NRG          12 ACID (8 LEAD)
+13 DIST (LIVE BUS)     14 WARP (10 PAD)    15 NEXT SONG [GO]   16 BUILD [DROP]
+
+KCK NRG at zero takes the kick out of the mix (a drum track's SF ENERGY, PROFILE DRUMS, fades out
+over the last eighth of the knob). ACID pushes 8 LEAD's 303 (RES, ENV AMT, ACCENT, DRIVE, CUTOFF);
+DIST blends in SF DRIVE on the LIVE BUS (the whole mix, its lows clean, its level held); WARP smears
+10 PAD (tape wow and flutter, spread, ensemble). All three are off at zero and have no press. The
+groups' ENERGY plugins stay on DRUMS, LOW and MUSIC at the centre.
 
 MIX
 LEVELS: the volumes in NRG's places (KCK VOL ... VOX VOL, 12-14 the groups), 15 DUB and 16 SPACE
@@ -73,7 +79,7 @@ sends and the song and build, on every page. Rows 1 and 2:
 | white (34) | the instrument's own sound: a track's knobs 1-8 |
 | red (63) | a track's GATE or DECAY, DENSITY and FILTER (9-11), and its NRG knob |
 | light blue (18) | a level: LEVEL, the sends, every volume on MIX |
-| pink (50) | a group's NRG knob (DRM, LOW, MUS) |
+| pink (50) | NRG's ACID, DIST and WARP (12-14; the groups' NRG until Nov 10) |
 | violet (9) | NEXT SONG and BUILD (15, 16) |
 | green (90) | knob 1 on SLOW ALL, and any knob while it travels (GLIDE RINGS) |
 
@@ -105,11 +111,11 @@ channel (port A): `controllers/oxi-one`.
 
 | CHANNEL | TRACK | ITS PAGE (PERF) | ENERGY (NRG) | VOLUME (LEVELS) | SEND A, B (ITS PAGE 13, 14) | ALSO |
 |---|---|---|---|---|---|---|
-| 1-11 | 1 KICK ... 11 VOICE | knobs 1-12: CC 12-23 | CC 28 (knob n) | CC 102 (knob n) | CC 103, 104 | |
+| 1-11 | 1 KICK ... 11 VOICE | knobs 1-12: CC 12-23 | CC 28 (knob n) | CC 102 (knob n) | CC 103, 104 | 8 LEAD: ACID CC 29 (NRG 12); 10 PAD: WARP CC 29 (NRG 14) |
 | 12 | A DUB | | | CC 102 (15) | | SPACE 1-4: CC 44-47; THROW CC 60, FREEZE note 61 (C#3) |
 | 13 | B SPACE | | | CC 102 (16) | | SPACE 5-8: CC 48-51; THROW CC 64, FREEZE note 65 (F3) |
-| 14 | DRUMS, LOW, MUSIC | | CC 28, 29, 30 (12-14) | CC 102, 103, 104 (12-14) | | DRUMS' REPEAT, MACROS 9-10: CC 52, 53; ROLL CC 68 |
-| 15 | LIVE BUS | | | | | BUILD CC 27, DROP CC 43 (PERF 16) |
+| 14 | DRUMS, LOW, MUSIC | | | CC 102, 103, 104 (12-14) | | DRUMS' REPEAT, MACROS 9-10: CC 52, 53; ROLL CC 68 |
+| 15 | LIVE BUS | | | | | BUILD CC 27, DROP CC 43 (PERF 16); SF DRIVE's MIX: DIST CC 29 (NRG 13) |
 | 16 | CONTROL | | | | | SLOW ALL CC 12 (knob 1's swap; MACROS 7), NEXT SONG CC 26 and GO CC 42 (PERF 15), MACRO 1-6 CC 44-49 (MACROS 1-6); TRACK FOCUS CC 119 (the script, as a PERF page comes up: its track's number; for SF E16, never mapped) |
 
 - **The rule:** in PERF a knob sends its place + 11 and a press its place + 27; in MIX a knob its
@@ -186,7 +192,7 @@ from the App on 3 Nov): every press sends to Output ALL, like the turns. Nothing
 | every PERF page | 1 | SLOW ALL, swap | Swap Destination (sends nothing); Destination 2 = CC 12 ch 16 | CONTROL > SF CONTROL > SLOW ALL |
 | every PERF page | 15 | GO, hold | CC 42 ch 16, Press & Release, P.Val 127, R.Val 0 | CONTROL > SF CONTROL > GO |
 | every PERF page | 16 | DROP, hold | CC 43 ch 15, Press & Release, P.Val 127, R.Val 0 | LIVE BUS > SF BUILD > DROP |
-| NRG | 2-14 | ENERGY to the centre | CC 28 on the knob's own channel (the groups 28, 29, 30 on ch 14), Press & Release, P.Val 64, R.Val 64 | that knob's SF ENERGY |
+| NRG | 2-11 | ENERGY to the centre | CC 28 on the knob's own channel, Press & Release, P.Val 64, R.Val 64 | that knob's SF ENERGY |
 | SPACE (MIX) | 1 | DUB THROW, hold | CC 60 ch 12, Press & Release, P.Val 127, R.Val 0 | A DUB > SF DELAY > THROW |
 | SPACE (MIX) | 2 | DUB FREEZE, toggle | Note 61 (C#3) ch 12, Press & Release, velocity 127 | A DUB > SF DELAY > FREEZE |
 | SPACE (MIX) | 5 | SPACE THROW, hold | CC 64 ch 13, Press & Release, P.Val 127, R.Val 0 | B SPACE > SF REVERB > THROW |

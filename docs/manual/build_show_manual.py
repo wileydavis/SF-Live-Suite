@@ -354,10 +354,11 @@ PAGE_NOTES = {
     "VOX": ("SF VOICE on 11 VOICE: phrases, radio fragments, choir.",
                  ["SIGNAL goes from lost to clear (RADIO model); ECHO feeds the voice's own dub echo, ECHO TME and ECHO FBK shape it.",
                   "C3 plays slice 1, C#3 slice 2 and so on; below C3 the whole phrase. Sequence it as choreography."]),
-    "NRG": ("Every ENERGY knob: knob n is track n's SF ENERGY, 12-14 the groups'. The arrangement under one hand.",
+    "NRG": ("Every ENERGY knob: knob n is track n's SF ENERGY. Then ACID, DIST and WARP. The arrangement under one hand.",
                 ["Centre is neutral: left takes energy out (filter, space), right puts it in (drive, echo, chop). Small moves, often.",
                  "Press an ENERGY knob and it goes back to the centre; with SLOW ALL on it glides there.",
-                 "The group knobs (12-14) move a whole section; a track's own knob shapes one part inside it."]),
+                 "KCK NRG all the way down takes the kick out of the mix (the drum tracks' ENERGY fades out over its last eighth).",
+                 "12 ACID: 8 LEAD's 303 squelches (RES, ENV AMT, ACCENT, DRIVE and CUTOFF up together). 13 DIST: the whole mix through SF DRIVE on the LIVE BUS, its lows clean, its level held. 14 WARP: 10 PAD wobbles and smears (tape wow and flutter, spread, ensemble). All three off at zero; their presses do nothing."]),
     "LEVELS": ("MIX. The volumes in NRG's places: knob n is track n's, 12-14 the groups', 15 and 16 the returns'.",
                ["Every volume is mapped up to 0 dB, so a full turn never runs past the soundcheck balance.",
                 "Set each instrument's LEVEL (its song) so the volumes at 0 dB give the intended mix; the volumes are your balance on the night."]),
@@ -580,14 +581,14 @@ story.append(P("NRG, page 12:"))
 cells = {}
 for i, c in enumerate(E16.encoders("NRG"), 1):
     pr = E16.press_for("NRG", i)
-    sub = c.label.replace(" ENERGY", "") if pr.mode == "CENTRE" else "PRESS: SLOW ALL" if pr.mode == "SWAP" else f"PRESS: {pr.name}"
+    sub = c.label if pr is None else c.label.replace(" ENERGY", "") if pr.mode == "CENTRE" else "PRESS: SLOW ALL" if pr.mode == "SWAP" else f"PRESS: {pr.name}"
     cells[i] = (c.name, sub, INK, False)
-story.append(E16Grid(cells, note="KNOB N IS TRACK N'S SF ENERGY; 12-14 THE GROUPS. A PRESS SETS IT BACK TO THE CENTRE (KNOB 1: SLOW ALL)."))
+story.append(E16Grid(cells, note="KNOB N IS TRACK N'S SF ENERGY: A PRESS SETS IT BACK TO THE CENTRE (KNOB 1: SLOW ALL). 12-14 ACID, DIST, WARP."))
 story.append(Spacer(1, 8))
-story += bullets(["<b>The ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together). Each track's own knob shapes that part; 12-14 move a whole group.",
+story += bullets(["<b>The ENERGY knobs:</b> centre is neutral, left takes energy out, right puts it in (filter, drive, space, echo and chop together). Each track's own knob shapes that part. KCK NRG at zero: no kick. <b>12 ACID</b> pushes the 303 on 8 LEAD, <b>13 DIST</b> drives the whole mix, <b>14 WARP</b> smears the PAD; each is off at zero.",
                   "<b>MIX:</b> LEVELS has the volumes in NRG's places (knob n is track n's, 12-14 the groups', 15 DUB and 16 SPACE the returns'); SPACE the two returns, their throws and freezes; MACROS SF CONTROL's six macros, SLOW ALL and the drum roll. Its other nine pages are empty: their knobs send nothing."])
 story.append(H2T("RINGS, PAGES, PRESSES"))
-story += bullets(["<b>Rings, by role</b> (the OXI App's colour numbers, as set in PERF on Nov 8): white (34) an instrument's own sound, knobs 1-8; red (63) a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; pink (50) a group's NRG; violet (9) NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL, or a knob travelling (knob 1 itself never shows a glide: it swaps, so it always shows the value of the side it is on). Live sends every value back, so the rings follow song recalls and mouse moves.",
+story += bullets(["<b>Rings, by role</b> (the OXI App's colour numbers, as set in PERF on Nov 8): white (34) an instrument's own sound, knobs 1-8; red (63) a track's GATE or DECAY, DENSITY and FILTER (9-11) and its NRG knob; light blue (18) a level: LEVEL, the sends, every volume; pink (50) NRG's ACID, DIST and WARP; violet (9) NEXT SONG and BUILD; green (90) knob 1 on SLOW ALL, or a knob travelling (knob 1 itself never shows a glide: it swaps, so it always shows the value of the side it is on). Live sends every value back, so the rings follow song recalls and mouse moves.",
                   "<b>A recalled knob is yours the moment you turn it.</b> With Takeover Mode Value Scaling, a knob that disagrees with Live (after a song recall) moves the sound smoothly from where it is, never jumps.",
                   "<b>A PERF track page selects its track in Live</b> as it comes up (TRACK FOCUS: with the control surface SF E16 installed, controllers/live/SF_E16): page 6, BAS, selects 6 BASS, as a click on its name would. With Auto-Hide Plug-In Windows on, its open plugin windows come up with it and the others hide: the page you play is the window you see. NRG and MIX's pages leave the selection where it is. Nothing else a page or scene change sends. A knob on several pages (NEXT SONG, BUILD, SLOW ALL) sends the same address from all: several ways to one mapping.",
                   "<b>A hold press</b> is a CC, 127 on press and 0 on release: the parameter is on for as long as the knob is down (GO, DROP, THROW, ROLL). <b>A toggle press</b> is a note: Live flips the switch on every Note On (FREEZE), so the E16 can never think FREEZE is on while Live has it off. <b>A centre press</b> sends 64 on its knob's own address: an ENERGY back to neutral.",
@@ -683,7 +684,7 @@ story.append(table([["PHASE", "WHAT CARRIES IT", "WHERE"],
     ["LOCK-IN", "Hats come in by DENSITY, not by level. One part at a time, eight or sixteen bars apart.", "CHH, KCK"],
     ["BUILD", "BUILD up over 8-16 bars; hats and clap DENSITY up; SPACE DUCK down so the tail fills the bar.", "Knob 16; CHH, OHH, CLP; MIX SPACE"],
     ["PEAK", "The drop; ENERGY knobs right of centre; the lead or the chord carries the hook; dub throws on the offbeats.", "Press 16, NRG, LED, SPACE"],
-    ["BREAKDOWN", "Kick lane muted on the ONE; LOW NRG down; FREEZE a return; VOICE up.", "The ONE, NRG, SPACE, VOX"],
+    ["BREAKDOWN", "KCK NRG to zero (the kick out); BAS NRG down; WARP up on the pad; FREEZE a return; VOICE up.", "NRG, SPACE, VOX"],
     ["RETURN", "Kick back on the one; a song change lands here (NEXT SONG, then GO).", "Press 16, knob 15, the ONE"],
     ["CLOSE", "ENERGY knobs left; parts out one by one; the last bars on a frozen reverb or BRIDGE.", "NRG, SPACE, Live's BRIDGE"]],
     [0.9 * inch, 3.75 * inch, W - 4.65 * inch], mono_first=True))
@@ -708,7 +709,7 @@ story.append(table([["RECIPE", "THE GAP", "TAIL", "DROP DUCK", "DUCK TIME", "WHA
     [0.95 * inch, 0.6 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch, W - 3.55 * inch]))
 story.append(P("Defaults: TAIL 1/8, DROP DUCK OFF, DUCK TIME 1 BAR, LAND ON KICK. UNUSED in Live's list was GAP. The drop duck needs KICK REPORTING on SF CONTROL. TAP and STRIP set to ROLE KICK, PERC or DECK don't duck.", "smallgrey"))
 story.append(H2T("ENERGY AND MACROS"))
-story += bullets(["The ENERGY knobs on NRG are the fastest way to move a whole set: small moves, often. The group knobs (12-14) move a section, a track's own knob one part. A negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
+story += bullets(["The ENERGY knobs on NRG are the fastest way to move a whole set: small moves, often, a track's own knob one part. ACID, DIST and WARP (12-14) are the set's three colour moves: the 303 squeals, the mix grits up, the pad melts. The groups' ENERGY plugins still follow MACRO 1 (below); a negative MACRO 1 amount on LOW darkens the bass while the rest lifts.",
                   "Six macros on MIX's MACROS page, each followed by the plugins that subscribe to it (MACRO SRC, MACRO AMT on each plugin). A starting plan:"])
 story.append(table([["MACRO", "FOLLOWED BY", "MOVES"],
     ["1 ENERGY", "the group ENERGY plugins, BUILD", "every group's energy at once"],

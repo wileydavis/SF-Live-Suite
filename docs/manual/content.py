@@ -39,6 +39,8 @@ SYNTH = {
     "layer": "Blend of the LAYER MODEL under the main model. Use it to put a sub under a stab or an acid line on a bass.",
     "chord": "Notes played per key. MODEL uses the model's own chord (STAB DUB = minor 7, STAB DETROIT = minor 9, ORGAN = minor triad). NONE forces single notes. Or choose MIN7, MIN9, SUS4, MAJ7, MIN, 5TH, OCT.",
     "space": "Ensemble chorus amount, for the models that have one (strings, poly pad, stabs, hoover, organ).",
+    "acid": "One knob for the squelch (the E16's NRG 12, on 8 LEAD): RES towards 95 %, ENV AMT towards 90 %, ACCENT towards full, DRIVE +35 % and CUTOFF +10 %, each from where its own knob is (never down). Made for ACID 303-TYPE; any model takes it. 0 = off.",
+    "warp": "One knob for a melting texture (the E16's NRG 14, on 10 PAD): tape wow (up to 35 cents, two slow drifts) and flutter (5 cents), every voice on its own phase and pace so a chord smears; DETUNE and SPACE pushed up too (on GRANULAR: the grains scatter wider). 0 = off.",
     "smp_start": "Where the sample starts playing, from 0 % (its start) to 100 %. Drag the START line on the display or turn this. A SAMPLE note takes it as it is when the note starts (a legato slide plays on); GRANULAR's grains follow it as it moves. Inside the sample it fades in for at least 1 ms, so a cut never clicks.",
 }
 
@@ -488,8 +490,8 @@ MODULES["DUCK"] = dict(group="EFFECTS", summary="Pocket as an effect for any aud
         "rate": "GRID: 1/2, 1/4, 1/8, on the groove's beat (where SF KICK's kicks land; Live's beat with no SF KICK).", "curve": "GRID: shape of the recovery.", "mix": "Amount.",
     })
 MODULES["ENERGY"] = dict(group="EFFECTS", summary="Group energy. Replaces the DJ filter on groups: one bipolar knob, centre neutral, that adds energy as well as taking it away.",
-    use=["One per group (drums, bass, music, voice) with PROFILE to match.", "Down: low-pass, space and softness. Up: high-pass with a resonant edge, drive, 1/16 echo and chop.", "With SLOW on, an 8-bar high-pass build happens by itself."],
-    models=[("PROFILE", "DRUMS (high-pass side thins the kick moderately), BASS (strong low-pass side, gentle high-pass), MUSIC (both sides full), VOICE, MASTER (gentle both ways).")],
+    use=["One per group (drums, bass, music, voice) with PROFILE to match; in the show template one on every instrument track too (the E16's NRG page).", "Down: low-pass, space and softness. Up: high-pass with a resonant edge, drive, 1/16 echo and chop.", "PROFILE DRUMS at zero takes the part out of the mix: a low-pass alone leaves a kick's thump, so KCK NRG all the way down is no kick.", "With SLOW on, an 8-bar high-pass build happens by itself."],
+    models=[("PROFILE", "DRUMS (high-pass side thins the kick moderately; at the very bottom the part is gone: the last eighth of the knob fades it out, space and echo with it), BASS (strong low-pass side, gentle high-pass), MUSIC (both sides full), VOICE, MASTER (gentle both ways).")],
     desc={
         "energy": "Bipolar. Centre = neutral. Left = down, right = up.", "profile": "How far each side travels for this kind of group.",
         "res": "Resonant edge (stronger on the up side).", "drive_amt": "Drive added on the up side (2x oversampled, from clean at centre).",

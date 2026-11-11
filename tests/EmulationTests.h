@@ -272,7 +272,84 @@ static void testAcid()
     }
 }
 
+// The NRG page's knobs [Nov 10]: KCK NRG at the bottom takes the kick out (ENERGY, DRUMS profile);
+// ACID pushes the 303; WARP warbles the pitch, each voice its own way. SFTests --nrg.
+static void testNrg()
+{
+    using namespace emu;
+    std::printf ("-- NRG: ENERGY's DRUMS profile at the bottom, ACID, WARP\n");
+    // ENERGY on a 60 Hz tone (a kick's body): the level against the input at each knob position.
+    auto energyDb = [] (int profile, float knob)
+    {
+        resetBus();
+        Rig2 r ("ENERGY");
+        r.set ("profile", (float) profile); r.set ("energy", knob);
+        int64_t t = 0;
+        double ei = 0.0, eo = 0.0;
+        for (int s = 0; s < (int) (kSr * 1.5); s += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>& b, juce::MidiBuffer&, int n)
+            { for (int i = 0; i < n; ++i) { const float v = 0.3f * (float) std::sin (6.283185307 * 60.0 * (double) (t + i) / kSr); b.setSample (0, i, v); b.setSample (1, i, v); } });
+            if (s > kSr * 0.7)
+                for (int i = 0; i < kBlock; ++i) { const double x = 0.3 * std::sin (6.283185307 * 60.0 * (double) (t + i) / kSr); ei += x * x; eo += (double) r.buf.getSample (0, i) * r.buf.getSample (0, i); }
+            t += kBlock;
+        }
+        return 10.0 * std::log10 ((eo + 1e-30) / ei);
+    };
+    const double d50 = energyDb (0, 0.5f), d13 = energyDb (0, 0.13f), d6 = energyDb (0, 0.0625f), d0 = energyDb (0, 0.0f), b0 = energyDb (1, 0.0f), m0 = energyDb (2, 0.0f);
+    std::printf ("   a 60 Hz tone through ENERGY: DRUMS at the centre %+.1f dB, 13 %% %+.1f dB, 6 %% %+.1f dB, 0 %% %.1f dB; BASS at 0 %+.1f dB, MUSIC at 0 %+.1f dB\n", d50, d13, d6, d0, b0, m0);
+    CHECK (std::abs (d50) < 0.5 && d13 > -12.0 && d6 < d13 - 3.0 && d6 > -60.0 && d0 < -120.0 && b0 > -40.0 && m0 > -40.0,
+           "ENERGY DRUMS at the bottom: centre %+.1f, 13 %% %+.1f, 6 %% %+.1f, 0 %% %.1f dB; BASS %+.1f, MUSIC %+.1f dB", d50, d13, d6, d0, b0, m0);
+
+    // ACID on SF LEAD's 303 (its defaults, a line of 16ths): brighter and more resonant; at 0 nothing changes.
+    auto acidLine = [] (float acid)
+    {
+        resetBus();
+        Rig2 r ("LEAD");
+        r.set ("model", 0.0f); r.set ("acid", acid); r.set ("pocket_depth", 0.0f); r.set ("space", 0.0f);
+        std::vector<float> out;
+        for (int s = 0; s < (int) (kSr * 3.0); s += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int n) { gridNotes (m, r.ppq, r.bps(), n, 0.25, 0.125, 45, 100); });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+        }
+        return out;
+    };
+    const auto a0 = acidLine (0.0f), a1 = acidLine (1.0f);
+    const double h0 = rmsHz (a0, (int) kSr, (int) (kSr * 3.0)), h1 = rmsHz (a1, (int) kSr, (int) (kSr * 3.0));
+    const double l0 = 20.0 * std::log10 (rms (a0, (int) kSr, (int) (kSr * 3.0))), l1 = 20.0 * std::log10 (rms (a1, (int) kSr, (int) (kSr * 3.0)));
+    std::printf ("   ACID on the 303: RMS frequency %.0f Hz at 0, %.0f Hz at full; level %+.1f dB against 0\n", h0, h1, l1 - l0);
+    CHECK (h1 > h0 * 1.4 && std::abs (l1 - l0) < 9.0, "ACID: %.0f -> %.0f Hz, %+.1f dB", h0, h1, l1 - l0);
+
+    // WARP on a pure sine (BASS SINE SUB, one held note): the pitch's swing over 3 s, from the zero
+    // crossings, at 0 and at full.
+    auto swingCents = [] (float warp)
+    {
+        resetBus();
+        Rig2 r ("BASS");
+        r.set ("model", 5.0f); r.set ("warp", warp); r.set ("pocket_depth", 0.0f); r.set ("glide", 0.0f); r.set ("drive", 0.0f);
+        std::vector<float> out;
+        bool on = false;
+        for (int s = 0; s < (int) (kSr * 4.0); s += kBlock)
+        {
+            r.step (kBlock, [&] (juce::AudioBuffer<float>&, juce::MidiBuffer& m, int) { if (! on) { m.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 100), 0); on = true; } });
+            for (int i = 0; i < kBlock; ++i) out.push_back (r.buf.getSample (0, i));
+        }
+        // Periods between rising zero crossings (interpolated), from 1 s on: highest against lowest frequency.
+        std::vector<double> ups;
+        for (size_t i = (size_t) kSr; i + 1 < out.size(); ++i)
+            if (out[i] <= 0.0f && out[i + 1] > 0.0f) ups.push_back ((double) i + out[i] / (out[i] - out[i + 1]));
+        double lo = 1e9, hi = 0.0;
+        for (size_t k = 8; k < ups.size(); k += 8) { const double f = 8.0 * kSr / (ups[k] - ups[k - 8]); lo = std::min (lo, f); hi = std::max (hi, f); }
+        return 1200.0 * std::log2 (hi / lo);
+    };
+    const double w0 = swingCents (0.0f), w1 = swingCents (1.0f);
+    std::printf ("   WARP on a held sine: the pitch swings %.1f cents at 0, %.1f cents at full\n", w0, w1);
+    CHECK (w0 < 1.0 && w1 > 30.0 && w1 < 90.0, "WARP: %.1f cents at 0, %.1f at full", w0, w1);
+}
+
 static void testEmulation()
 {
     testAcid();
+    testNrg();
 }

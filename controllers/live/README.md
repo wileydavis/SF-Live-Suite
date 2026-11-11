@@ -38,7 +38,7 @@ its own.
 | 11 VOICE | SF VOICE; SF ENERGY, PROFILE VOICE | MIDI, Monitor In | MUSIC |
 | BRIDGE | your audio clips | No Input, Monitor Off | Main |
 | DECK | SF DECK | MIDI, Monitor In | Main |
-| LIVE BUS | SF ISOLATOR > BUILD > GLUE > TONE > LOWEND; SF ALLOC, ENABLE off | No Input, Monitor In, sends disabled | Main |
+| LIVE BUS | SF ISOLATOR > DRIVE (MIX 0: the E16's DIST) > BUILD > GLUE > TONE > LOWEND; SF ALLOC, ENABLE off | No Input, Monitor In, sends disabled | Main |
 | PA | SF ROOM EQ > SF LIMIT (safety: CEILING -0.5 dB, CLIP 0 %, AUTO off) | Main, Post Mixer; Monitor In, sends disabled | Ext. Out 1/2 |
 | REC | none | Main, Post Mixer; Monitor Off, sends disabled | Sends Only |
 | ROOM | SF CAPTURE | Ext. In 1/2 (the room mics, a stereo pair), Monitor In, sends disabled | Ext. Out 3/4 |

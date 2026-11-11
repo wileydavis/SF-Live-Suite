@@ -3689,8 +3689,9 @@ static void testGlideRings()
     name (stab, "9 Chord");          // Live's name, any case
     name (dub, "A DUB");
     // Live reports a track's context in three calls: an empty name, the name, then the colour with
-    // an empty name. ENERGY sits on fourteen tracks in the scenes: it needs the name to survive.
-    name (low, ""); name (low, "LOW");
+    // an empty name. ENERGY sits on eleven tracks in the scenes: it needs the name to survive. (On
+    // 8 LEAD: ch 8 CC 28; the groups' ENERGY left the E16 on Nov 10.)
+    name (low, ""); name (low, "8 LEAD");
     { juce::AudioProcessor::TrackProperties t; t.colour = juce::Colours::white; low.p->updateTrackProperties (t); }
     std::vector<Rig2*> all { &ctl, &kick, &stab, &lead, &dub, &low };
     auto cycle = [&] { for (auto* r : all) r->step (kBlock, quiet); };
@@ -3706,7 +3707,7 @@ static void testGlideRings()
     bars (0.1);
     int claimed = 0;
     for (auto& g : d.glides) claimed += g.owner.load() != 0 ? 1 : 0;
-    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 9 CHORD, DELAY on A DUB, ENERGY on LOW after Live's\n"
+    std::printf ("   slots claimed: %d (CONTROL, KICK by its module, LEAD on 9 CHORD, DELAY on A DUB, ENERGY on 8 LEAD after Live's\n"
                  "   three calls; not the unnamed LEAD)\n", claimed);
     CHECK (claimed == 5, "%d glide slots claimed, want 5", claimed);
 
@@ -3714,11 +3715,11 @@ static void testGlideRings()
     kick.set ("tune", 12.0f); stab.set ("cutoff", 1.0f); lead.set ("cutoff", 1.0f); dub.set ("feedback", 0.70f);
     bars (0.5);
     auto e = entries();
-    CHECK (e.empty() || ! e.count (14 * 128 + 29), "LOW ENERGY reported before it moved");
+    CHECK (e.empty() || ! e.count (8 * 128 + 28), "LEAD ENERGY reported before it moved");
     low.set ("energy", 1.0f); bars (0.25);
     e = entries();
-    std::printf ("   LOW ENERGY (ch 14 CC 29) travelling: reported %s\n", e.count (14 * 128 + 29) ? "yes" : "NO");
-    CHECK (e.count (14 * 128 + 29) == 1, "LOW ENERGY not reported: its track name was lost");
+    std::printf ("   LEAD ENERGY (ch 8 CC 28) travelling: reported %s\n", e.count (8 * 128 + 28) ? "yes" : "NO");
+    CHECK (e.count (8 * 128 + 28) == 1, "LEAD ENERGY not reported: its track name was lost");
     low.set ("energy", low.p->param (low.p->paramIndex ("energy"))->convertFrom0to1 (low.p->param (low.p->paramIndex ("energy"))->getValue()));
     bars (1.1);
     kick.set ("tune", 0.0f); stab.set ("cutoff", 0.4f); dub.set ("feedback", 0.45f); bars (1.1);

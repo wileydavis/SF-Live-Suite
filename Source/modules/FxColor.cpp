@@ -375,6 +375,9 @@ ModulePtr makeDUCK() { return std::make_unique<DuckModule>(); }
 // =====================================================================================  ENERGY
 // Group energy: one bipolar knob, centre = neutral. Down: low-pass + space + softer.
 // Up: high-pass with resonant edge + drive + 1/16 echo + chop. PROFILE sets how far each side goes.
+// DRUMS [Nov 10]: the last eighth of the way down fades the part out, space and echo with it, to
+// nothing at the bottom ("on the kick energy knob ... when it's at zero, the kick is entirely
+// removed from the mix": a low-pass leaves a kick's thump).
 class EnergyModule : public Module
 {
 public:
@@ -457,6 +460,19 @@ public:
         }
         // The space keeps ringing out after the knob leaves the down side (4 s = 2.5 s RT60 to -96 dB).
         fdnTail = space > 0.001f ? (int) (4.0 * sr) : std::max (0, fdnTail - n);
+        // DRUMS: out of the mix at the bottom (raised cosine over the last eighth of the knob).
+        if (prof == 0)
+        {
+            auto gone = [] (float knob) { const float x = clamp01 ((0.125f - knob) / 0.125f); return 0.5f + 0.5f * std::cos (3.14159265f * x); };
+            const float a = gone (c.v0 (ENERGY)), b = gone (c.v (ENERGY));
+            if (a < 1.0f || b < 1.0f)
+                for (int i = 0; i < n; ++i)
+                {
+                    const float g = a + (b - a) * (float) (i + 1) / (float) n;
+                    io.getWritePointer (0)[i] *= g;
+                    io.getWritePointer (1)[i] *= g;
+                }
+        }
         float g0; const float g1 = levelDb (c, LEVEL, g0);
         applyGain (io, g0, g1);
         disp = c.v (ENERGY);
